@@ -1,0 +1,9 @@
+[wrap-file]
+source_url = https://github.com/LudovicRousseau/PCSC/archive/refs/tags/2.4.1.tar.gz
+source_filename = pcsc-lite-2.4.1.tar.gz
+source_hash = e7b6737f68c3b9a763fb0b0370d899cea091cced9d762ca8a6032c959576d5be
+directory = PCSC-2.4.1
+patch_directory = pcsc-lite
+
+[provide]
+libpcsclite = libpcsclite_dep

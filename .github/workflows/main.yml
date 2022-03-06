@@ -1,0 +1,276 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: >
+          sudo apt update;
+          sudo apt install -y clang-tidy cmake g++ libcrypto++-dev
+          libcurl4-openssl-dev libfontconfig1-dev
+          libfreetype6-dev libpcsclite-dev libpng-dev
+          libssl-dev libxml2-dev
+          pkg-config python3-pip
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - run: pip install meson ninja
+
+      - name: Configure
+        run: meson setup builddir
+
+      - name: Build
+        run: meson compile -C builddir
+
+      - name: clang-tidy (informational)
+        continue-on-error: true
+        run: >
+          find pkcs11/src shared/src sign-sdk/src -name '*.cpp'
+          | xargs clang-tidy -p builddir --quiet 2>/dev/null
+          | tee clang-tidy-report.txt;
+          echo "clang-tidy found $(grep -c 'warning:' clang-tidy-report.txt || echo 0) warnings"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: linux-x86_64
+          path: |
+            builddir/libopencie-pkcs11.so
+            builddir/libopencie-sign-sdk.a
+
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: linux-meson-log
+          path: builddir/meson-logs/meson-log.txt
+
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install MinGW and build tools
+        run: >
+          sudo apt update;
+          sudo apt install -y g++-mingw-w64-x86-64
+          pkg-config python3-pip
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - run: pip install meson ninja
+
+      - name: Install vcpkg
+        uses: johnwason/vcpkg-action@v6
+        with:
+          pkgs: >-
+            curl
+            cryptopp
+            freetype
+            libpng
+            libxml2
+            openssl
+            podofo
+            zlib
+          triplet: x64-mingw-dynamic
+
+      - name: Configure
+        run: >
+          PKG_CONFIG_LIBDIR=$VCPKG_ROOT/installed/x64-mingw-dynamic/lib/pkgconfig
+          meson setup builddir-win --cross-file cross-mingw.ini
+
+      - name: Build
+        run: >
+          PKG_CONFIG_LIBDIR=$VCPKG_ROOT/installed/x64-mingw-dynamic/lib/pkgconfig
+          meson compile -C builddir-win
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: windows-x86_64
+          path: |
+            builddir-win/libopencie-pkcs11.dll
+
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: windows-meson-log
+          path: builddir-win/meson-logs/meson-log.txt
+
+  portable:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build container image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile
+          tags: libopencie-builder:latest
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build portable x86_64 binary
+        run: |
+          mkdir -p output
+          docker run --rm -v $(pwd)/output:/output libopencie-builder:latest x86_64
+
+      - name: Build portable aarch64 binary
+        run: |
+          docker run --rm -v $(pwd)/output:/output libopencie-builder:latest aarch64
+
+      - name: Verify x86_64 binary
+        run: |
+          echo '=== Dynamic dependencies ==='
+          readelf -d output/libopencie-pkcs11-x86_64.so | grep NEEDED
+          echo ''
+          echo '=== Exported symbols ==='
+          SYMBOLS=$(nm -D output/libopencie-pkcs11-x86_64.so | grep -c ' T ')
+          echo "Count: $SYMBOLS"
+          [ "$SYMBOLS" -eq 79 ] || { echo "ERROR: Expected 79 symbols, got $SYMBOLS"; exit 1; }
+          echo ''
+          echo '=== glibc requirement ==='
+          readelf -V output/libopencie-pkcs11-x86_64.so 2>/dev/null | grep -oP 'GLIBC_\S+' | sort -V | tail -1
+
+      - name: Verify aarch64 binary
+        run: |
+          echo '=== Dynamic dependencies ==='
+          readelf -d output/libopencie-pkcs11-aarch64.so | grep NEEDED
+          echo ''
+          echo '=== Exported symbols ==='
+          SYMBOLS=$(nm -D output/libopencie-pkcs11-aarch64.so | grep -c ' T ')
+          echo "Count: $SYMBOLS"
+          [ "$SYMBOLS" -eq 79 ] || { echo "ERROR: Expected 79 symbols, got $SYMBOLS"; exit 1; }
+          echo ''
+          echo '=== glibc requirement ==='
+          readelf -V output/libopencie-pkcs11-aarch64.so 2>/dev/null | grep -oP 'GLIBC_\S+' | sort -V | tail -1
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: linux-x86_64-portable
+          path: output/libopencie-pkcs11-x86_64.so
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: linux-aarch64-portable
+          path: output/libopencie-pkcs11-aarch64.so
+
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: portable-build-logs
+          path: output/
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: >
+          brew install cryptopp curl fontconfig freetype
+          libpng libxml2 openssl podofo
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - run: pip install meson ninja
+
+      - name: Configure
+        run: >
+          PKG_CONFIG_PATH="$(brew --prefix openssl)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix curl)/lib/pkgconfig"
+          meson setup builddir-macos
+
+      - name: Build
+        run: meson compile -C builddir-macos
+
+      - name: Verify exported symbols
+        run: |
+          echo '=== Exported symbols ==='
+          SYMBOLS=$(nm -gU builddir-macos/libopencie-pkcs11.dylib | grep -c ' _C_\|_cie_enable\|_cie_change_pin\|_cie_disable\|_cie_unblock_pin\|_cie_is_enabled\|_cie_extract_p7m\|_cie_sign\|_cie_get_sign_count\|_cie_get_verify_info\|_make_digest_info\|_cie_verify')
+          echo "Public API symbols: $SYMBOLS"
+          echo ''
+          echo '=== All exported symbols ==='
+          nm -gU builddir-macos/libopencie-pkcs11.dylib | grep ' T '
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: macos-arm64
+          path: builddir-macos/libopencie-pkcs11.dylib
+
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: macos-meson-log
+          path: builddir-macos/meson-logs/meson-log.txt
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - run: pip install meson ninja
+
+      - name: Set up Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r27c
+
+      - name: Install vcpkg
+        uses: johnwason/vcpkg-action@v6
+        with:
+          pkgs: >-
+            cryptopp
+            curl
+            openssl
+          triplet: arm64-android
+
+      - name: Configure cross file
+        run: sed -i "s|/opt/android-ndk|${{ steps.setup-ndk.outputs.ndk-path }}|g" cross-android-arm64.ini
+
+      - name: Configure
+        run: >
+          PKG_CONFIG_LIBDIR=$VCPKG_ROOT/installed/arm64-android/lib/pkgconfig
+          meson setup builddir-android --cross-file cross-android-arm64.ini
+
+      - name: Build
+        run: meson compile -C builddir-android
+
+      - name: Verify binary
+        run: |
+          echo '=== File type ==='
+          file builddir-android/libopencie-pkcs11.so
+          echo ''
+          echo '=== Exported symbols ==='
+          ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm -D builddir-android/libopencie-pkcs11.so | grep ' T ' | head -20
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: android-arm64
+          path: builddir-android/libopencie-pkcs11.so
+
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: android-meson-log
+          path: builddir-android/meson-logs/meson-log.txt

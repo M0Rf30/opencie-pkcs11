@@ -1,0 +1,20 @@
+---
+# C-style cast modernization for libcie-pkcs11
+# Run: clang-tidy -p builddir <file>
+# Fix: clang-tidy -p builddir --fix <file>
+
+Checks: >
+  -*,
+  google-readability-casting
+
+# google-readability-casting converts C-style casts to C++ casts
+# (static_cast, reinterpret_cast, const_cast) with auto-fix support.
+#
+# cppcoreguidelines-pro-type-cstyle-cast is diagnostic-only (no auto-fix),
+# so we use google-readability-casting for the --fix workflow.
+
+WarningsAsErrors: ''
+
+HeaderFilterRegex: '(pkcs11|shared|sign-sdk)/.*'
+
+FormatStyle: none
