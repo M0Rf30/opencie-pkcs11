@@ -40,14 +40,14 @@ jobs:
           | tee clang-tidy-report.txt;
           echo "clang-tidy found $(grep -c 'warning:' clang-tidy-report.txt || echo 0) warnings"
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-x86_64
           path: |
             builddir/libopencie-pkcs11.so
             builddir/libopencie-sign-sdk.a
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: linux-meson-log
@@ -94,13 +94,13 @@ jobs:
           PKG_CONFIG_LIBDIR=$VCPKG_ROOT/installed/x64-mingw-dynamic/lib/pkgconfig
           meson compile -C builddir-win
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-x86_64
           path: |
             builddir-win/libopencie-pkcs11.dll
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: windows-meson-log
@@ -159,17 +159,17 @@ jobs:
           echo '=== glibc requirement ==='
           readelf -V output/libopencie-pkcs11-aarch64.so 2>/dev/null | grep -oP 'GLIBC_\S+' | sort -V | tail -1
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-x86_64-portable
           path: output/libopencie-pkcs11-x86_64.so
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-aarch64-portable
           path: output/libopencie-pkcs11-aarch64.so
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: portable-build-logs
@@ -208,12 +208,12 @@ jobs:
           echo '=== All exported symbols ==='
           nm -gU builddir-macos/libopencie-pkcs11.dylib | grep ' T '
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: macos-arm64
           path: builddir-macos/libopencie-pkcs11.dylib
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: macos-meson-log
@@ -264,12 +264,12 @@ jobs:
           echo '=== Exported symbols ==='
           ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm -D builddir-android/libopencie-pkcs11.so | grep ' T ' | head -20
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: android-arm64
           path: builddir-android/libopencie-pkcs11.so
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: android-meson-log
