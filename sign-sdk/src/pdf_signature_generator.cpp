@@ -23,7 +23,6 @@
 
 int GetNumberOfSignatures(PoDoFo::PdfMemDocument* pPdfDocument);
 
-
 PdfSignatureGenerator::PdfSignatureGenerator() : m_pSignatureField(nullptr) {}
 
 PdfSignatureGenerator::~PdfSignatureGenerator() = default;
@@ -86,7 +85,7 @@ void PdfSignatureGenerator::InitSignature(
   float cropBoxHeight = cropBox.Height;
 
   float left0 = left * cropBoxWidth;
-  float bottom0 = cropBoxHeight - (bottom * cropBoxHeight);
+  float bottom0 = bottom * cropBoxHeight;
 
   float width0 = width * cropBoxWidth;
   float height0 = height * cropBoxHeight;
@@ -131,70 +130,81 @@ void PdfSignatureGenerator::InitSignature(
 
   LOG_DBG((0, "InitSignature", "szName OK"));
 
-  // Create graphical signature with stamp if we have a picture
   if (width * height > 0) {
-    auto sigXObject = m_pPdfDocument->CreateXObjectForm(rect);
+    PoDoFo::Rect localRect(0, 0, width0, height0);
+    auto sigXObject = m_pPdfDocument->CreateXObjectForm(localRect);
     PoDoFo::PdfPainter painter;
 
-    try {
-      std::vector<char> imgBuffer;
-      double scale;
-      std::streampos imgBufferSize = 0;
-      std::ifstream img(szImagePath,
-                        std::ios::in | std::ios::binary | std::ios::ate);
-      std::string signatureStamp;
-      auto image = m_pPdfDocument->CreateImage();
-
-      // Copy the image in a buffer
-      if (img.is_open()) {
-        imgBufferSize = img.tellg();
-
-        imgBuffer.resize(imgBufferSize);
-        img.seekg(0, std::ios::beg);
-        img.read(imgBuffer.data(), imgBufferSize);
-        img.close();
-      }
-
-      // Generate signature string
-      // Append date
-      if (szName && szName[0]) signatureStamp.append(szName);
-
-      // Append name
-      if (szReason && szReason[0]) {
-        signatureStamp.append("\n");
-        signatureStamp.append(szReason);
-      }
-
-      image->LoadFromBuffer(
-          PoDoFo::bufferview(imgBuffer.data(), imgBufferSize));
-      scale = (width0 / image->GetWidth());
-
-      // Draw signature
-      painter.SetCanvas(*sigXObject);
-      painter.Save();
-      painter.Restore();
-      painter.DrawImage(*image, left0, bottom0, scale, scale);
-
-      // Create signature stamp
-      PoDoFo::PdfFont* font = m_pPdfDocument->GetFonts().SearchFont(FONT_NAME);
-      PoDoFo::Rect sigRect =
-          PoDoFo::Rect(left0 + TXT_PAD, bottom0 - TXT_PAD, width0, height0);
-      painter.TextState.SetFont(*font, FONT_SIZE);
-      painter.DrawTextMultiLine(signatureStamp, sigRect);
-
-      m_pSignatureField->MustGetWidget().SetAppearanceStream(*sigXObject);
-
-      LOG_DBG((0, "InitSignature", "SetAppearanceStream OK"));
-
-      // Remove the font we embedded
-      m_pPdfDocument->GetAcroForm()->GetObject().GetDictionary().RemoveKey(
-          PoDoFo::PdfName("DR"));
-      m_pPdfDocument->GetAcroForm()->GetObject().GetDictionary().RemoveKey(
-          PoDoFo::PdfName("DA"));
-    } catch (...) {
+    std::string signatureStamp;
+    if (szName && szName[0]) signatureStamp.append(szName);
+    if (szReason && szReason[0]) {
+      signatureStamp.append("\n");
+      signatureStamp.append(szReason);
     }
 
-    painter.FinishDrawing();
+    bool streamOk = false;
+    {
+      PoDoFo::PdfPainter painter;
+      try {
+        painter.SetCanvas(*sigXObject);
+
+        if (szImagePath && szImagePath[0]) {
+          std::vector<char> imgBuffer;
+          std::ifstream img(szImagePath,
+                            std::ios::in | std::ios::binary | std::ios::ate);
+          if (img.is_open()) {
+            std::streampos imgBufferSize = img.tellg();
+            imgBuffer.resize(static_cast<size_t>(imgBufferSize));
+            img.seekg(0, std::ios::beg);
+            img.read(imgBuffer.data(), imgBufferSize);
+            img.close();
+
+            if (!imgBuffer.empty()) {
+              auto image = m_pPdfDocument->CreateImage();
+              image->LoadFromBuffer(
+                  PoDoFo::bufferview(imgBuffer.data(), imgBuffer.size()));
+              double scaleX = width0 / image->GetWidth();
+              double scaleY = height0 / image->GetHeight();
+              painter.DrawImage(*image, 0, 0, std::min(scaleX, scaleY),
+                                std::min(scaleX, scaleY));
+            }
+          }
+        }
+
+        if (!signatureStamp.empty()) {
+          PoDoFo::PdfFont* font =
+              m_pPdfDocument->GetFonts().SearchFont(FONT_NAME);
+          if (font) {
+            PoDoFo::Rect textRect(TXT_PAD, TXT_PAD, width0 - 2 * TXT_PAD,
+                                  height0 - 2 * TXT_PAD);
+            painter.TextState.SetFont(*font, FONT_SIZE);
+            painter.DrawTextMultiLine(signatureStamp, textRect);
+          }
+        }
+
+        streamOk = true;
+      } catch (...) {
+      }
+      try {
+        painter.FinishDrawing();
+      } catch (...) {
+        streamOk = false;
+      }
+    }
+
+    if (streamOk) {
+      try {
+        m_pSignatureField->MustGetWidget().SetAppearanceStream(*sigXObject);
+        try {
+          m_pPdfDocument->GetAcroForm()->GetObject().GetDictionary().RemoveKey(
+              PoDoFo::PdfName("DR"));
+          m_pPdfDocument->GetAcroForm()->GetObject().GetDictionary().RemoveKey(
+              PoDoFo::PdfName("DA"));
+        } catch (...) {
+        }
+      } catch (...) {
+      }
+    }
   }
 }
 
@@ -204,7 +214,8 @@ void PdfSignatureGenerator::GetSignedPdf(ByteDynArray& signedPdf) {
 
   m_pSignOutputDevice->Seek(0);
   m_pSignOutputDevice->Read(szSignedPdf.data(), finalLength);
-  signedPdf.append(ByteArray(reinterpret_cast<BYTE*>(szSignedPdf.data()), finalLength));
+  signedPdf.append(
+      ByteArray(reinterpret_cast<BYTE*>(szSignedPdf.data()), finalLength));
 }
 
 double PdfSignatureGenerator::getWidth(int pageIndex) {
