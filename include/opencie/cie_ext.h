@@ -196,6 +196,12 @@ CK_RV CK_ENTRY cie_get_sign_count(void);
  */
 CK_RV CK_ENTRY cie_get_verify_info(int index, struct verifyInfo_t* vInfos);
 
+int CK_ENTRY cie_reader_count(void);
+
+int CK_ENTRY cie_reader_watch(int current_count);
+
+int CK_ENTRY cie_reader_name(char* buf, int buf_len);
+
 /**
  * Extract the original (unwrapped) document from a .p7m envelope.
  *

@@ -84,6 +84,9 @@ CK_RV CK_ENTRY cie_enable(const char* szPAN, const char* szPIN, int* attempts,
                           COMPLETED_CALLBACK completedCallBack);
 CK_RV CK_ENTRY cie_is_enabled(const char* szPAN);
 CK_RV CK_ENTRY cie_disable(const char* szPAN);
+int CK_ENTRY cie_reader_count(void);
+int CK_ENTRY cie_reader_watch(int current_count);
+int CK_ENTRY cie_reader_name(char* buf, int buf_len);
 }
 
 CK_RV CK_ENTRY cie_is_enabled(const char* szPAN) {
@@ -648,6 +651,130 @@ int sendMessage(const char* szCommand, const char* /*szParam*/) {
 #endif
 
   return 0;
+}
+
+int CK_ENTRY cie_reader_count(void) {
+#if defined(__ANDROID__)
+  return 0;
+#else
+  PCSCTransport transport;
+  SCARDCONTEXT hCtx = 0;
+  if (transport.EstablishContext(SCARD_SCOPE_USER, &hCtx) != SCARD_S_SUCCESS)
+    return 0;
+
+  DWORD len = 0;
+  LONG rv = transport.ListReaders(hCtx, nullptr, &len);
+  if (rv != SCARD_S_SUCCESS || len <= 1) {
+    transport.ReleaseContext(hCtx);
+    return 0;
+  }
+
+  char* buf = static_cast<char*>(malloc(len));
+  rv = transport.ListReaders(hCtx, buf, &len);
+  int count = 0;
+  if (rv == SCARD_S_SUCCESS) {
+    for (const char* p = buf; p[0] != '\0'; p += strnlen(p, len) + 1)
+      if (strstr(p, "Virtual") == nullptr) ++count;
+  }
+  free(buf);
+  transport.ReleaseContext(hCtx);
+  return count;
+#endif
+}
+
+int CK_ENTRY cie_reader_watch(int current_count) {
+#if defined(__ANDROID__)
+  return 0;
+#else
+  PCSCTransport transport;
+  SCARDCONTEXT hCtx = 0;
+  if (transport.EstablishContext(SCARD_SCOPE_USER, &hCtx) != SCARD_S_SUCCESS)
+    return -1;
+
+  SCARD_READERSTATE pnp{};
+  pnp.szReader = "\\\\?PnP?\\Notification";
+  pnp.dwCurrentState = SCARD_STATE_UNAWARE;
+
+  while (true) {
+    LONG rv = transport.GetStatusChange(hCtx, INFINITE, &pnp, 1);
+    if (rv != SCARD_S_SUCCESS) {
+      transport.ReleaseContext(hCtx);
+      return -1;
+    }
+    pnp.dwCurrentState = pnp.dwEventState & ~SCARD_STATE_CHANGED;
+
+    int count = 0;
+    DWORD len = 0;
+    rv = transport.ListReaders(hCtx, nullptr, &len);
+    if (rv == SCARD_S_SUCCESS && len > 1) {
+      char* buf = static_cast<char*>(malloc(len));
+      if (transport.ListReaders(hCtx, buf, &len) == SCARD_S_SUCCESS) {
+        for (const char* p = buf; p[0] != '\0'; p += strnlen(p, len) + 1)
+          ++count;
+      }
+      free(buf);
+    }
+
+    if (count != current_count) {
+      transport.ReleaseContext(hCtx);
+      return count;
+    }
+  }
+#endif
+}
+
+int CK_ENTRY cie_reader_name(char* buf, int buf_len) {
+  if (!buf || buf_len <= 0) return 0;
+  buf[0] = '\0';
+#if defined(__ANDROID__)
+  return 0;
+#else
+  PCSCTransport transport;
+  SCARDCONTEXT hCtx = 0;
+  if (transport.EstablishContext(SCARD_SCOPE_USER, &hCtx) != SCARD_S_SUCCESS)
+    return 0;
+
+  DWORD len = 0;
+  LONG rv = transport.ListReaders(hCtx, nullptr, &len);
+  if (rv != SCARD_S_SUCCESS || len <= 1) {
+    transport.ReleaseContext(hCtx);
+    return 0;
+  }
+
+  char* readers = static_cast<char*>(malloc(len));
+  rv = transport.ListReaders(hCtx, readers, &len);
+  int found = 0;
+  if (rv == SCARD_S_SUCCESS) {
+    for (const char* p = readers; p[0] != '\0'; p += strnlen(p, len) + 1) {
+      if (strstr(p, "Virtual") != nullptr) continue;
+
+      // Probe state without blocking (timeout=0)
+      SCARD_READERSTATE rs{};
+      rs.szReader = p;
+      rs.dwCurrentState = SCARD_STATE_UNAWARE;
+      LONG sr = transport.GetStatusChange(hCtx, 0, &rs, 1);
+      if (sr != SCARD_S_SUCCESS) continue;
+
+      DWORD state = rs.dwEventState;
+      if (state & SCARD_STATE_UNAVAILABLE) continue;
+
+      // Accept: card present, OR empty reader that isn't the built-in Broadcom
+      bool hasCard = (state & SCARD_STATE_PRESENT) != 0;
+      bool isEmpty = (state & SCARD_STATE_EMPTY) != 0;
+      bool isInternal = strstr(p, "Broadcom") != nullptr;
+
+      if (hasCard || (isEmpty && !isInternal)) {
+        strncpy(buf, p, static_cast<size_t>(buf_len) - 1);
+        buf[buf_len - 1] = '\0';
+        found = 1;
+        break;
+      }
+    }
+  }
+  free(readers);
+  transport.ReleaseContext(hCtx);
+  return found;
+#endif
 }
 
 void notifyPINLocked() { sendMessage("pinlocked", nullptr); }

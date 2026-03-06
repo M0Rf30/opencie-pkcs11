@@ -94,6 +94,9 @@
     cie_get_verify_info;
     make_digest_info;
     cie_verify;
+    cie_reader_count;
+    cie_reader_watch;
+    cie_reader_name;
 
     /* Android JNI bridge (NFC transport) */
     cie_set_nfc_tag;
