@@ -1,0 +1,105 @@
+/*
+ * Symbol version script for libopencie-pkcs11.so
+ *
+ * Only PKCS#11 standard functions (C_*) and CIE-specific public API
+ * functions are exported. Everything else (OpenSSL, Crypto++, libcurl,
+ * podofo, libxml2, internal C++ symbols) is hidden.
+ *
+ * This prevents symbol clashes when the library is dlopen'd by
+ * applications that link their own copies of these libraries
+ * (e.g. Firefox, Chrome, Thunderbird).
+ */
+{
+  global:
+    /* PKCS#11 standard interface */
+    C_CancelFunction;
+    C_CloseAllSessions;
+    C_CloseSession;
+    C_CopyObject;
+    C_CreateObject;
+    C_Decrypt;
+    C_DecryptDigestUpdate;
+    C_DecryptFinal;
+    C_DecryptInit;
+    C_DecryptUpdate;
+    C_DecryptVerifyUpdate;
+    C_DeriveKey;
+    C_DestroyObject;
+    C_Digest;
+    C_DigestEncryptUpdate;
+    C_DigestFinal;
+    C_DigestInit;
+    C_DigestKey;
+    C_DigestUpdate;
+    C_Encrypt;
+    C_EncryptFinal;
+    C_EncryptInit;
+    C_EncryptUpdate;
+    C_Finalize;
+    C_FindObjects;
+    C_FindObjectsFinal;
+    C_FindObjectsInit;
+    C_GenerateKey;
+    C_GenerateKeyPair;
+    C_GenerateRandom;
+    C_GetAttributeValue;
+    C_GetFunctionList;
+    C_GetFunctionStatus;
+    C_GetInfo;
+    C_GetMechanismInfo;
+    C_GetMechanismList;
+    C_GetObjectSize;
+    C_GetOperationState;
+    C_GetSessionInfo;
+    C_GetSlotInfo;
+    C_GetSlotList;
+    C_GetTokenInfo;
+    C_Initialize;
+    C_InitPIN;
+    C_InitToken;
+    C_Login;
+    C_Logout;
+    C_OpenSession;
+    C_SeedRandom;
+    C_SetAttributeValue;
+    C_SetOperationState;
+    C_SetPIN;
+    C_Sign;
+    C_SignEncryptUpdate;
+    C_SignFinal;
+    C_SignInit;
+    C_SignRecover;
+    C_SignRecoverInit;
+    C_SignUpdate;
+    C_UnwrapKey;
+    C_UpdateSlotList;
+    C_Verify;
+    C_VerifyFinal;
+    C_VerifyInit;
+    C_VerifyRecover;
+    C_VerifyRecoverInit;
+    C_VerifyUpdate;
+    C_WaitForSlotEvent;
+    C_WrapKey;
+
+    /* CIE-specific public API */
+    cie_enable;
+    cie_change_pin;
+    cie_disable;
+    cie_unblock_pin;
+    cie_is_enabled;
+    cie_extract_p7m;
+    cie_sign;
+    cie_get_sign_count;
+    cie_get_verify_info;
+    make_digest_info;
+    cie_verify;
+
+    /* Android JNI bridge (NFC transport) */
+    cie_set_nfc_tag;
+    cie_clear_nfc_tag;
+    JNI_OnLoad;
+
+  local:
+    *;
+};

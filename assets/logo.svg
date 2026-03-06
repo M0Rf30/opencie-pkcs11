@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+
+  <!-- Background circle -->
+  <circle cx="64" cy="64" r="60" fill="#0f172a"/>
+
+  <!-- Smart card body -->
+  <rect x="18" y="40" width="92" height="58" rx="7" ry="7"
+        fill="none" stroke="#38bdf8" stroke-width="3.5"/>
+
+  <!-- Chip (contact pad grid) -->
+  <g fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round">
+    <!-- outer chip rect -->
+    <rect x="28" y="52" width="26" height="20" rx="2" ry="2" fill="#1e3a5f" stroke="#f59e0b"/>
+    <!-- horizontal lines -->
+    <line x1="28" y1="59" x2="54" y2="59"/>
+    <line x1="28" y1="65" x2="54" y2="65"/>
+    <!-- vertical lines -->
+    <line x1="37" y1="52" x2="37" y2="72"/>
+    <line x1="45" y1="52" x2="45" y2="72"/>
+  </g>
+
+  <!-- Magnetic stripe suggestion (top of card) -->
+  <rect x="18" y="47" width="92" height="6" rx="1" fill="#1e3a5f" opacity="0.7"/>
+
+  <!-- Key shape (right side of card, centered vertically) -->
+  <g transform="translate(72, 62)">
+    <!-- Key bow (circle) -->
+    <circle cx="0" cy="0" r="11" fill="none" stroke="#38bdf8" stroke-width="3.5"/>
+    <circle cx="0" cy="0" r="5" fill="#38bdf8" opacity="0.25"/>
+    <!-- Key blade (stem) -->
+    <line x1="11" y1="0" x2="30" y2="0" stroke="#38bdf8" stroke-width="3.5" stroke-linecap="round"/>
+    <!-- Key teeth -->
+    <line x1="22" y1="0" x2="22" y2="6" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>
+    <line x1="27" y1="0" x2="27" y2="5" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+</svg>
