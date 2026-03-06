@@ -12,26 +12,10 @@
 
 #pragma once
 
+#include "opencie/cie_ext.h"
 #include "sign/cie_sign_api.h"
 
 #define MAX_INFO 20  ///< Maximum number of signers that can be reported.
-
-/**
- * @brief Per-signer verification result returned by CIEVerify::verify().
- *
- * Contains the signer's identity, certificate authority, signing time,
- * and flags indicating whether the signature and certificate are valid.
- */
-struct verifyInfo_t {
-  char name[MAX_LEN * 2];         ///< Signer's given name.
-  char surname[MAX_LEN * 2];      ///< Signer's surname.
-  char cn[MAX_LEN * 2];           ///< Signer's Common Name (CN).
-  char signingTime[MAX_LEN * 2];  ///< Timestamp of the signature.
-  char cadn[MAX_LEN * 2];         ///< Issuing CA Distinguished Name.
-  int CertRevocStatus;            ///< Certificate revocation status (0 = good).
-  bool isSignValid;  ///< True if the cryptographic signature is valid.
-  bool isCertValid;  ///< True if the signer's certificate chain is valid.
-};
 
 /**
  * @brief Verifies digital signatures on documents and extracts P7M content.

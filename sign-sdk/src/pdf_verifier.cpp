@@ -373,9 +373,7 @@ int PDFVerifier::GetSignature(const PdfMemDocument *pDoc,
             ? signdData.substr(ltPos2 + 1, gtPos2 - ltPos2 - 1)
             : signdData;
 
-    signedDocument.append(
-        ByteArray(reinterpret_cast<const uint8_t *>(hexData2.c_str()),
-                  hexData2.length()));
+    signedDocument.append(ByteDynArray(hexData2));
     return 0;
   } else
     return -6;

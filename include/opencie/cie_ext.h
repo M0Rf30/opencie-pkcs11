@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 // ---------------------------------------------------------------------------
@@ -199,6 +200,29 @@ CK_RV CK_ENTRY cie_get_verify_info(int index, struct verifyInfo_t* vInfos);
  * @return 0 on success, a PKCS#11 error code otherwise.
  */
 CK_RV CK_ENTRY cie_extract_p7m(const char* inFilePath, const char* outFilePath);
+
+// ---------------------------------------------------------------------------
+// Low-level cryptographic helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a DER-encoded PKCS#1 DigestInfo structure from a raw digest value.
+ *
+ * Used when performing raw RSA signing outside the normal cie_sign flow.
+ * Supported algorithm IDs (from <openssl/obj_mac.h>):
+ *   NID_sha1 (65), NID_sha256 (672), NID_sha384 (673), NID_sha512 (674)
+ *
+ * @param algid            OpenSSL NID of the digest algorithm.
+ * @param pbtDigest        Raw digest bytes.
+ * @param btDigestLen      Length of pbtDigest in bytes.
+ * @param pbtDigestInfo    Output buffer to receive the DER-encoded DigestInfo.
+ * @param pbtDigestInfoLen On input: size of pbtDigestInfo; on output: bytes
+ * written.
+ * @return 1 on success, 0 if the output buffer is too small.
+ */
+int CK_ENTRY make_digest_info(int algid, const unsigned char* pbtDigest,
+                              size_t btDigestLen, unsigned char* pbtDigestInfo,
+                              size_t* pbtDigestInfoLen);
 
 #ifdef __cplusplus
 }

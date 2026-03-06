@@ -85,7 +85,7 @@ if build_sign_sdk
 endif
 
 inc_shared = include_directories('shared/src/')
-inc_so = include_directories('pkcs11/src/.', 'shared/src/')
+inc_so = include_directories('pkcs11/src/.', 'shared/src/', 'include/')
 
 inc_a = include_directories(
     'sign-sdk/include',

@@ -18,9 +18,7 @@ long CIEVerify::verify(const char* input_file, VERIFY_RESULT* verifyResult,
     ctx = cie_sign_verify_init();
 
 #if 1
-
-    ret = cie_sign_set(CIE_SIGN_OPT_LOG_LEVEL,
-                       reinterpret_cast<void*>(LOG_TYPE_DEBUG));
+    ret = cie_sign_set_int(CIE_SIGN_OPT_LOG_LEVEL, LOG_TYPE_DEBUG);
 #endif
 
     ret =
@@ -100,9 +98,7 @@ long CIEVerify::get_file_from_p7m(const char* input_file,
     ctx = cie_sign_verify_init();
 
 #if 1
-
-    ret = cie_sign_set(CIE_SIGN_OPT_LOG_LEVEL,
-                       reinterpret_cast<void*>(LOG_TYPE_DEBUG));
+    ret = cie_sign_set_int(CIE_SIGN_OPT_LOG_LEVEL, LOG_TYPE_DEBUG);
 #endif
 
     ret =

@@ -220,9 +220,21 @@ CK_RV CK_ENTRY cie_enable(const char* szPAN, const char* szPIN, int* attempts,
       ias.ReadIdServizi(IdServizi);
 
       if (ias.IsEnrolled()) {
-        LOG_ERROR("cie_enable - CIE already enabled. Serial number: %s\n",
-                  IdServizi.data());
-        return CARD_ALREADY_ENABLED;
+        LOG_INFO("cie_enable - CIE already enabled. Serial number: %s\n",
+                 IdServizi.data());
+
+        std::string sidServizi_already(
+            reinterpret_cast<char*>(IdServizi.data()), IdServizi.size());
+
+        completedCallBack(sidServizi_already.c_str(), "", "");
+
+        free(readers);
+        readers = nullptr;
+        free(ATR);
+        ATR = nullptr;
+
+        progressCallBack(100, "OK!");
+        return SCARD_S_SUCCESS;
       }
 
       progressCallBack(15, "Lettura dati dalla CIE");
