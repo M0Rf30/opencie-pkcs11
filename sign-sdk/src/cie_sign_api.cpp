@@ -1757,7 +1757,9 @@ long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& data,
                 VERIFY_INFO* pVerifyInfo) {
   PDFVerifier pdfVerifier;
 
-  long nRes = pdfVerifier.Load((char*)data.data(), data.size());
+  // Use file-path Load() to avoid PoDoFo buffer-parsing issues with
+  // xref-stream PDFs that were signed with an incremental xref table update.
+  long nRes = pdfVerifier.Load(pContext->szInputFile);
 
   if (nRes) {
     LOG_ERR((0, "<-- verify_pdf", "Context: %p, Error: %x", pContext, nRes));

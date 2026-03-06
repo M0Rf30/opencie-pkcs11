@@ -29,21 +29,27 @@ PdfSignatureGenerator::~PdfSignatureGenerator() = default;
 
 int PdfSignatureGenerator::Load(const char* pdf, int len) {
   try {
-    m_pPdfDocument = std::make_unique<PoDoFo::PdfMemDocument>();
+    PoDoFo::PdfMemDocument tempDoc;
+    tempDoc.LoadFromBuffer(PoDoFo::bufferview(pdf, len));
 
-    // Copy pdf buffer for later use
-    auto input = std::make_shared<PoDoFo::SpanStreamDevice>(
-        PoDoFo::bufferview(pdf, len));
     m_pSignOutputDevice =
-        std::make_unique<PoDoFo::BufferStreamDevice>(m_pOutputBuffer);
-    input->CopyTo(*m_pSignOutputDevice);
+        std::make_shared<PoDoFo::BufferStreamDevice>(m_pOutputBuffer);
+    tempDoc.Save(*m_pSignOutputDevice);
 
-    m_pPdfDocument->LoadFromBuffer(PoDoFo::bufferview(pdf, len));
+    m_pPdfDocument = std::make_unique<PoDoFo::PdfMemDocument>();
+    m_pPdfDocument->Load(m_pSignOutputDevice);
 
+    pfnCrashliticsLog("PdfSignatureGenerator::Load OK");
     return PDFVerifier::GetNumberOfSignatures(m_pPdfDocument.get());
   } catch (::PoDoFo::PdfError& err) {
+    char msg[512];
+    snprintf(msg, sizeof(msg),
+             "PdfSignatureGenerator::Load PdfError code=%d: %s",
+             static_cast<int>(err.GetCode()), err.what());
+    pfnCrashliticsLog(msg);
     return -2;
   } catch (...) {
+    pfnCrashliticsLog("PdfSignatureGenerator::Load unknown exception");
     return -1;
   }
 }

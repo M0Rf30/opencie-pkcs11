@@ -72,7 +72,7 @@ class PdfSignatureGenerator {
 
   std::unique_ptr<PoDoFo::PdfMemDocument> m_pPdfDocument;
   PoDoFo::PdfSignature* m_pSignatureField;
-  std::unique_ptr<PoDoFo::BufferStreamDevice> m_pSignOutputDevice;
+  std::shared_ptr<PoDoFo::BufferStreamDevice> m_pSignOutputDevice;
 
  private:
   PoDoFo::charbuff m_pOutputBuffer;

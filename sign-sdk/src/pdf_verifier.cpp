@@ -38,8 +38,13 @@ int PDFVerifier::Load(const char *pdf, int len) {
 
     return 0;
   } catch (::PoDoFo::PdfError &err) {
+    char msg[512];
+    snprintf(msg, sizeof(msg), "PDFVerifier::Load(buffer) PdfError code=%d: %s",
+             static_cast<int>(err.GetCode()), err.what());
+    pfnCrashliticsLog(msg);
     return -2;
   } catch (...) {
+    pfnCrashliticsLog("PDFVerifier::Load(buffer) unknown exception");
     return -1;
   }
 }
@@ -70,8 +75,13 @@ int PDFVerifier::Load(const char *szFilePath) {
 
     return 0;
   } catch (::PoDoFo::PdfError &err) {
+    char msg[512];
+    snprintf(msg, sizeof(msg), "PDFVerifier::Load(file) PdfError code=%d: %s",
+             static_cast<int>(err.GetCode()), err.what());
+    pfnCrashliticsLog(msg);
     return -2;
   } catch (...) {
+    pfnCrashliticsLog("PDFVerifier::Load(file) unknown exception");
     return -1;
   }
 }
