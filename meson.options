@@ -1,0 +1,4 @@
+option('portable',
+  type : 'boolean',
+  value : false,
+  description : 'Build a distro-independent binary by statically linking libstdc++ and libgcc. Use with prefer_static=true and a vcpkg prefix for fully portable builds.')

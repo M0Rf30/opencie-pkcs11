@@ -1,0 +1,192 @@
+// SPDX-License-Identifier: LGPL-3.0-or-later
+#include "tsa_client.h"
+
+#include <cstdio>
+#include <cstring>
+
+#include "asn1/time_stamp_request.h"
+#include "asn1/time_stamp_response.h"
+#include "asn1/time_stamp_token.h"
+#include "curl/curl.h"
+
+extern char g_szResolveList[4096];
+
+static size_t WriteCallback(void* contents, size_t size, size_t nmemb,
+                            void* userp);
+
+CTSAClient::CTSAClient(void) { m_szTSAUsername[0] = '\0'; }
+
+CTSAClient::~CTSAClient(void) {}
+
+void CTSAClient::SetTSAUrl(const char* szUrl) {
+  snprintf(m_szTSAUrl, sizeof(m_szTSAUrl), "%s", szUrl);
+}
+
+void CTSAClient::SetCredential(const char* szUsername, const char* szPassword) {
+  snprintf(m_szTSAUsername, sizeof(m_szTSAUsername), "%s", szUsername);
+  snprintf(m_szTSAPassword, sizeof(m_szTSAPassword), "%s", szPassword);
+}
+
+void CTSAClient::SetUsername(const char* szUsername) {
+  snprintf(m_szTSAUsername, sizeof(m_szTSAUsername), "%s", szUsername);
+}
+
+void CTSAClient::SetPassword(const char* szPassword) {
+  snprintf(m_szTSAPassword, sizeof(m_szTSAPassword), "%s", szPassword);
+}
+
+long CTSAClient::GetTimeStampToken(ByteDynArray& digest, const char* szPolicyID,
+                                   CTimeStampToken** ppTimeStampToken) {
+  CASN1Integer nounce(1);
+  CTimeStampRequest request(szSHA256OID, digest, szPolicyID, nounce);
+
+  ByteDynArray tsaRequest;
+  request.toByteArray(tsaRequest);
+
+  ByteDynArray tsdata;
+
+  // general initilization
+  CURL* ctx = curl_easy_init();
+
+  // set URL
+  curl_easy_setopt(ctx, CURLOPT_URL, m_szTSAUrl);
+
+  // set POST method
+  curl_easy_setopt(ctx, CURLOPT_POST, 1);
+
+  // give the data you want to post
+  curl_easy_setopt(ctx, CURLOPT_POSTFIELDS, tsaRequest.data());
+
+  // give the data lenght
+  curl_easy_setopt(ctx, CURLOPT_POSTFIELDSIZE, tsaRequest.size());
+
+  // show messages for debugging
+  // curl_easy_setopt(ctx, CURLOPT_VERBOSE);
+
+  // set the callback function that handle the data return from server
+  // if you don't set this, the return data just show up on the screen
+  // size_t write_callback(void *ptr, size_t size, size_t nmemb, void *userp)
+  curl_easy_setopt(ctx, CURLOPT_WRITEFUNCTION, WriteCallback);
+
+  // we pass our 'chunk' struct to the callback function
+  curl_easy_setopt(ctx, CURLOPT_WRITEDATA, static_cast<void*>(&tsdata));
+
+  curl_easy_setopt(ctx, CURLOPT_SSL_VERIFYPEER, false);
+  curl_easy_setopt(ctx, CURLOPT_SSL_VERIFYHOST, false);
+
+#ifdef __ANDROID__
+  curl_easy_setopt(ctx, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+  curl_easy_setopt(ctx, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+#endif
+
+  struct curl_slist* resolve_list = nullptr;
+  if (g_szResolveList[0]) {
+    const char* szUrl = m_szTSAUrl;
+    const char* p = strstr(szUrl, "://");
+    if (p) {
+      p += 3;
+      const char* end = p;
+      while (*end && *end != '/' && *end != ':') ++end;
+      size_t hlen = static_cast<size_t>(end - p);
+      if (hlen > 0 && hlen < 256) {
+        char hostname[256];
+        memcpy(hostname, p, hlen);
+        hostname[hlen] = '\0';
+        int port = (strncmp(szUrl, "https://", 8) == 0) ? 443 : 80;
+        if (*end == ':') port = atoi(end + 1);
+        const char* entry = g_szResolveList;
+        while (*entry) {
+          const char* comma = strchr(entry, ',');
+          size_t elen =
+              comma ? static_cast<size_t>(comma - entry) : strlen(entry);
+          const char* colon1 =
+              static_cast<const char*>(memchr(entry, ':', elen));
+          if (colon1) {
+            size_t ehost_len = static_cast<size_t>(colon1 - entry);
+            if (ehost_len == hlen && strncmp(entry, hostname, hlen) == 0) {
+              const char* colon2 = strchr(colon1 + 1, ':');
+              if (colon2) {
+                int eport = atoi(colon1 + 1);
+                if (eport == port) {
+                  char buf[512];
+                  snprintf(buf, sizeof(buf), "%.*s", static_cast<int>(elen),
+                           entry);
+                  resolve_list = curl_slist_append(resolve_list, buf);
+                }
+              }
+            }
+          }
+          if (!comma) break;
+          entry = comma + 1;
+        }
+        if (resolve_list) curl_easy_setopt(ctx, CURLOPT_RESOLVE, resolve_list);
+      }
+    }
+  }
+
+  struct curl_slist* headers = nullptr;
+  headers =
+      curl_slist_append(headers, "Content-Type: application/timestamp-query");
+
+  // talor the header to application/binary
+  if (m_szTSAUsername[0]) {
+    curl_easy_setopt(ctx, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+
+    curl_easy_setopt(ctx, CURLOPT_USERNAME, m_szTSAUsername);
+
+    curl_easy_setopt(ctx, CURLOPT_PASSWORD, m_szTSAPassword);
+  }
+
+  curl_easy_setopt(ctx, CURLOPT_HTTPHEADER, headers);
+
+  // let's do it...
+  CURLcode ret = curl_easy_perform(ctx);
+
+  // Check for errors
+  if (ret != CURLE_OK) {
+    LOG_MSG((0, "HTTPRequest", "error: %x", ret));
+    fprintf(stderr, "curl_easy_perform() failed: %s\n",
+            curl_easy_strerror(ret));
+    if (resolve_list) curl_slist_free_all(resolve_list);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(ctx);
+    return ret;
+  }
+
+  // clean up
+  curl_slist_free_all(headers);
+  if (resolve_list) curl_slist_free_all(resolve_list);
+  curl_easy_cleanup(ctx);
+
+  try {
+    CTimeStampResponse tsResponse(const_cast<BYTE*>(tsdata.data()),
+                                  static_cast<int>(tsdata.size()));
+
+    CPKIStatusInfo statusInfo(tsResponse.getPKIStatusInfo());
+
+    if (statusInfo.getStatus().getIntValue() == 0) {
+      *ppTimeStampToken = new CTimeStampToken(tsResponse.getTimeStampToken());
+    } else {
+      LOG_ERR((0, "TSACLient", "CPKIStatusInfo error: %x",
+               statusInfo.getStatus().getIntValue()));
+
+      *ppTimeStampToken = nullptr;
+    }
+  } catch (...) {
+    *ppTimeStampToken = nullptr;
+  }
+
+  if (*ppTimeStampToken == nullptr) return -1;
+
+  return 0;
+}
+
+static size_t WriteCallback(void* contents, size_t size, size_t nmemb,
+                            void* userp) {
+  ByteDynArray* pData = static_cast<ByteDynArray*>(userp);
+
+  size_t realsize = size * nmemb;
+  pData->append(ByteArray(static_cast<BYTE*>(contents), realsize));
+
+  return realsize;
+}

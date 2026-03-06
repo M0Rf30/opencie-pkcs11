@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0D47A1"/>
+      <stop offset="1" stop-color="#00897B"/>
+    </linearGradient>
+    <radialGradient id="bgLight" cx="340" cy="300" r="740" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1976D2" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#004D40" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bgEdge" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.06"/>
+      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.18"/>
+    </linearGradient>
+    <linearGradient id="shieldFill" x1="512" y1="150" x2="512" y2="870" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.55" stop-color="#F5F5F5"/>
+      <stop offset="1" stop-color="#B0BEC5"/>
+    </linearGradient>
+    <linearGradient id="shieldShine" x1="380" y1="150" x2="620" y2="560" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.65"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="sigGrad" x1="310" y1="640" x2="740" y2="300" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFD600"/>
+      <stop offset="0.5" stop-color="#FFAB00"/>
+      <stop offset="1" stop-color="#FF6F00"/>
+    </linearGradient>
+    <radialGradient id="sigGlow" cx="530" cy="480" r="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFD600" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#FFD600" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background: rich blue-to-teal gradient -->
+  <rect width="1024" height="1024" rx="190" fill="url(#bg)"/>
+
+  <!-- Background: upper-left radial glow for light source -->
+  <rect width="1024" height="1024" rx="190" fill="url(#bgLight)"/>
+
+  <!-- Background: top highlight + bottom shadow edge -->
+  <rect width="1024" height="1024" rx="190" fill="url(#bgEdge)"/>
+
+  <!-- Shield: drop shadow (offset +6y, slight blur via larger shape) -->
+  <path d="M 518 162 C 350 162 268 230 268 334 L 268 544 Q 268 742 518 878 Q 768 742 768 544 L 768 334 C 768 230 686 162 518 162 Z" fill="#000000" fill-opacity="0.22"/>
+
+  <!-- Shield: main body -->
+  <path d="M 512 150 C 344 150 262 218 262 322 L 262 532 Q 262 730 512 866 Q 762 730 762 532 L 762 322 C 762 218 680 150 512 150 Z" fill="url(#shieldFill)"/>
+
+  <!-- Shield: top-left specular highlight -->
+  <path d="M 512 150 C 344 150 262 218 262 322 L 262 532 Q 262 730 512 866 Q 762 730 762 532 L 762 322 C 762 218 680 150 512 150 Z" fill="url(#shieldShine)"/>
+
+  <!-- Signature warm glow (behind the stroke) -->
+  <path d="M 512 150 C 344 150 262 218 262 322 L 262 532 Q 262 730 512 866 Q 762 730 762 532 L 762 322 C 762 218 680 150 512 150 Z" fill="url(#sigGlow)"/>
+
+  <!-- Signature stroke: dynamic gold-to-orange sweep -->
+  <path d="M 335 630 C 378 685 442 670 488 598 C 534 526 598 405 730 320" fill="none" stroke="url(#sigGrad)" stroke-width="52" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,33 @@
+---
+# clang-tidy configuration for libcie-pkcs11
+# Run: clang-tidy -p builddir <file>
+# Fix: clang-tidy -p builddir --fix <file>
+
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  -modernize-concat-nested-namespaces,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-prefer-member-initializer,
+  cppcoreguidelines-pro-type-static-cast-downcast,
+  google-readability-casting,
+  performance-*,
+  readability-redundant-*
+
+# Disabled rationale:
+#   bugprone-easily-swappable-parameters: Too noisy for PKCS#11 C API wrappers
+#   bugprone-narrowing-conversions: Many intentional uint32<->int in card protocol code
+#   modernize-use-trailing-return-type: Stylistic preference, not a bug
+#   modernize-avoid-c-arrays: Needed for PKCS#11 C interop (CK_MECHANISM_TYPE[])
+#   modernize-concat-nested-namespaces: Only one namespace (p11) used
+
+WarningsAsErrors: ''
+
+HeaderFilterRegex: '(pkcs11|shared|sign-sdk)/.*'
+
+FormatStyle: none
