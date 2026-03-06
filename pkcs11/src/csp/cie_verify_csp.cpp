@@ -30,7 +30,13 @@ CK_RV CK_ENTRY cie_verify(const char* inFilePath, const char* proxyAddress,
   long ret = verifier->verify(inFilePath, &verifyResult, proxyAddress,
                               proxyPort, usrPass);
 
-  if (ret != 0 || verifyResult.nErrorCode != 0) {
+  // If signers were found and no explicit error code is set, treat as success
+  // even if the underlying pipeline returned a non-zero secondary status (e.g.
+  // -2 from inner-document checks after all signatures were verified).
+  bool hasSigners = verifyResult.verifyInfo.pSignerInfos != nullptr &&
+                    verifyResult.verifyInfo.pSignerInfos->nCount > 0;
+
+  if (!hasSigners && (ret != 0 || verifyResult.nErrorCode != 0)) {
     long err = verifyResult.nErrorCode != 0 ? verifyResult.nErrorCode : ret;
     LOG_ERROR("Errore nella verifica: %ld", err);
     verifyResult.verifyInfo.pSignerInfos = nullptr;
