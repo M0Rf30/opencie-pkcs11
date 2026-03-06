@@ -24,7 +24,8 @@ using namespace CieIDLogger;
 extern "C" {
 CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
                         const char* pin, const char* pan, int page, float x,
-                        float y, float w, float h, const char* imagePathFile,
+                        float y, float w, float h,
+                        const unsigned char* imageData, int imageDataLen,
                         const char* outFilePath,
                         PROGRESS_CALLBACK progressCallBack,
                         SIGN_COMPLETED_CALLBACK completedCallBack);
@@ -32,7 +33,8 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
 
 CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
                         const char* pin, const char* pan, int page, float x,
-                        float y, float w, float h, const char* imagePathFile,
+                        float y, float w, float h,
+                        const unsigned char* imageData, int imageDataLen,
                         const char* outFilePath,
                         PROGRESS_CALLBACK progressCallBack,
                         SIGN_COMPLETED_CALLBACK completedCallBack) {
@@ -150,7 +152,7 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
       auto cieSign = std::make_unique<CIESign>(ias.get());
 
       uint16_t ret = cieSign->sign(inFilePath, type, fullPinCStr, page, x, y, w,
-                                   h, imagePathFile, outFilePath);
+                                   h, imageData, imageDataLen, outFilePath);
       OPENSSL_cleanse(fullPinCStr, sizeof(fullPinCStr));
       OPENSSL_cleanse(FullPIN.data(), FullPIN.size());
       if ((ret & (0x63C0)) == 0x63C0) {

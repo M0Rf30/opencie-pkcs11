@@ -74,7 +74,8 @@ typedef struct _CIE_SIGN_CONTEXT {
   float fPdfBottom;
   float fPdfWidth;
   float fPdfHeight;
-  char szPdfImagePath[MAX_PATH];
+  const unsigned char* pPdfImageData;
+  int nPdfImageDataLen;
   char szPdfDescription[MAX_PATH];
   IAS* pIAS;
   char szPIN[MAX_PATH];
@@ -219,7 +220,8 @@ CIE_SIGN_CTX cie_sign_sign_init(void) {
   pContext->fPdfWidth = 0;
   pContext->fPdfHeight = 0;
   pContext->nPdfPage = 0;
-  pContext->szPdfImagePath[0] = 0;
+  pContext->pPdfImageData = nullptr;
+  pContext->nPdfImageDataLen = 0;
   pContext->szPdfDescription[0] = 0;
   snprintf(pContext->szPdfLocationLabel, MAX_PATH, "%s", "Signed by:");
   snprintf(pContext->szPdfReasonLabel, MAX_PATH, "%s", "Reason:");
@@ -391,11 +393,16 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
       pContext->nPdfPage = *(static_cast<long*>(value));
       break;
 
-    case CIE_SIGN_OPT_PDF_IMAGEPATH:
-      LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_PDF_IMAGEPATH", (char*)value));
-      snprintf(pContext->szPdfImagePath, MAX_PATH, "%s",
-               static_cast<char*>(value));
+    case CIE_SIGN_OPT_PDF_IMAGEDATA:
+      LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %p",
+               ctx, "CIE_SIGN_OPT_PDF_IMAGEDATA", value));
+      pContext->pPdfImageData = static_cast<const unsigned char*>(value);
+      break;
+
+    case CIE_SIGN_OPT_PDF_IMAGEDATA_LEN:
+      LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %d",
+               ctx, "CIE_SIGN_OPT_PDF_IMAGEDATA_LEN", (int)(intptr_t)value));
+      pContext->nPdfImageDataLen = static_cast<int>((intptr_t)value);
       break;
 
     case CIE_SIGN_OPT_PDF_DESCRIPTION:
@@ -1665,15 +1672,17 @@ long sign_pdf(CIE_SIGN_CONTEXT* pContext, ByteDynArray& data) {
   std::string sigName = "Signature";
   sigName += ('1' + nSigCount);
 
-  LOG_DBG(
-      (0, "sign_pdf",
-       "Context: %p, InitSignature %d, %f, %f, %f, %f, %s, %s, %s, %s, %s, %s",
-       pContext, pContext->nPdfPage, pContext->fPdfLeft, pContext->fPdfBottom,
-       pContext->fPdfWidth, pContext->fPdfHeight, pContext->szPdfReason,
-       pContext->szPdfName, pContext->szPdfLocation, sigName.c_str(),
-       pContext->szPdfSubfilter, pContext->szPdfImagePath));
+  LOG_DBG((0, "sign_pdf",
+           "Context: %p, InitSignature %d, %f, %f, %f, %f, %s, %s, %s, %s, %s, "
+           "imageDataLen=%d",
+           pContext, pContext->nPdfPage, pContext->fPdfLeft,
+           pContext->fPdfBottom, pContext->fPdfWidth, pContext->fPdfHeight,
+           pContext->szPdfReason, pContext->szPdfName, pContext->szPdfLocation,
+           sigName.c_str(), pContext->szPdfSubfilter,
+           pContext->nPdfImageDataLen));
 
-  if (pContext->szPdfImagePath[0] != 0 || pContext->szPdfDescription[0] != 0 ||
+  if (pContext->pPdfImageData != nullptr ||
+      pContext->szPdfDescription[0] != 0 ||
       (pContext->fPdfLeft + pContext->fPdfBottom + pContext->fPdfWidth +
        pContext->fPdfHeight) != 0) {
     if (!pContext->szPdfReason[0]) {
@@ -1710,7 +1719,8 @@ long sign_pdf(CIE_SIGN_CONTEXT* pContext, ByteDynArray& data) {
         pContext->szPdfReasonLabel, pContext->szPdfName,
         pContext->szPdfNameLabel, pContext->szPdfLocation,
         pContext->szPdfLocationLabel, sigName.c_str(), pContext->szPdfSubfilter,
-        pContext->szPdfImagePath, pContext->szPdfDescription);
+        pContext->pPdfImageData, pContext->nPdfImageDataLen,
+        pContext->szPdfDescription);
   } else {
     sigGen.InitSignature(0, pContext->szPdfReason, pContext->szPdfReasonLabel,
                          pContext->szPdfName, pContext->szPdfNameLabel,

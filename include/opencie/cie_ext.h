@@ -151,7 +151,10 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
  * @param y                 Y position of the signature widget (points).
  * @param w                 Width of the signature widget (points).
  * @param h                 Height of the signature widget (points).
- * @param imagePathFile     Path to an optional signature image; may be NULL.
+ * @param imageData         PNG image bytes for the signature stamp; may be
+ * NULL.
+ * @param imageDataLen      Length of imageData in bytes; 0 if imageData is
+ * NULL.
  * @param outFilePath       Path where the signed output file is written.
  * @param progressCallBack  Progress callback; must not be NULL.
  * @param completedCallBack Sign-completion callback; must not be NULL.
@@ -159,7 +162,8 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
  */
 CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
                         const char* pin, const char* pan, int page, float x,
-                        float y, float w, float h, const char* imagePathFile,
+                        float y, float w, float h,
+                        const unsigned char* imageData, int imageDataLen,
                         const char* outFilePath,
                         PROGRESS_CALLBACK progressCallBack,
                         SIGN_COMPLETED_CALLBACK completedCallBack);

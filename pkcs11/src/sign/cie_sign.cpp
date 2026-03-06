@@ -13,8 +13,8 @@ CIESign::~CIESign() = default;
 
 uint16_t CIESign::sign(const char* inFilePath, const char* type,
                        const char* pin, int page, float x, float y, float w,
-                       float h, const char* imagePathFile,
-                       const char* outFilePath) {
+                       float h, const unsigned char* imageData,
+                       int imageDataLen, const char* outFilePath) {
   uint16_t response;
 
   CIE_SIGN_CTX ctx = nullptr;
@@ -88,10 +88,15 @@ uint16_t CIESign::sign(const char* inFilePath, const char* type,
         throw ret;
       }
 
-      if (imagePathFile) {
+      if (imageData && imageDataLen > 0) {
         ret = cie_sign_sign_set(
-            ctx, CIE_SIGN_OPT_PDF_IMAGEPATH,
-            static_cast<void*>(const_cast<char*>(imagePathFile)));
+            ctx, CIE_SIGN_OPT_PDF_IMAGEDATA,
+            static_cast<void*>(const_cast<unsigned char*>(imageData)));
+        if (ret != 0) {
+          throw ret;
+        }
+        ret = cie_sign_sign_set(ctx, CIE_SIGN_OPT_PDF_IMAGEDATA_LEN,
+                                reinterpret_cast<void*>(imageDataLen));
         if (ret != 0) {
           throw ret;
         }

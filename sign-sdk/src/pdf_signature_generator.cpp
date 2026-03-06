@@ -3,8 +3,6 @@
 
 #include "pdf_signature_generator.h"
 
-#include <fstream>
-#include <iostream>
 #include <vector>
 
 #include "pdf_verifier.h"
@@ -74,7 +72,7 @@ void PdfSignatureGenerator::InitSignature(
   LOG_DBG((0, "quella senza tutti 0\n", ""));
   InitSignature(pageIndex, left, bottom, width, height, szReason, szReasonLabel,
                 szName, szNameLabel, szLocation, szLocationLabel, szFieldName,
-                szSubFilter, nullptr, nullptr);
+                szSubFilter, nullptr, 0, nullptr);
 }
 
 void PdfSignatureGenerator::InitSignature(
@@ -82,8 +80,8 @@ void PdfSignatureGenerator::InitSignature(
     const char* szReason, const char* /*szReasonLabel*/, const char* szName,
     const char* /*szNameLabel*/, const char* szLocation,
     const char* /*szLocationLabel*/, const char* szFieldName,
-    const char* /*szSubFilter*/, const char* szImagePath,
-    const char* /*szDescription*/) {
+    const char* /*szSubFilter*/, const unsigned char* imageData,
+    int imageDataLen, const char* /*szDescription*/) {
   auto& page = m_pPdfDocument->GetPages().GetPageAt(pageIndex);
   PoDoFo::Rect cropBox = page.GetCropBox();
 
@@ -154,27 +152,14 @@ void PdfSignatureGenerator::InitSignature(
       try {
         painter.SetCanvas(*sigXObject);
 
-        if (szImagePath && szImagePath[0]) {
-          std::vector<char> imgBuffer;
-          std::ifstream img(szImagePath,
-                            std::ios::in | std::ios::binary | std::ios::ate);
-          if (img.is_open()) {
-            std::streampos imgBufferSize = img.tellg();
-            imgBuffer.resize(static_cast<size_t>(imgBufferSize));
-            img.seekg(0, std::ios::beg);
-            img.read(imgBuffer.data(), imgBufferSize);
-            img.close();
-
-            if (!imgBuffer.empty()) {
-              auto image = m_pPdfDocument->CreateImage();
-              image->LoadFromBuffer(
-                  PoDoFo::bufferview(imgBuffer.data(), imgBuffer.size()));
-              double scaleX = width0 / image->GetWidth();
-              double scaleY = height0 / image->GetHeight();
-              painter.DrawImage(*image, 0, 0, std::min(scaleX, scaleY),
-                                std::min(scaleX, scaleY));
-            }
-          }
+        if (imageData && imageDataLen > 0) {
+          auto image = m_pPdfDocument->CreateImage();
+          image->LoadFromBuffer(PoDoFo::bufferview(
+              reinterpret_cast<const char*>(imageData), imageDataLen));
+          double scaleX = width0 / image->GetWidth();
+          double scaleY = height0 / image->GetHeight();
+          painter.DrawImage(*image, 0, 0, std::min(scaleX, scaleY),
+                            std::min(scaleX, scaleY));
         }
 
         if (!signatureStamp.empty()) {

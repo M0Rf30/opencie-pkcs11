@@ -39,11 +39,13 @@ class CIESign {
    * @param page            PDF page for visible signature (0-based, PAdES
    * only).
    * @param x,y,w,h         Signature rectangle on the page (PAdES only).
-   * @param imagePathFile   Optional image overlay path (PAdES only).
+   * @param imageData       Optional PNG bytes for image overlay (PAdES only).
+   * @param imageDataLen    Length of imageData; 0 if imageData is null.
    * @param outFilePath     Output path for the signed document.
    * @return 0 on success, non-zero error code on failure.
    */
   uint16_t sign(const char* inFilePath, const char* type, const char* pin,
                 int page, float x, float y, float w, float h,
-                const char* imagePathFile, const char* outFilePath);
+                const unsigned char* imageData, int imageDataLen,
+                const char* outFilePath);
 };

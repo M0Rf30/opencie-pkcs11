@@ -51,15 +51,15 @@ class PdfSignatureGenerator {
 
   /**
    * Create a visible signature field at the specified position with an optional
-   * image.
+   * image provided as raw PNG bytes (in-memory, no file I/O).
    */
   void InitSignature(int pageIndex, float left, float bottom, float width,
                      float height, const char* szReason,
                      const char* szReasonLabel, const char* szName,
                      const char* szNameLabel, const char* szLocation,
                      const char* szLocationLabel, const char* szFieldName,
-                     const char* szSubFilter, const char* szImagePath,
-                     const char* szDescription);
+                     const char* szSubFilter, const unsigned char* imageData,
+                     int imageDataLen, const char* szDescription);
 
   /** Serialize the PDF with the embedded signature placeholder. */
   void GetSignedPdf(ByteDynArray& signedPdf);

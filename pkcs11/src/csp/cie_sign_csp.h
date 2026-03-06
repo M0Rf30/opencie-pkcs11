@@ -28,14 +28,15 @@ typedef CK_CALLBACK_FUNCTION(CK_RV, SIGN_COMPLETED_CALLBACK)(const int ret);
  * @param pan           Card PAN (Personal Access Number).
  * @param page          PDF page for visible signature (PAdES only, 0-based).
  * @param x,y,w,h       Visible signature rectangle coordinates (PAdES only).
- * @param imagePathFile Path to signature image overlay (PAdES only, may be
- * null).
+ * @param imageData     PNG image bytes for signature overlay (PAdES only, may
+ * be null).
+ * @param imageDataLen  Length of imageData in bytes; 0 if imageData is null.
  * @param outFilePath   Path where the signed document will be written.
  */
 using cie_sign_fn = CK_RV (*)(const char* inFilePath, const char* type,
                               const char* pin, const char* pan, int page,
                               float x, float y, float w, float h,
-                              const char* imagePathFile,
+                              const unsigned char* imageData, int imageDataLen,
                               const char* outFilePath,
                               PROGRESS_CALLBACK progressCallBack,
                               SIGN_COMPLETED_CALLBACK completedCallBack);
