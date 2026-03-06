@@ -305,18 +305,25 @@ LONG AndroidNFCTransport::Connect(SCARDCONTEXT /*hContext*/,
   JNIEnv *env = getEnv();
   if (!env) return SCARD_E_NO_SERVICE;
 
-  env->CallVoidMethod(isoDep_, connectId_);
-  if (env->ExceptionCheck()) {
-    env->ExceptionDescribe();
-    env->ExceptionClear();
-    LOGE("Connect: IsoDep.connect() failed");
-    return SCARD_E_NOT_TRANSACTED;
+  jboolean alreadyConnected = env->CallBooleanMethod(isoDep_, isConnectedId_);
+  env->ExceptionClear();
+
+  if (!alreadyConnected) {
+    env->CallVoidMethod(isoDep_, connectId_);
+    if (env->ExceptionCheck()) {
+      env->ExceptionDescribe();
+      env->ExceptionClear();
+      LOGE("Connect: IsoDep.connect() failed");
+      return SCARD_E_NOT_TRANSACTED;
+    }
+    LOGI("Connect: IsoDep connected");
+  } else {
+    LOGI("Connect: IsoDep already connected, reusing");
   }
 
   connected_ = true;
   *phCard = kDummyHandle;
   *pdwActiveProtocol = SCARD_PROTOCOL_T1; /* NFC ISO-DEP ≈ T=1 */
-  LOGI("Connect: IsoDep connected");
   return SCARD_S_SUCCESS;
 }
 
@@ -336,13 +343,20 @@ LONG AndroidNFCTransport::Disconnect(SCARDHANDLE /*hCard*/,
   return SCARD_S_SUCCESS;
 }
 
-LONG AndroidNFCTransport::Reconnect(SCARDHANDLE hCard, DWORD dwShareMode,
-                                    DWORD dwPreferredProtocols,
+LONG AndroidNFCTransport::Reconnect(SCARDHANDLE /*hCard*/,
+                                    DWORD /*dwShareMode*/,
+                                    DWORD /*dwPreferredProtocols*/,
                                     DWORD /*dwInitialization*/,
                                     LPDWORD pdwActiveProtocol) {
-  Disconnect(hCard, SCARD_LEAVE_CARD);
-  return Connect(kDummyContext, "NFC", dwShareMode, dwPreferredProtocols,
-                 &hCard, pdwActiveProtocol);
+  /* On Android NFC a true card reset (PC/SC SCARD_RESET_CARD /
+   * SCARD_UNPOWER_CARD) requires an RF field power-cycle, which is not
+   * possible without re-discovering the tag through enableReaderMode.
+   * The ISO-DEP session established by CieNfcBridge.onTagDiscovered() is
+   * already fresh, so we treat Reconnect as a no-op and keep the existing
+   * session alive. */
+  if (pdwActiveProtocol) *pdwActiveProtocol = SCARD_PROTOCOL_T1;
+  LOGI("Reconnect: no-op on Android, keeping existing ISO-DEP session");
+  return SCARD_S_SUCCESS;
 }
 
 LONG AndroidNFCTransport::Transmit(SCARDHANDLE /*hCard*/,

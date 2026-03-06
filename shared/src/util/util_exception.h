@@ -62,7 +62,7 @@ class scard_error : public logged_error {
 /**
  * @brief Exception representing a Windows API error.
  */
-class windows_error : logged_error {
+class windows_error : public logged_error {
  public:
   /**
    * @brief Construct from a Windows error code.

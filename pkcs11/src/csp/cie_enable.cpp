@@ -398,7 +398,11 @@ CK_RV CK_ENTRY cie_enable(const char* szPAN, const char* szPIN, int* attempts,
   } catch (std::exception& ex) {
     LOG_ERROR("cie_enable - Exception %s ", ex.what());
     if (ATR) free(ATR);
-
+    if (readers) free(readers);
+    return CKR_GENERAL_ERROR;
+  } catch (...) {
+    LOG_ERROR("cie_enable - Unknown exception");
+    if (ATR) free(ATR);
     if (readers) free(readers);
     return CKR_GENERAL_ERROR;
   }

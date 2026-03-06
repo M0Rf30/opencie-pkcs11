@@ -52,6 +52,11 @@ Logger::Logger() {
   timeval curTime;
 
   char* home = getenv("HOME");
+  if (!home) {
+    disableLog();
+    m_LogType = FILE_LOG;
+    return;
+  }
   std::string path(home);
 
   path.append("/.CIEPKI/");
@@ -175,6 +180,7 @@ int Logger::getLogConfig() noexcept {
   }
 #else
   char* home = getenv("HOME");
+  if (!home) return LOG_STATUS_DISABLED;
   std::string path(home);
 
   path.append("/.CIEPKI/");
