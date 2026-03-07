@@ -9,6 +9,9 @@
 #include <shlwapi.h>
 #include <windows.h>
 #define stat _stat
+#elif defined(__ANDROID__)
+#include <android/log.h>
+#define CIE_LOG_TAG "CIE-LIB"
 #else
 #include <sys/time.h>
 #include <unistd.h>
@@ -37,7 +40,12 @@ Logger::Logger() {
   std::string sConfig;
   t64configTime = static_cast<time64_t>(0);
 
-#ifdef _WIN32
+#ifdef __ANDROID__
+  m_LogLevel = LOG_LEVEL_DEBUG;
+  m_LogStatus = LOG_STATUS_ENABLED;
+  m_LogType = CONSOLE;
+  return;
+#elif defined(_WIN32)
   SYSTEMTIME stTime;
   char* buf = nullptr;
   size_t sz = 0;
@@ -61,7 +69,6 @@ Logger::Logger() {
 
   path.append("/.CIEPKI/");
 
-  // check if folder exist
   struct stat st{};
 
   if (stat(path.c_str(), &st) == -1) {
@@ -116,6 +123,7 @@ Logger::~Logger() { m_File.close(); }
 Logger& Logger::getInstance() noexcept {
   static Logger instance;
 
+#ifndef __ANDROID__
   int log_level = instance.getLogConfig();
 
   if (log_level == LOG_STATUS_DISABLED) {
@@ -125,6 +133,7 @@ Logger& Logger::getInstance() noexcept {
     instance.enableLog();
     instance.updateLogLevel(static_cast<LogLevel>(log_level));
   }
+#endif
 
   return instance;
 }
@@ -276,6 +285,24 @@ void Logger::log_log(std::ostream& /*out*/, LogLevel level,
       return;
     }
 
+#ifdef __ANDROID__
+    android_LogPriority prio;
+    switch (level) {
+      case LOG_LEVEL_DEBUG:
+        prio = ANDROID_LOG_DEBUG;
+        break;
+      case LOG_LEVEL_INFO:
+        prio = ANDROID_LOG_INFO;
+        break;
+      case LOG_LEVEL_ERROR:
+        prio = ANDROID_LOG_ERROR;
+        break;
+      default:
+        prio = ANDROID_LOG_VERBOSE;
+        break;
+    }
+    __android_log_print(prio, CIE_LOG_TAG, "%s", text);
+#else
     std::string data;
     data.append(level_strings[level]);
     data.append(" ");
@@ -286,6 +313,7 @@ void Logger::log_log(std::ostream& /*out*/, LogLevel level,
     m_File << getCurrentTime() << "  " << data << '\n';
     m_File.flush();
     m_File.close();
+#endif
   }
 }
 

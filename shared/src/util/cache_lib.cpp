@@ -1,11 +1,31 @@
 #include "cache_lib.h"
 
 #ifdef _WIN32
+#include <aclapi.h>
+#include <sddl.h>
 #include <shlobj.h>
 #include <shlwapi.h>
 #include <versionhelpers.h>
-#include <sddl.h>
-#include <aclapi.h>
+#elif defined(__ANDROID__)
+#include <android/log.h>
+#include <cryptopp/aes.h>
+#include <cryptopp/filters.h>
+#include <cryptopp/misc.h>
+#include <cryptopp/modes.h>
+#include <cryptopp/sha.h>
+#include <pwd.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#define CACHE_LOG(fmt, ...) \
+  __android_log_print(ANDROID_LOG_DEBUG, "CIE-CACHE", fmt, ##__VA_ARGS__)
+
+static std::string g_cie_data_dir;
+
+extern "C" __attribute__((visibility("default"))) void cie_set_data_dir(
+    const char *dir) {
+  g_cie_data_dir = dir ? dir : "";
+  CACHE_LOG("cie_set_data_dir: %s", g_cie_data_dir.c_str());
+}
 #else
 #include <cryptopp/aes.h>
 #include <cryptopp/filters.h>
@@ -15,6 +35,7 @@
 #include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#define CACHE_LOG(fmt, ...)
 #endif
 
 #include <fstream>
@@ -41,9 +62,7 @@ int decrypt(std::string &ciphertext, std::string &message);
 /// fornisca un elevato livello di sicurezza
 
 #ifdef _WIN32
-bool file_exists(const char *name) {
-  return PathFileExists(name);
-}
+bool file_exists(const char *name) { return PathFileExists(name); }
 #else
 bool file_exists(const char *name) {
   struct stat buffer;
@@ -64,6 +83,15 @@ std::string GetCardDir() {
 }
 #else
 std::string GetCardDir() {
+#ifdef __ANDROID__
+  if (!g_cie_data_dir.empty()) {
+    std::string path = g_cie_data_dir;
+    path.append("/.CIEPKI/");
+    CACHE_LOG("GetCardDir (explicit): %s", path.c_str());
+    return path;
+  }
+#endif
+
   char *home = getenv("HOME");
   if (home == nullptr) {
     struct passwd *pw = getpwuid(getuid());
@@ -75,6 +103,8 @@ std::string GetCardDir() {
 
   path.append("/.CIEPKI/");
 
+  CACHE_LOG("GetCardDir: %s", path.c_str());
+
   return path.c_str();
 }
 #endif
@@ -83,8 +113,7 @@ std::string GetCardDir() {
 void GetCardPath(const char *PAN, std::string &sPath) {
   auto Path = GetCardDir();
 
-  if (Path[Path.length() - 1] != '\\')
-    Path += '\\';
+  if (Path[Path.length() - 1] != '\\') Path += '\\';
 
   Path += std::string(PAN);
   Path += ".cache";
@@ -103,7 +132,9 @@ void GetCardPath(const char *PAN, std::string &sPath) {
 bool CacheExists(const char *PAN) {
   std::string sPath;
   GetCardPath(PAN, sPath);
-  return file_exists(sPath.c_str());
+  bool exists = file_exists(sPath.c_str());
+  CACHE_LOG("CacheExists: path=%s exists=%d", sPath.c_str(), exists ? 1 : 0);
+  return exists;
 }
 
 bool CacheRemove(const char *PAN) {
@@ -200,27 +231,24 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
       EXPLICIT_ACCESS ea;
       SECURITY_INFORMATION si = DACL_SECURITY_INFORMATION;
 
-      DWORD dwRes = GetNamedSecurityInfo(chDir, SE_FILE_OBJECT,
-                                         DACL_SECURITY_INFORMATION, nullptr,
-                                         nullptr, &pOldDACL, nullptr, &pSD);
+      DWORD dwRes =
+          GetNamedSecurityInfo(chDir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
+                               nullptr, nullptr, &pOldDACL, nullptr, &pSD);
       if (dwRes != ERROR_SUCCESS)
-        throw logged_error(
-            "Impossibile attivare la CIE nel processo corrente");
+        throw logged_error("Impossibile attivare la CIE nel processo corrente");
 
       PSID TheSID = nullptr;
       DWORD SidSize = SECURITY_MAX_SID_SIZE;
       if (!(TheSID = LocalAlloc(LMEM_FIXED, SidSize))) {
         if (pSD != nullptr) LocalFree((HLOCAL)pSD);
-        throw logged_error(
-            "Impossibile attivare la CIE nel processo corrente");
+        throw logged_error("Impossibile attivare la CIE nel processo corrente");
       }
 
       if (!CreateWellKnownSid(WinBuiltinAnyPackageSid, nullptr, TheSID,
                               &SidSize)) {
         if (TheSID != nullptr) LocalFree((HLOCAL)TheSID);
         if (pSD != nullptr) LocalFree((HLOCAL)pSD);
-        throw logged_error(
-            "Impossibile attivare la CIE nel processo corrente");
+        throw logged_error("Impossibile attivare la CIE nel processo corrente");
       }
 
       ZeroMemory(&ea, sizeof(EXPLICIT_ACCESS));
@@ -235,8 +263,7 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
         if (TheSID != nullptr) LocalFree((HLOCAL)TheSID);
         if (pSD != nullptr) LocalFree((HLOCAL)pSD);
         if (pNewDACL != nullptr) LocalFree((HLOCAL)pNewDACL);
-        throw logged_error(
-            "Impossibile attivare la CIE nel processo corrente");
+        throw logged_error("Impossibile attivare la CIE nel processo corrente");
       }
 
       if (SetNamedSecurityInfo(chDir, SE_FILE_OBJECT, si, nullptr, nullptr,
@@ -244,8 +271,7 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
         if (pNewDACL != nullptr) LocalFree((HLOCAL)pNewDACL);
         if (TheSID != nullptr) LocalFree((HLOCAL)TheSID);
         if (pSD != nullptr) LocalFree((HLOCAL)pSD);
-        throw logged_error(
-            "Impossibile attivare la CIE nel processo corrente");
+        throw logged_error("Impossibile attivare la CIE nel processo corrente");
       }
     }
   }
@@ -264,8 +290,7 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
   ByteArray baFirstPIN(FirstPIN, FirstPINSize);
 
 #ifdef _WIN32
-  std::ofstream file(sPath.c_str(),
-                     std::ofstream::out | std::ofstream::binary);
+  std::ofstream file(sPath.c_str(), std::ofstream::out | std::ofstream::binary);
 
   uint32_t len = (uint32_t)baFirstPIN.size();
   file.write((char *)&len, sizeof(len));
@@ -310,8 +335,7 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
 
   stfEncryptor.MessageEnd();
 
-  std::ofstream file(sPath.c_str(),
-                     std::ofstream::out | std::ofstream::binary);
+  std::ofstream file(sPath.c_str(), std::ofstream::out | std::ofstream::binary);
   file.write(ciphertext.c_str(), ciphertext.length());
   file.close();
 #endif

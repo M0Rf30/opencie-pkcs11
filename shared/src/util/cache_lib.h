@@ -52,3 +52,13 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
  * @return true if data was removed, false if no data existed.
  */
 bool CacheRemove(const char *PAN);
+
+#ifdef __ANDROID__
+#ifdef __cplusplus
+extern "C" {
+#endif
+void cie_set_data_dir(const char *dir);
+#ifdef __cplusplus
+}
+#endif
+#endif

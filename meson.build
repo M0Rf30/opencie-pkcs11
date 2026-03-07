@@ -52,16 +52,16 @@ endif
 
 curl_dep = dependency('libcurl')
 
-# Sign SDK dependencies (not available/needed on Android)
-build_sign_sdk = host_machine.system() != 'android'
+# Sign SDK is available on all platforms (dependencies now built for Android too)
+build_sign_sdk = true
 
 if build_sign_sdk
-  if host_machine.system() != 'windows'
-    fontconfig_dep = dependency('fontconfig')
-    freetype_dep = dependency('freetype2')
-  else
+  if host_machine.system() == 'windows' or host_machine.system() == 'android'
     fontconfig_dep = dependency('fontconfig', required: false)
     freetype_dep = dependency('freetype2', required: false)
+  else
+    fontconfig_dep = dependency('fontconfig')
+    freetype_dep = dependency('freetype2')
   endif
 
   png_dep = dependency('libpng')

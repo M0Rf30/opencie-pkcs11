@@ -98,9 +98,10 @@
     cie_reader_watch;
     cie_reader_name;
 
-    /* Android JNI bridge (NFC transport) */
+    /* Android JNI bridge (NFC transport + data dir) */
     cie_set_nfc_tag;
     cie_clear_nfc_tag;
+    cie_set_data_dir;
     JNI_OnLoad;
 
   local:

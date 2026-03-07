@@ -7,15 +7,48 @@
 #include <cstdio>
 #include <ctime>
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#define CIE_ANDROID_LOG_TAG "CIE-LIB"
+#endif
+
 namespace cie_logging {
 // Simple printf-based logging that avoids spdlog/fmt conflicts entirely
 inline void printf_fallback_log(int level, const char* /* module */,
                                 const char* format, ...) {
+  char buffer[2048];
+  va_list args;
+  va_start(args, format);
+  vsnprintf(buffer, sizeof(buffer), format, args);
+  va_end(args);
+
+#ifdef __ANDROID__
+  android_LogPriority prio;
+  switch (level) {
+    case 0:
+      return;
+    case 1:
+      prio = ANDROID_LOG_ERROR;
+      break;
+    case 2:
+      prio = ANDROID_LOG_WARN;
+      break;
+    case 3:
+      prio = ANDROID_LOG_INFO;
+      break;
+    case 4:
+      prio = ANDROID_LOG_DEBUG;
+      break;
+    default:
+      prio = ANDROID_LOG_VERBOSE;
+      break;
+  }
+  __android_log_print(prio, CIE_ANDROID_LOG_TAG, "%s", buffer);
+#else
   const char* level_str = "INFO";
   switch (level) {
     case 0:
-      level_str = "OFF";
-      return;  // Don't log anything for OFF level
+      return;
     case 1:
       level_str = "ERROR";
       break;
@@ -38,16 +71,10 @@ inline void printf_fallback_log(int level, const char* /* module */,
   timeinfo = localtime(&rawtime);
   strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", timeinfo);
 
-  // Format the user message
-  char buffer[2048];
-  va_list args;
-  va_start(args, format);
-  vsnprintf(buffer, sizeof(buffer), format, args);
-  va_end(args);
-
   // Print the complete log message
   printf("[%s] [%s] [%s] %s\n", timestamp, "cie", level_str, buffer);
   fflush(stdout);
+#endif
 }
 
 // Level constants for consistency
@@ -113,4 +140,7 @@ inline bool should_log(int level) {
     /* File logging not implemented in printf fallback */ \
   } while (0)
 
-#define SET_LOG_LEVEL(level) do { cie_logging::set_log_level((level)); } while (0)
+#define SET_LOG_LEVEL(level)             \
+  do {                                   \
+    cie_logging::set_log_level((level)); \
+  } while (0)
