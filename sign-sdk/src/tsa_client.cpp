@@ -6,9 +6,9 @@
 #include "asn1/time_stamp_request.h"
 #include "asn1/time_stamp_response.h"
 #include "asn1/time_stamp_token.h"
-
-
 #include "curl/curl.h"
+
+extern char g_szResolveList[4096];
 
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb,
                             void* userp);
@@ -73,6 +73,56 @@ long CTSAClient::GetTimeStampToken(ByteDynArray& digest, const char* szPolicyID,
   curl_easy_setopt(ctx, CURLOPT_SSL_VERIFYPEER, false);
   curl_easy_setopt(ctx, CURLOPT_SSL_VERIFYHOST, false);
 
+#ifdef __ANDROID__
+  curl_easy_setopt(ctx, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+  curl_easy_setopt(ctx, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+#endif
+
+  struct curl_slist* resolve_list = nullptr;
+  if (g_szResolveList[0]) {
+    const char* szUrl = m_szTSAUrl;
+    const char* p = strstr(szUrl, "://");
+    if (p) {
+      p += 3;
+      const char* end = p;
+      while (*end && *end != '/' && *end != ':') ++end;
+      size_t hlen = static_cast<size_t>(end - p);
+      if (hlen > 0 && hlen < 256) {
+        char hostname[256];
+        memcpy(hostname, p, hlen);
+        hostname[hlen] = '\0';
+        int port = (strncmp(szUrl, "https://", 8) == 0) ? 443 : 80;
+        if (*end == ':') port = atoi(end + 1);
+        const char* entry = g_szResolveList;
+        while (*entry) {
+          const char* comma = strchr(entry, ',');
+          size_t elen =
+              comma ? static_cast<size_t>(comma - entry) : strlen(entry);
+          const char* colon1 =
+              static_cast<const char*>(memchr(entry, ':', elen));
+          if (colon1) {
+            size_t ehost_len = static_cast<size_t>(colon1 - entry);
+            if (ehost_len == hlen && strncmp(entry, hostname, hlen) == 0) {
+              const char* colon2 = strchr(colon1 + 1, ':');
+              if (colon2) {
+                int eport = atoi(colon1 + 1);
+                if (eport == port) {
+                  char buf[512];
+                  snprintf(buf, sizeof(buf), "%.*s", static_cast<int>(elen),
+                           entry);
+                  resolve_list = curl_slist_append(resolve_list, buf);
+                }
+              }
+            }
+          }
+          if (!comma) break;
+          entry = comma + 1;
+        }
+        if (resolve_list) curl_easy_setopt(ctx, CURLOPT_RESOLVE, resolve_list);
+      }
+    }
+  }
+
   struct curl_slist* headers = nullptr;
   headers =
       curl_slist_append(headers, "Content-Type: application/timestamp-query");
@@ -94,15 +144,17 @@ long CTSAClient::GetTimeStampToken(ByteDynArray& digest, const char* szPolicyID,
   // Check for errors
   if (ret != CURLE_OK) {
     LOG_MSG((0, "HTTPRequest", "error: %x", ret));
-
     fprintf(stderr, "curl_easy_perform() failed: %s\n",
             curl_easy_strerror(ret));
-
+    if (resolve_list) curl_slist_free_all(resolve_list);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(ctx);
     return ret;
   }
 
   // clean up
   curl_slist_free_all(headers);
+  if (resolve_list) curl_slist_free_all(resolve_list);
   curl_easy_cleanup(ctx);
 
   try {

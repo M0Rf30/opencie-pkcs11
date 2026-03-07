@@ -5,6 +5,8 @@
 
 #include <sys/types.h>
 
+#include <cstdio>
+#include <cstring>
 #include <memory>
 
 #include "pkcs11/pkcs11_functions.h"
@@ -71,7 +73,7 @@ CK_RV CK_ENTRY cie_get_verify_info(int index, struct verifyInfo_t* vInfos) {
   vInfos->CertRevocStatus =
       tmpSignerInfo.pRevocationInfo
           ? tmpSignerInfo.pRevocationInfo->nRevocationStatus
-          : 0;
+          : REVOCATION_STATUS_UNKNOWN;
   vInfos->isCertValid =
       (tmpSignerInfo.bitmask & VERIFIED_CERT_GOOD) == VERIFIED_CERT_GOOD;
   vInfos->isSignValid =

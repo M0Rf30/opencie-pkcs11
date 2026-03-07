@@ -33,8 +33,13 @@ static JavaVM *g_jvm = nullptr;
 static jobject g_isoDep = nullptr;
 static std::mutex g_globalMutex;
 
+extern char g_szResolveList[4096];
+
 JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void * /*reserved*/) {
   g_jvm = vm;
+  snprintf(g_szResolveList, sizeof(g_szResolveList),
+           "ocsp.cie.interno.gov.it:443:2.42.225.135"
+           ",ldap.cie.interno.gov.it:80:2.42.225.136");
   LOGI("JNI_OnLoad: JavaVM cached");
   return JNI_VERSION_1_6;
 }

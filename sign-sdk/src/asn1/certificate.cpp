@@ -26,6 +26,8 @@
 #define MAX_RSA_MODULUS_LEN 512
 #define PROXY_AUTHENTICATION_REQUIRED 407
 
+char g_szResolveList[4096] = {0};
+
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb,
                             void* userp);
 long HTTPRequest(ByteDynArray& data, const char* szUrl,
@@ -747,6 +749,13 @@ bool CCertificate::verifySignature(CCertificate& cert) {
 
 long HTTPRequest(ByteDynArray& data, const char* szUrl,
                  const char* szContentType, ByteDynArray& response) {
+#ifdef __ANDROID__
+  if (!g_szResolveList[0]) {
+    snprintf(g_szResolveList, sizeof(g_szResolveList),
+             "ocsp.cie.interno.gov.it:443:2.42.225.135"
+             ",ldap.cie.interno.gov.it:80:2.42.225.136");
+  }
+#endif
   // general initilization
   curl_global_init(CURL_GLOBAL_DEFAULT);
 
@@ -756,6 +765,60 @@ long HTTPRequest(ByteDynArray& data, const char* szUrl,
   curl_easy_setopt(ctx, CURLOPT_URL, szUrl);
 
   curl_easy_setopt(ctx, CURLOPT_SSL_VERIFYPEER, false);
+
+#ifdef __ANDROID__
+  curl_easy_setopt(ctx, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+  curl_easy_setopt(ctx, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+#endif
+
+  struct curl_slist* resolve_list = nullptr;
+  if (g_szResolveList[0]) {
+    const char* p = strstr(szUrl, "://");
+    if (p) {
+      p += 3;
+      const char* end = p;
+      while (*end && *end != '/' && *end != ':') ++end;
+      size_t hlen = static_cast<size_t>(end - p);
+      if (hlen > 0 && hlen < 256) {
+        char hostname[256];
+        memcpy(hostname, p, hlen);
+        hostname[hlen] = '\0';
+        int port = (strncmp(szUrl, "https://", 8) == 0) ? 443 : 80;
+        if (*end == ':') port = atoi(end + 1);
+        const char* entry = g_szResolveList;
+        while (*entry) {
+          const char* comma = strchr(entry, ',');
+          size_t elen =
+              comma ? static_cast<size_t>(comma - entry) : strlen(entry);
+          const char* colon1 =
+              static_cast<const char*>(memchr(entry, ':', elen));
+          if (colon1) {
+            size_t ehost_len = static_cast<size_t>(colon1 - entry);
+            if (ehost_len == hlen && strncmp(entry, hostname, hlen) == 0) {
+              const char* colon2 = strchr(colon1 + 1, ':');
+              if (colon2) {
+                int eport = atoi(colon1 + 1);
+                if (eport == port) {
+                  char buf[512];
+                  snprintf(buf, sizeof(buf), "%.*s", static_cast<int>(elen),
+                           entry);
+                  LOG_ERR((0, "HTTPRequest", "using resolve: %s", buf));
+                  resolve_list = curl_slist_append(resolve_list, buf);
+                }
+              }
+            }
+          }
+          if (!comma) break;
+          entry = comma + 1;
+        }
+        if (resolve_list)
+          curl_easy_setopt(ctx, CURLOPT_RESOLVE, resolve_list);
+        else
+          LOG_ERR(
+              (0, "HTTPRequest", "no resolve entry for %s:%d", hostname, port));
+      }
+    }
+  }
 
   if (data.size() > 0) {
     // set POST method
@@ -817,7 +880,8 @@ long HTTPRequest(ByteDynArray& data, const char* szUrl,
   /* Check for errors */
   if (ret != CURLE_OK) {
     LOG_ERR((0, "HTTPRequest", "Unable to connect to: %s", szUrl));
-
+    if (resolve_list) curl_slist_free_all(resolve_list);
+    curl_easy_cleanup(ctx);
     return ret;
   }
 
@@ -828,6 +892,8 @@ long HTTPRequest(ByteDynArray& data, const char* szUrl,
   if (responseCode == PROXY_AUTHENTICATION_REQUIRED) {
     LOG_ERR((0, "HTTPRequest",
              "Unable to connect to: %s. Proxy authentication required", szUrl));
+    if (resolve_list) curl_slist_free_all(resolve_list);
+    curl_easy_cleanup(ctx);
     return responseCode;
   }
 
@@ -835,7 +901,7 @@ long HTTPRequest(ByteDynArray& data, const char* szUrl,
 
   // clean up
   if (headers) curl_slist_free_all(headers);
-
+  if (resolve_list) curl_slist_free_all(resolve_list);
   curl_easy_cleanup(ctx);
 
   if (response.size() == 0) {
