@@ -176,8 +176,14 @@ long CXAdESVerifier::Load(char* szFilename) {
     return m_pXAdESDoc->nSignatures;
 }
 
-XAdESDoc* CXAdESVerifier::parseXAdESFile(char* /*szFilename*/) {
-  xmlDocPtr doc = nullptr;
+XAdESDoc* CXAdESVerifier::parseXAdESFile(char* szFilename) {
+  LOG_DBG(
+      (0, "parseXAdESFile", "Opening: %s", szFilename ? szFilename : "(null)"));
+
+  xmlDocPtr doc = xmlParseFile(szFilename);
+
+  LOG_DBG((0, "parseXAdESFile", "xmlParseFile result: %p", doc));
+
   XAdESDoc* pXAdESDoc = nullptr;
   xmlNodePtr curNode;
 
@@ -185,7 +191,8 @@ XAdESDoc* CXAdESVerifier::parseXAdESFile(char* /*szFilename*/) {
 
   curNode = xmlDocGetRootElement(doc);
   if (curNode == nullptr) {
-    // fprintf(stderr,"empty document\n");
+    LOG_ERR((0, "parseXAdESFile", "Empty or unparseable document: %s",
+             szFilename ? szFilename : "(null)"));
     xmlFreeDoc(doc);
     return (nullptr);
   }
@@ -216,12 +223,17 @@ XAdESDoc* CXAdESVerifier::parseXAdESFile(char* /*szFilename*/) {
   xpathObj = xmlXPathEvalExpression(path, xpathCtx);
   if (xpathObj == nullptr) {
     // Unable to evaluate xpath expression
+    LOG_ERR((0, "parseXAdESFile", "XPath evaluation failed"));
     xmlXPathFreeContext(xpathCtx);
     xmlFreeDoc(doc);
     return nullptr;
   }
 
-  if (xpathObj->nodesetval->nodeNr > 0) {
+  int nodeNr =
+      (xpathObj->nodesetval != nullptr) ? xpathObj->nodesetval->nodeNr : 0;
+  LOG_DBG((0, "parseXAdESFile", "Found %d ds:Signature node(s)", nodeNr));
+
+  if (nodeNr > 0) {
     // gets the first node
     pXAdESDoc = new XAdESDoc;
 

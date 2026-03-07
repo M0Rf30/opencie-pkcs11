@@ -50,7 +50,19 @@ uint16_t CIESign::sign(const char* inFilePath, const char* type,
       throw ret;
     }
 
-    if (strcmp(type, "pdf") == 0) {
+    if (strcmp(type, "xml") == 0) {
+      ret = cie_sign_sign_set(ctx, CIE_SIGN_OPT_INPUTFILE_TYPE,
+                              reinterpret_cast<void*>(CIE_SIGN_FILETYPE_XML));
+      if (ret != 0) {
+        throw ret;
+      }
+
+      ret = cie_sign_sign_set(ctx, CIE_SIGN_OPT_DETACHED,
+                              reinterpret_cast<void*>(0));
+      if (ret != 0) {
+        throw ret;
+      }
+    } else if (strcmp(type, "pdf") == 0) {
       ret = cie_sign_sign_set(ctx, CIE_SIGN_OPT_PDF_SUBFILTER,
                               static_cast<void*>(const_cast<char*>(
                                   CIE_SIGN_PDF_SUBFILTER_ETSI_CADES)));
@@ -108,14 +120,9 @@ uint16_t CIESign::sign(const char* inFilePath, const char* type,
         throw ret;
       }
     } else {
-      if ((strstr(inFilePath, "p7m") != nullptr) ||
-          (strstr(inFilePath, "p7s") != nullptr))
-        ret = cie_sign_sign_set(ctx, CIE_SIGN_OPT_INPUTFILE_TYPE,
-                                reinterpret_cast<void*>(CIE_SIGN_FILETYPE_P7M));
-      else
-        ret = cie_sign_sign_set(
-            ctx, CIE_SIGN_OPT_INPUTFILE_TYPE,
-            reinterpret_cast<void*>(CIE_SIGN_FILETYPE_PLAINTEXT));
+      ret = cie_sign_sign_set(
+          ctx, CIE_SIGN_OPT_INPUTFILE_TYPE,
+          reinterpret_cast<void*>(CIE_SIGN_FILETYPE_PLAINTEXT));
 
       if (ret != 0) {
         throw ret;

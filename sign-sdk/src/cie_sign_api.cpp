@@ -987,7 +987,13 @@ long verify_xml(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
 
   CXAdESVerifier verifier;
 
-  int signatureCount = verifier.Load(pContext->szInputFile);
+  long loadResult = verifier.Load(pContext->szInputFile);
+  LOG_DBG((0, "verify_xml", "Load result: %ld", loadResult));
+  if (loadResult < 0 || loadResult >= 0x80000000L) {
+    LOG_ERR((0, "verify_xml", "Load failed with error: %lx", loadResult));
+    return loadResult;
+  }
+  int signatureCount = (int)loadResult;
 
   pVerifyInfo->pSignerInfos = new SIGNER_INFOS;
   pVerifyInfo->pSignerInfos->nCount = signatureCount;
