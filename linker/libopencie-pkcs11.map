@@ -97,6 +97,7 @@
     cie_reader_count;
     cie_reader_watch;
     cie_reader_name;
+    cie_get_certificate;
 
     /* Android JNI bridge (NFC transport + data dir) */
     cie_set_nfc_tag;

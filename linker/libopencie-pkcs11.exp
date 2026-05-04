@@ -85,3 +85,7 @@ _cie_get_sign_count
 _cie_get_verify_info
 _make_digest_info
 _cie_verify
+_cie_reader_count
+_cie_reader_watch
+_cie_reader_name
+_cie_get_certificate

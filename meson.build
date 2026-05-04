@@ -208,6 +208,7 @@ cie_pkcs11_sources = [
     'pkcs11/src/logger/logger.cpp',
     'pkcs11/src/csp/pin_manager.cpp',
     'pkcs11/src/csp/cie_enable.cpp',
+    'pkcs11/src/csp/cie_get_certificate.cpp',
 ]
 
 # Sign-related sources (require sign SDK; skip on Android)

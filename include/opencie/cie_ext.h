@@ -211,6 +211,22 @@ int CK_ENTRY cie_reader_name(char* buf, int buf_len);
  */
 CK_RV CK_ENTRY cie_extract_p7m(const char* inFilePath, const char* outFilePath);
 
+/**
+ * Retrieve the DER-encoded X.509 certificate for an enrolled CIE card.
+ *
+ * Reads from the local AES-encrypted cache written by cie_enable().
+ * The caller must free *outDer with free() after use.
+ *
+ * @param pan     NUL-terminated PAN string identifying the card.
+ * @param outDer  On success, set to a malloc'd buffer with the DER cert.
+ * @param outLen  On success, set to the byte length of *outDer.
+ * @return CKR_OK on success, CKR_ARGUMENTS_BAD / CKR_DEVICE_ERROR /
+ *         CKR_HOST_MEMORY / CKR_FUNCTION_FAILED otherwise.
+ */
+CK_RV CK_ENTRY cie_get_certificate(const char* pan,
+                                    unsigned char** outDer,
+                                    unsigned long* outLen);
+
 // ---------------------------------------------------------------------------
 // Low-level cryptographic helpers
 // ---------------------------------------------------------------------------
