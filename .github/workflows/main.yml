@@ -217,12 +217,12 @@ jobs:
           echo '=== Exported symbols ==='
           SYMBOLS=$(nm -D output/libopencie-pkcs11-x86_64.so | grep -c ' T ')
           echo "Count: $SYMBOLS"
-          [ "$SYMBOLS" -eq 82 ] || { echo "ERROR: Expected 82 symbols, got $SYMBOLS"; exit 1; }
+          [ "$SYMBOLS" -eq 83 ] || { echo "ERROR: Expected 83 symbols, got $SYMBOLS"; exit 1; }
           echo ''
           echo '=== glibc requirement ==='
           readelf -V output/libopencie-pkcs11-x86_64.so 2>/dev/null | grep -oP 'GLIBC_\S+' | sort -V | tail -1
 
-      - name: Verify aarch64 binary
+        - name: Verify aarch64 binary
         run: |
           echo '=== Dynamic dependencies ==='
           readelf -d output/libopencie-pkcs11-aarch64.so | grep NEEDED
@@ -230,7 +230,7 @@ jobs:
           echo '=== Exported symbols ==='
           SYMBOLS=$(nm -D output/libopencie-pkcs11-aarch64.so | grep -c ' T ')
           echo "Count: $SYMBOLS"
-          [ "$SYMBOLS" -eq 82 ] || { echo "ERROR: Expected 82 symbols, got $SYMBOLS"; exit 1; }
+          [ "$SYMBOLS" -eq 83 ] || { echo "ERROR: Expected 83 symbols, got $SYMBOLS"; exit 1; }
           echo ''
           echo '=== glibc requirement ==='
           readelf -V output/libopencie-pkcs11-aarch64.so 2>/dev/null | grep -oP 'GLIBC_\S+' | sort -V | tail -1

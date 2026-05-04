@@ -6,13 +6,12 @@
 #include <vector>
 
 #include "logger/logger.h"
+#include "pkcs11/pkcs11_functions.h"
 #include "util/cache_lib.h"
 
-extern "C" {
-#include "pkcs11/pkcs11.h"
-}
-
 using namespace CieIDLogger;
+
+extern "C" {
 
 /**
  * @brief Retrieve the DER-encoded X.509 certificate for an enrolled CIE card.
@@ -64,10 +63,12 @@ CK_RV CK_ENTRY cie_get_certificate(const char *pan,
     return CKR_OK;
 
   } catch (const std::exception &e) {
-    LOG_ERROR("cie_get_certificate exception: " << e.what());
+    LOG_ERROR("cie_get_certificate exception: %s", e.what());
     return CKR_FUNCTION_FAILED;
   } catch (...) {
     LOG_ERROR("cie_get_certificate: unknown exception");
     return CKR_FUNCTION_FAILED;
   }
 }
+
+} // extern "C"
