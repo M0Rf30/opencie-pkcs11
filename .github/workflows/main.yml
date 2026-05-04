@@ -222,7 +222,7 @@ jobs:
           echo '=== glibc requirement ==='
           readelf -V output/libopencie-pkcs11-x86_64.so 2>/dev/null | grep -oP 'GLIBC_\S+' | sort -V | tail -1
 
-        - name: Verify aarch64 binary
+      - name: Verify aarch64 binary
         run: |
           echo '=== Dynamic dependencies ==='
           readelf -d output/libopencie-pkcs11-aarch64.so | grep NEEDED
