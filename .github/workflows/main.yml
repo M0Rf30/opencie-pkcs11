@@ -129,10 +129,13 @@ jobs:
       - run: pip install meson ninja
 
       - name: Configure
-        run: meson setup builddir -Dtests=false -Dstrip=true
+        run: meson setup builddir -Dtests=false
 
       - name: Build
         run: meson compile -C builddir
+
+      - name: Strip
+        run: strip builddir/libopencie-pkcs11.so
 
       - name: Scan-build (Clang Static Analyzer)
         run: |
@@ -206,10 +209,13 @@ jobs:
       - name: Configure
         env:
           PKG_CONFIG_LIBDIR: /usr/lib/aarch64-linux-gnu/pkgconfig
-        run: meson setup builddir-arm64 --cross-file toolchains/cross-aarch64.ini -Dtests=false -Dstrip=true
+        run: meson setup builddir-arm64 --cross-file toolchains/cross-aarch64.ini -Dtests=false
 
       - name: Build
         run: meson compile -C builddir-arm64
+
+      - name: Strip
+        run: aarch64-linux-gnu-strip builddir-arm64/libopencie-pkcs11.so
 
       - uses: actions/upload-artifact@v7
         with:
@@ -258,12 +264,15 @@ jobs:
       - name: Configure
         env:
           PKG_CONFIG_LIBDIR: ${{ github.workspace }}/vcpkg/installed/x64-mingw-dynamic/lib/pkgconfig
-        run: meson setup builddir-clang-win --cross-file toolchains/cross-clang-mingw.ini -Dtests=false -Dstrip=true
+        run: meson setup builddir-clang-win --cross-file toolchains/cross-clang-mingw.ini -Dtests=false
 
       - name: Build
         env:
           PKG_CONFIG_LIBDIR: ${{ github.workspace }}/vcpkg/installed/x64-mingw-dynamic/lib/pkgconfig
         run: meson compile -C builddir-clang-win
+
+      - name: Strip
+        run: x86_64-w64-mingw32-strip builddir-clang-win/libopencie-pkcs11.dll
 
       - name: Collect runtime DLL bundle
         run: |
@@ -313,10 +322,13 @@ jobs:
       - name: Configure
         run: >
           PKG_CONFIG_PATH="$(brew --prefix openssl)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix curl)/lib/pkgconfig"
-          meson setup builddir-macos -Dtests=false -Dstrip=true
+          meson setup builddir-macos -Dtests=false
 
       - name: Build
         run: meson compile -C builddir-macos
+
+      - name: Strip
+        run: strip -x builddir-macos/libopencie-pkcs11.dylib
 
       - name: Verify exported symbols
         run: |
@@ -384,7 +396,7 @@ jobs:
           ANDROID_PLATFORM: android-28
           VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg/installed
           VCPKG_TARGET_TRIPLET: arm64-android
-        run: meson setup builddir-android --cross-file toolchains/cross-android-arm64.ini -Dtests=false -Dstrip=true
+        run: meson setup builddir-android --cross-file toolchains/cross-android-arm64.ini -Dtests=false
 
       - name: Build
         env:
@@ -395,6 +407,9 @@ jobs:
           VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg/installed
           VCPKG_TARGET_TRIPLET: arm64-android
         run: meson compile -C builddir-android
+
+      - name: Strip
+        run: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip builddir-android/libopencie-pkcs11.so
 
       - name: Verify binary
         run: |
@@ -461,7 +476,7 @@ jobs:
           ANDROID_PLATFORM: android-28
           VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg/installed
           VCPKG_TARGET_TRIPLET: x64-android
-        run: meson setup builddir-android-x86_64 --cross-file toolchains/cross-android-x86_64.ini -Dtests=false -Dstrip=true
+        run: meson setup builddir-android-x86_64 --cross-file toolchains/cross-android-x86_64.ini -Dtests=false
 
       - name: Build
         env:
@@ -472,6 +487,9 @@ jobs:
           VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg/installed
           VCPKG_TARGET_TRIPLET: x64-android
         run: meson compile -C builddir-android-x86_64
+
+      - name: Strip
+        run: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip builddir-android-x86_64/libopencie-pkcs11.so
 
       - name: Verify binary
         run: |
