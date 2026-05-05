@@ -5,7 +5,11 @@
 #include "util/util.h"
 
 extern CLog Log;
+#ifdef _WIN32
 CSyncroMutex::CSyncroMutex(void) : hMutex(nullptr) {}
+#else
+CSyncroMutex::CSyncroMutex(void) {}
+#endif
 
 #ifdef _WIN32
 

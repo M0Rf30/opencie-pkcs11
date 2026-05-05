@@ -7,12 +7,10 @@
 #include <stdexcept>
 
 BufferedReader::BufferedReader(const ByteDynArray& buffer)
-    : m_buffer(buffer.data(), buffer.data() + buffer.size()),
-      m_position(0),
-      m_eof(false) {}
+    : m_buffer(buffer.data(), buffer.data() + buffer.size()), m_position(0) {}
 
 BufferedReader::BufferedReader(const BYTE* pbtBuffer, int len)
-    : m_buffer(pbtBuffer, pbtBuffer + len), m_position(0), m_eof(false) {}
+    : m_buffer(pbtBuffer, pbtBuffer + len), m_position(0) {}
 
 unsigned int BufferedReader::getPosition() const {
   return static_cast<unsigned int>(m_position);

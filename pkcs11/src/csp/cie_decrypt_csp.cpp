@@ -44,15 +44,9 @@ using namespace CieIDLogger;
 
 #define CARD_PAN_MISMATCH (int)(0x000000F1)
 
-extern "C" {
-CK_RV CK_ENTRY cie_decrypt(const char* inFilePath, const char* pin,
-                           const char* pan, const char* outFilePath,
-                           PROGRESS_CALLBACK progressCallBack);
-}
-
-CK_RV CK_ENTRY cie_decrypt(const char* inFilePath, const char* pin,
-                           const char* pan, const char* outFilePath,
-                           PROGRESS_CALLBACK progressCallBack) {
+extern "C" CK_RV CK_ENTRY cie_decrypt(const char* inFilePath, const char* pin,
+                                      const char* pan, const char* outFilePath,
+                                      PROGRESS_CALLBACK progressCallBack) {
   LOG_INFO("****** Starting cie_decrypt ******");
 
   if (inFilePath == nullptr || pin == nullptr || pan == nullptr ||

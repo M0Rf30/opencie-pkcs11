@@ -36,15 +36,9 @@
 
 using namespace CieIDLogger;
 
-extern "C" {
-CK_RV CK_ENTRY cie_encrypt(const char* pan, const char* inFilePath,
-                           const char* outFilePath,
-                           PROGRESS_CALLBACK progressCallBack);
-}
-
-CK_RV CK_ENTRY cie_encrypt(const char* pan, const char* inFilePath,
-                           const char* outFilePath,
-                           PROGRESS_CALLBACK progressCallBack) {
+extern "C" CK_RV CK_ENTRY cie_encrypt(const char* pan, const char* inFilePath,
+                                      const char* outFilePath,
+                                      PROGRESS_CALLBACK progressCallBack) {
   LOG_INFO("****** Starting cie_encrypt ******");
 
   if (pan == nullptr || inFilePath == nullptr || outFilePath == nullptr) {

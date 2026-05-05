@@ -20,7 +20,9 @@
  * RAII-based locking.
  */
 class CSyncroMutex {
+#ifdef _WIN32
   HANDLE hMutex; /**< Platform-specific mutex handle. */
+#endif
 
  public:
   /** @brief Create an unnamed mutex. */

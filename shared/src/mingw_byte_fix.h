@@ -33,10 +33,12 @@
 
 // Pull full Windows headers while byte is diverted.
 // winsock2.h MUST come before windows.h to avoid redefinition warnings.
-#include <windows.h>
-#include <winscard.h>
+// clang-format off
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <windows.h>
+#include <winscard.h>
+// clang-format on
 
 // Restore LEAN_AND_MEAN for downstream includes (prevents double-inclusion
 // overhead since guards are already set).

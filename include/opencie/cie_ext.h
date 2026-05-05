@@ -32,7 +32,7 @@
 // ---------------------------------------------------------------------------
 #ifndef CK_ENTRY
 #ifdef _WIN32
-#define CK_ENTRY __cdecl
+#define CK_ENTRY __declspec(dllexport)
 #else
 #define CK_ENTRY
 #endif

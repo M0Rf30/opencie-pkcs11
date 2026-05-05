@@ -2,3 +2,8 @@ option('portable',
   type : 'boolean',
   value : false,
   description : 'Build a distro-independent binary by statically linking libstdc++ and libgcc. Use with prefer_static=true and a vcpkg prefix for fully portable builds.')
+
+option('tests',
+  type : 'boolean',
+  value : true,
+  description : 'Build and register Catch2 unit tests. Set to false to skip test compilation (e.g. for cross-builds or release packaging).')

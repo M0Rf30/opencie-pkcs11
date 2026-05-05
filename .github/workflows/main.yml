@@ -72,7 +72,7 @@ jobs:
       - run: pip install meson ninja
 
       - name: Configure
-        run: meson setup builddir
+        run: meson setup builddir -Dtests=false
 
       - name: Build
         run: meson compile -C builddir
@@ -137,7 +137,7 @@ jobs:
       - name: Configure
         env:
           PKG_CONFIG_LIBDIR: /usr/lib/aarch64-linux-gnu/pkgconfig
-        run: meson setup builddir-arm64 --cross-file toolchains/cross-aarch64.ini
+        run: meson setup builddir-arm64 --cross-file toolchains/cross-aarch64.ini -Dtests=false
 
       - name: Build
         run: meson compile -C builddir-arm64
@@ -161,7 +161,7 @@ jobs:
       - name: Install Clang and MinGW toolchain
         run: >
           sudo apt update;
-          sudo apt install -y clang lld mingw-w64
+          sudo apt install -y cmake clang lld mingw-w64
           pkg-config python3-pip
 
       - uses: actions/setup-python@v6
@@ -177,18 +177,19 @@ jobs:
             curl
             cryptopp
             freetype
+            liblzma
             libpng
             libxml2
             openssl
-            podofo
             zlib
           triplet: x64-mingw-dynamic
+          cache-key: windows
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure
         env:
           PKG_CONFIG_LIBDIR: ${{ github.workspace }}/vcpkg/installed/x64-mingw-dynamic/lib/pkgconfig
-        run: meson setup builddir-clang-win --cross-file toolchains/cross-clang-mingw.ini
+        run: meson setup builddir-clang-win --cross-file toolchains/cross-clang-mingw.ini -Dtests=false
 
       - name: Build
         env:
@@ -224,75 +225,6 @@ jobs:
           name: windows-meson-log
           path: builddir-clang-win/meson-logs/meson-log.txt
 
-  portable:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build container image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Containerfile
-          tags: libopencie-builder:latest
-          load: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build portable x86_64 binary
-        run: |
-          mkdir -p output
-          docker run --rm -v $(pwd)/output:/output libopencie-builder:latest x86_64
-
-      - name: Build portable aarch64 binary
-        run: |
-          docker run --rm -v $(pwd)/output:/output libopencie-builder:latest aarch64
-
-      - name: Verify x86_64 binary
-        run: |
-          echo '=== Dynamic dependencies ==='
-          readelf -d output/libopencie-pkcs11-x86_64.so | grep NEEDED
-          echo ''
-          echo '=== Exported symbols ==='
-          SYMBOLS=$(nm -D output/libopencie-pkcs11-x86_64.so | grep -c ' T ')
-          echo "Count: $SYMBOLS"
-          [ "$SYMBOLS" -eq 86 ] || { echo "ERROR: Expected 86 symbols, got $SYMBOLS"; exit 1; }
-          echo ''
-          echo '=== glibc requirement ==='
-          readelf -V output/libopencie-pkcs11-x86_64.so 2>/dev/null | grep -oP 'GLIBC_\S+' | sort -V | tail -1
-
-      - name: Verify aarch64 binary
-        run: |
-          echo '=== Dynamic dependencies ==='
-          readelf -d output/libopencie-pkcs11-aarch64.so | grep NEEDED
-          echo ''
-          echo '=== Exported symbols ==='
-          SYMBOLS=$(nm -D output/libopencie-pkcs11-aarch64.so | grep -c ' T ')
-          echo "Count: $SYMBOLS"
-          [ "$SYMBOLS" -eq 86 ] || { echo "ERROR: Expected 86 symbols, got $SYMBOLS"; exit 1; }
-          echo ''
-          echo '=== glibc requirement ==='
-          readelf -V output/libopencie-pkcs11-aarch64.so 2>/dev/null | grep -oP 'GLIBC_\S+' | sort -V | tail -1
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: linux-x86_64-portable
-          path: output/libopencie-pkcs11-x86_64.so
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: linux-aarch64-portable
-          path: output/libopencie-pkcs11-aarch64.so
-
-      - uses: actions/upload-artifact@v7
-        if: failure()
-        with:
-          name: portable-build-logs
-          path: output/
-
   macos:
     runs-on: macos-latest
     steps:
@@ -301,7 +233,7 @@ jobs:
       - name: Install dependencies
         run: >
           brew install cryptopp curl fontconfig freetype
-          libpng libxml2 openssl podofo
+          libpng libxml2 openssl
 
       - uses: actions/setup-python@v6
         with:
@@ -312,7 +244,7 @@ jobs:
       - name: Configure
         run: >
           PKG_CONFIG_PATH="$(brew --prefix openssl)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix curl)/lib/pkgconfig"
-          meson setup builddir-macos
+          meson setup builddir-macos -Dtests=false
 
       - name: Build
         run: meson compile -C builddir-macos
@@ -383,7 +315,7 @@ jobs:
           ANDROID_PLATFORM: android-28
           VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg/installed
           VCPKG_TARGET_TRIPLET: arm64-android
-        run: meson setup builddir-android --cross-file toolchains/cross-android-arm64.ini
+        run: meson setup builddir-android --cross-file toolchains/cross-android-arm64.ini -Dtests=false
 
       - name: Build
         env:
@@ -460,7 +392,7 @@ jobs:
           ANDROID_PLATFORM: android-28
           VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg/installed
           VCPKG_TARGET_TRIPLET: x64-android
-        run: meson setup builddir-android-x86_64 --cross-file toolchains/cross-android-x86_64.ini
+        run: meson setup builddir-android-x86_64 --cross-file toolchains/cross-android-x86_64.ini -Dtests=false
 
       - name: Build
         env:
@@ -496,7 +428,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     needs:
-      [lint, test, linux, linux-arm64, windows, portable, macos, android, android-x86_64]
+      [lint, test, linux, linux-arm64, windows, macos, android, android-x86_64]
     steps:
       - uses: actions/checkout@v6
 
@@ -511,18 +443,6 @@ jobs:
         with:
           name: linux-aarch64
           path: dist/linux-aarch64
-
-      - name: Download linux-x86_64-portable
-        uses: actions/download-artifact@v8
-        with:
-          name: linux-x86_64-portable
-          path: dist/linux-x86_64-portable
-
-      - name: Download linux-aarch64-portable
-        uses: actions/download-artifact@v8
-        with:
-          name: linux-aarch64-portable
-          path: dist/linux-aarch64-portable
 
       - name: Download windows-x86_64
         uses: actions/download-artifact@v8
@@ -561,8 +481,6 @@ jobs:
           cp dist/linux-x86_64/libopencie-pkcs11.so        release/libopencie-pkcs11-${TAG}-linux-x86_64.so
           cp dist/linux-x86_64/libopencie-sign-sdk.a       release/libopencie-sign-sdk-${TAG}-linux-x86_64.a
           cp dist/linux-aarch64/libopencie-pkcs11.so       release/libopencie-pkcs11-${TAG}-linux-aarch64.so
-          cp dist/linux-x86_64-portable/libopencie-pkcs11-x86_64.so  release/libopencie-pkcs11-${TAG}-linux-x86_64-portable.so
-          cp dist/linux-aarch64-portable/libopencie-pkcs11-aarch64.so release/libopencie-pkcs11-${TAG}-linux-aarch64-portable.so
           cp dist/windows-x86_64/libopencie-pkcs11.dll     release/libopencie-pkcs11-${TAG}-windows-x86_64.dll
           ( cd dist/windows-x86_64-runtime-deps && zip -r "../../release/windows-x86_64-runtime-deps-${TAG}.zip" . )
           cp dist/macos-arm64/libopencie-pkcs11.dylib      release/libopencie-pkcs11-${TAG}-macos-arm64.dylib

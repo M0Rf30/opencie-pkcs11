@@ -4,9 +4,12 @@
 #include "util/log.h"
 
 #ifdef _WIN32
+// clang-format off
+#include <winsock2.h>
 #include <direct.h>
 #include <io.h>
 #include <windows.h>
+// clang-format on
 #else
 #include <pwd.h>
 #include <sys/stat.h>

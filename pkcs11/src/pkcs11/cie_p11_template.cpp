@@ -81,7 +81,8 @@ static HRESULT TokenTransmitCallback(void *data, BYTE *apdu, DWORD apduSize,
 
   auto ris = slot->transport.Transmit(slot->hCard, SCARD_PCI_T1, apdu, apduSize,
                                       resp, respSize);
-  if (ris == SCARD_W_RESET_CARD || ris == SCARD_W_UNPOWERED_CARD) {
+  if (ris == static_cast<LONG>(SCARD_W_RESET_CARD) ||
+      ris == static_cast<LONG>(SCARD_W_UNPOWERED_CARD)) {
     LOG_ERROR("TokenTransmitCallback - Card reset error: %x", ris);
 
     DWORD protocol = 0;

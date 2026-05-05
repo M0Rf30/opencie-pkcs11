@@ -320,21 +320,18 @@ modutil -dbdir sql:$HOME/.pki/nssdb -list
 
 ## CI & Downloads
 
-The single CI badge below reflects the overall workflow status (all matrix
-jobs combined). Per-platform artifacts are produced by the same workflow and
-attached to each tagged release.
+Per-platform artifacts are produced by the CI workflow and attached to each
+tagged release.
 
 | Platform | CI | Latest build |
 |---|---|---|
-| Linux x86\_64 | [![CI](https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml/badge.svg)](https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml) | [.so](https://github.com/M0Rf30/opencie-pkcs11/releases/latest) |
-| Linux aarch64 | ↑ | [.so](https://github.com/M0Rf30/opencie-pkcs11/releases/latest) |
-| Linux x86\_64 portable | ↑ | [.so](https://github.com/M0Rf30/opencie-pkcs11/releases/latest) |
-| Linux aarch64 portable | ↑ | [.so](https://github.com/M0Rf30/opencie-pkcs11/releases/latest) |
-| Windows x86\_64 | ↑ | [.dll](https://github.com/M0Rf30/opencie-pkcs11/releases/latest) |
-| macOS arm64 | ↑ | [.dylib](https://github.com/M0Rf30/opencie-pkcs11/releases/latest) |
-| Android arm64-v8a | ↑ | [.so](https://github.com/M0Rf30/opencie-pkcs11/releases/latest) |
-| Android x86\_64 | ↑ | [.so](https://github.com/M0Rf30/opencie-pkcs11/releases/latest) |
-| Sign SDK (Linux x86\_64) | ↑ | [.a](https://github.com/M0Rf30/opencie-pkcs11/releases/latest) |
+| Linux x86\_64 | [![linux](https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml/badge.svg)](https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml) | [.so](https://github.com/M0Rf30/opencie-pkcs11/releases/latest) |
+| Linux aarch64 | [![linux-arm64](https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml/badge.svg)](https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml) | [.so](https://github.com/M0Rf30/opencie-pkcs11/releases/latest) |
+| Windows x86\_64 | [![windows](https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml/badge.svg)](https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml) | [.dll](https://github.com/M0Rf30/opencie-pkcs11/releases/latest) |
+| macOS arm64 | [![macos](https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml/badge.svg)](https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml) | [.dylib](https://github.com/M0Rf30/opencie-pkcs11/releases/latest) |
+| Android arm64-v8a | [![android](https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml/badge.svg)](https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml) | [.so](https://github.com/M0Rf30/opencie-pkcs11/releases/latest) |
+| Android x86\_64 | [![android-x86\_64](https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml/badge.svg)](https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml) | [.so](https://github.com/M0Rf30/opencie-pkcs11/releases/latest) |
+| Sign SDK (Linux x86\_64) | [![linux](https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml/badge.svg)](https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml) | [.a](https://github.com/M0Rf30/opencie-pkcs11/releases/latest) |
 
 The `Sign SDK` row publishes `libopencie-sign-sdk.a`: the static archive of the
 embedded PDF signing SDK, intended for downstream projects that want to link

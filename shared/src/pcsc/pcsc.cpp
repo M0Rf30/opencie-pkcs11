@@ -141,8 +141,8 @@ readerMonitor::readerMonitor(ISmartCardTransport &transport,
 
         while (!rm->stopMonitor) {
           if (rm->transport.GetStatusChange(rm->hContext, INFINITE,
-                                            states.data(),
-                                            states.size()) == SCARD_E_CANCELLED)
+                                            states.data(), states.size()) ==
+              static_cast<LONG>(SCARD_E_CANCELLED))
             break;
           for (DWORD i = 0; i < states.size(); i++) {
             auto &state = states[i];

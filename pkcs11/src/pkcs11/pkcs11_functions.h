@@ -17,10 +17,10 @@
 #define MAXVAL 0xffffff     ///< Maximum value for PKCS#11 counters.
 #define MAXSESSIONS MAXVAL  ///< Maximum number of concurrent sessions.
 
+#ifndef CK_ENTRY
 #ifdef _WIN32
 #define CK_ENTRY __declspec(dllexport)
 #else
-#ifndef CK_ENTRY
 #define CK_ENTRY __attribute__((visibility("default")))
 #endif
 #endif

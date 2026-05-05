@@ -84,7 +84,8 @@ bool bModuleInit = false;
 #undef CK_PKCS11_FUNCTION_INFO
 
 #ifdef _WIN32
-BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
+BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason,
+                    LPVOID /*lpvReserved*/) {
   switch (fdwReason) {
     case DLL_PROCESS_ATTACH: {
       DisableThreadLibraryCalls(hinstDLL);

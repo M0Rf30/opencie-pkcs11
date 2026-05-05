@@ -17,7 +17,10 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+// clang-format off
+#include <winsock2.h>
 #include <windows.h>
+// clang-format on
 #undef WIN32_LEAN_AND_MEAN
 #define STRICMP _stricmp
 #else

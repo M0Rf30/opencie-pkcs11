@@ -111,8 +111,8 @@ CK_RV CK_ENTRY cie_disable(const char* szPAN) {
   return CKR_FUNCTION_FAILED;
 }
 
-CK_RV CK_ENTRY cie_enable(const char* szPAN, const char* szPIN, int* attempts,
-                          PROGRESS_CALLBACK progressCallBack,
+CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
+                          int* attempts, PROGRESS_CALLBACK progressCallBack,
                           COMPLETED_CALLBACK completedCallBack) {
   char* readers = nullptr;
   char* ATR = nullptr;
@@ -274,12 +274,12 @@ CK_RV CK_ENTRY cie_enable(const char* szPAN, const char* szPIN, int* attempts,
                              reinterpret_cast<BYTE*>(const_cast<char*>(szPIN)),
                              static_cast<DWORD>(strnlen(szPIN, sizeof(szPIN))),
                              nullptr, 0, progressCallBack, attempts);
-      if (rs == SCARD_W_WRONG_CHV) {
+      if (rs == static_cast<LONG>(SCARD_W_WRONG_CHV)) {
         LOG_ERROR("cie_enable - CardAuthenticateEx Wrong Pin");
         free(ATR);
         free(readers);
         return CKR_PIN_INCORRECT;
-      } else if (rs == SCARD_W_CHV_BLOCKED) {
+      } else if (rs == static_cast<LONG>(SCARD_W_CHV_BLOCKED)) {
         LOG_ERROR("cie_enable - CardAuthenticateEx Pin locked");
         free(ATR);
         free(readers);
@@ -550,7 +550,8 @@ HRESULT TokenTransmitCallback(void* data, BYTE* apdu, DWORD apduSize,
   LOG_DEBUG("TokenTransmitCallback - Smart card response:");
   LOG_BUFFER(resp, *respSize);
 
-  if (ris == SCARD_W_RESET_CARD || ris == SCARD_W_UNPOWERED_CARD) {
+  if (ris == static_cast<LONG>(SCARD_W_RESET_CARD) ||
+      ris == static_cast<LONG>(SCARD_W_UNPOWERED_CARD)) {
     LOG_INFO("TokenTransmitCallback - Card Reset done");
 
     DWORD protocol = 0;

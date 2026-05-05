@@ -20,8 +20,11 @@
 #ifndef __CARDMOD__H__
 #define __CARDMOD__H__
 #ifdef WIN32
+// clang-format off
+#include <winsock2.h>
 #include <wincrypt.h>
 #include <windows.h>
+// clang-format on
 #pragma warning(push)
 #pragma warning(disable : 4201)
 // Disable error C4201 in public header

@@ -15,16 +15,9 @@ using namespace CieIDLogger;
 
 VERIFY_RESULT verifyResult;
 
-extern "C" {
-CK_RV CK_ENTRY cie_verify(const char* inFilePath, const char* proxyAddress,
-                          int proxyPort, const char* usrPass);
-CK_RV CK_ENTRY cie_get_sign_count(void);
-CK_RV CK_ENTRY cie_get_verify_info(int index, struct verifyInfo_t* vInfos);
-CK_RV CK_ENTRY cie_extract_p7m(const char* inFilePath, const char* outFilePath);
-}
-
-CK_RV CK_ENTRY cie_verify(const char* inFilePath, const char* proxyAddress,
-                          int proxyPort, const char* usrPass) {
+extern "C" CK_RV CK_ENTRY cie_verify(const char* inFilePath,
+                                     const char* proxyAddress, int proxyPort,
+                                     const char* usrPass) {
   verifyResult = {};
 
   auto verifier = std::make_unique<CIEVerify>();
@@ -53,12 +46,13 @@ CK_RV CK_ENTRY cie_verify(const char* inFilePath, const char* proxyAddress,
   return static_cast<CK_RV>(verifyResult.verifyInfo.pSignerInfos->nCount);
 }
 
-CK_RV CK_ENTRY cie_get_sign_count(void) {
+extern "C" CK_RV CK_ENTRY cie_get_sign_count(void) {
   if (!verifyResult.verifyInfo.pSignerInfos) return 0;
   return static_cast<CK_RV>(verifyResult.verifyInfo.pSignerInfos->nCount);
 }
 
-CK_RV CK_ENTRY cie_get_verify_info(int index, struct verifyInfo_t* vInfos) {
+extern "C" CK_RV CK_ENTRY cie_get_verify_info(int index,
+                                              struct verifyInfo_t* vInfos) {
   if (!verifyResult.verifyInfo.pSignerInfos) return 1;
   if (index < 0 || static_cast<CK_RV>(index) >= cie_get_sign_count()) return 1;
 
@@ -82,8 +76,8 @@ CK_RV CK_ENTRY cie_get_verify_info(int index, struct verifyInfo_t* vInfos) {
   return 0;
 }
 
-CK_RV CK_ENTRY cie_extract_p7m(const char* inFilePath,
-                               const char* outFilePath) {
+extern "C" CK_RV CK_ENTRY cie_extract_p7m(const char* inFilePath,
+                                          const char* outFilePath) {
   auto verifier = std::make_unique<CIEVerify>();
 
   long res = verifier->get_file_from_p7m(inFilePath, outFilePath);

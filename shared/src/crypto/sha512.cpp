@@ -5,7 +5,7 @@
 #include <cryptopp/filters.h>
 #include <cryptopp/sha.h>
 
-CSHA512::CSHA512() : isInit(false), ctx(nullptr) {}
+CSHA512::CSHA512() : ctx(nullptr) {}
 
 CSHA512::~CSHA512() {
   if (ctx) {

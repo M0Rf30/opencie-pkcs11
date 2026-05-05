@@ -22,17 +22,12 @@
 
 using namespace CieIDLogger;
 
-extern "C" {
-CK_RV CK_ENTRY cie_timestamp(const char* inFilePath, const char* tsaUrl,
-                             const char* tsaUsername, const char* tsaPassword,
-                             const char* outTokenPath,
-                             PROGRESS_CALLBACK progressCallBack);
-}
-
-CK_RV CK_ENTRY cie_timestamp(const char* inFilePath, const char* tsaUrl,
-                             const char* tsaUsername, const char* tsaPassword,
-                             const char* outTokenPath,
-                             PROGRESS_CALLBACK progressCallBack) {
+extern "C" CK_RV CK_ENTRY cie_timestamp(const char* inFilePath,
+                                        const char* tsaUrl,
+                                        const char* tsaUsername,
+                                        const char* tsaPassword,
+                                        const char* outTokenPath,
+                                        PROGRESS_CALLBACK progressCallBack) {
   LOG_INFO("****** Starting cie_timestamp ******");
 
   if (inFilePath == nullptr || tsaUrl == nullptr || outTokenPath == nullptr) {

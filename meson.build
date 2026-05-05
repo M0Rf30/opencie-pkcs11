@@ -73,15 +73,50 @@ if build_sign_sdk
   libxml2_dep = dependency('libxml-2.0', required: false)
   xml2_dep = dependency('xml2', required: false)
 
-  podofo_dep = dependency('libpodofo', version: '>=1.0.0', required: false)
+  # liblzma is a transitive dep of libtiff (pulled in by podofo >=1.1.0).
+  # Declare it here so it is linked when podofo is built as a cmake subproject
+  # and libtiff.a is linked statically (portable / cross builds).
+  lzma_dep = dependency('liblzma', required: false)
+
+  podofo_dep = dependency('libpodofo', version: '>=1.1.0', required: false)
   if not podofo_dep.found()
     cmake = import('cmake')
     podofo_opts = cmake.subproject_options()
-    podofo_opts.add_cmake_defines({
+    # If PKG_CONFIG_LIBDIR points into a vcpkg/custom prefix (e.g. portable
+    # builds, cross-compiles), derive CMAKE_PREFIX_PATH from it so that
+    # podofo's find_package(ZLIB), find_package(Freetype), etc. resolve
+    # against the same prefix rather than the system sysroot.
+    pkg_libdir = run_command('sh', '-c', 'echo "${PKG_CONFIG_LIBDIR:-}"',
+                             check: false).stdout().strip()
+    cmake_prefix = ''
+    if pkg_libdir != ''
+      # PKG_CONFIG_LIBDIR is typically <prefix>/lib/pkgconfig; strip two levels.
+      cmake_prefix = run_command('sh', '-c',
+        'echo "$PKG_CONFIG_LIBDIR" | sed "s|/lib/pkgconfig||;s|/lib64/pkgconfig||"',
+        check: false).stdout().strip()
+    endif
+
+    podofo_cmake_defines = {
       'PODOFO_BUILD_STATIC': true,
       'PODOFO_BUILD_LIB_ONLY': true,
       'CMAKE_POSITION_INDEPENDENT_CODE': true,
-    })
+    }
+    if cmake_prefix != ''
+      podofo_cmake_defines += {
+        'CMAKE_PREFIX_PATH': cmake_prefix,
+        # CMake 4.x Find* modules require explicit *_ROOT hints when the
+        # library lives in a non-system prefix (e.g. vcpkg). Without these,
+        # FindZLIB/FindOpenSSL/FindFreetype find the header via CMAKE_PREFIX_PATH
+        # but fail to locate the library because the search order changed.
+        'ZLIB_ROOT': cmake_prefix,
+        'OPENSSL_ROOT_DIR': cmake_prefix,
+        'FREETYPE_DIR': cmake_prefix,
+        'PNG_ROOT': cmake_prefix,
+        'LibLZMA_ROOT': cmake_prefix,
+        'LibXml2_ROOT': cmake_prefix,
+      }
+    endif
+    podofo_opts.add_cmake_defines(podofo_cmake_defines)
     podofo_opts.append_compile_args('cpp', '-fPIC')
     podofo_opts.append_compile_args('c', '-fPIC')
 
@@ -352,7 +387,7 @@ endif
 # Conditional link targets and dependencies based on platform
 if build_sign_sdk
   pkcs11_link_with = [libcie_sign_sdk, libcie_shared]
-  pkcs11_extra_deps = [libxml2_dep, fontconfig_dep, freetype_dep, png_dep, xml2_dep]
+  pkcs11_extra_deps = [libxml2_dep, fontconfig_dep, freetype_dep, png_dep, xml2_dep, lzma_dep]
   # cie_timestamp_csp.cpp / cie_encrypt_csp.cpp need tsa_client.h from sign-sdk
   pkcs11_inc = [inc_so, include_directories('sign-sdk/include', 'sign-sdk/src')]
 else
@@ -377,4 +412,6 @@ install_headers(
     subdir: 'opencie',
 )
 
-subdir('tests')
+if get_option('tests')
+    subdir('tests')
+endif

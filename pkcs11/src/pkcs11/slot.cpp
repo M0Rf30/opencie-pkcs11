@@ -91,7 +91,7 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
         slot[i] = pSlot;
         if ((ris = pSlotMap->begin()->second->transport.GetStatusChange(
                  Context, 0, &state[i], 1)) != S_OK) {
-          if (ris != SCARD_E_TIMEOUT) {
+          if (ris != static_cast<LONG>(SCARD_E_TIMEOUT)) {
             LOG_ERROR("slotMonitor - SCardGetStatusChange error: %08X", ris);
             // don't use ExitThread!!!
             // otherwise I don't call destructors, and everything hangs
@@ -111,27 +111,31 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
       ris = pSlotMap->begin()->second->transport.GetStatusChange(
           Context, 1000, state.data(), static_cast<DWORD>(dwSlotNum));
       if (ris != S_OK) {
-        if (CSlot::bMonitorUpdate || ris == SCARD_E_SYSTEM_CANCELLED ||
-            ris == SCARD_E_SERVICE_STOPPED || ris == SCARD_E_INVALID_HANDLE ||
+        if (CSlot::bMonitorUpdate ||
+            ris == static_cast<LONG>(SCARD_E_SYSTEM_CANCELLED) ||
+            ris == static_cast<LONG>(SCARD_E_SERVICE_STOPPED) ||
+            ris == static_cast<LONG>(SCARD_E_INVALID_HANDLE) ||
             ris == ERROR_INVALID_HANDLE) {
           LOG_DEBUG("slotMonitor - Monitor Update");
           break;
         }
-        if (ris == SCARD_E_CANCELLED || bP11Terminate || !bP11Initialized) {
+        if (ris == static_cast<LONG>(SCARD_E_CANCELLED) || bP11Terminate ||
+            !bP11Initialized) {
           LOG_DEBUG("slotMonitor - Terminate");
           p11slotEvent.set();
           CSlot::ThreadContext = nullptr;
           // no exitThread, vedi sopra;
           return 0;
         }
-        if (ris != SCARD_E_TIMEOUT && ris != SCARD_E_NO_READERS_AVAILABLE) {
+        if (ris != static_cast<LONG>(SCARD_E_TIMEOUT) &&
+            ris != static_cast<LONG>(SCARD_E_NO_READERS_AVAILABLE)) {
           LOG_ERROR("slotMonitor - SCardGetStatusChange error: %08X", ris);
           p11slotEvent.set();
           CSlot::ThreadContext = nullptr;
           // no exitThread, vedi sopra;
           return 1;
         }
-        if (ris == SCARD_E_NO_READERS_AVAILABLE) {
+        if (ris == static_cast<LONG>(SCARD_E_NO_READERS_AVAILABLE)) {
           LOG_INFO("slotMonitor - No smart card reader connected: %08X", ris);
           CSlot::ThreadContext = nullptr;
           // no exitThread, vedi sopra;
@@ -240,7 +244,8 @@ void CSlot::InitSlotList(ISmartCardTransport &transport) {
 
   auto ris = Context.transport.ListReaders(Context, nullptr, &readersLen);
   if (ris != S_OK) {
-    if (ris == SCARD_E_NO_READERS_AVAILABLE || ris == SCARD_E_NO_SERVICE)
+    if (ris == static_cast<LONG>(SCARD_E_NO_READERS_AVAILABLE) ||
+        ris == static_cast<LONG>(SCARD_E_NO_SERVICE))
       return;
     throw windows_error(ris);
   }
@@ -314,7 +319,8 @@ bool CSlot::IsTokenPresent() {
       else
         return false;
     } else {
-      if (ris == SCARD_E_SERVICE_STOPPED || ris == SCARD_E_INVALID_HANDLE ||
+      if (ris == static_cast<LONG>(SCARD_E_SERVICE_STOPPED) ||
+          ris == static_cast<LONG>(SCARD_E_INVALID_HANDLE) ||
           ris == ERROR_INVALID_HANDLE) {
         // I need to get a new context and retry
         if (!retry)
@@ -324,7 +330,7 @@ bool CSlot::IsTokenPresent() {
         Context.renew();
         continue;
       }
-      if (ris == SCARD_E_NO_READERS_AVAILABLE)
+      if (ris == static_cast<LONG>(SCARD_E_NO_READERS_AVAILABLE))
         throw p11_error(CKR_DEVICE_REMOVED);
       throw windows_error(ris);
     }
@@ -590,7 +596,8 @@ void CSlot::Connect() {
     if (ris == SCARD_S_SUCCESS) {
       return;
     } else {
-      if (ris == SCARD_E_SERVICE_STOPPED || ris == SCARD_E_INVALID_HANDLE ||
+      if (ris == static_cast<LONG>(SCARD_E_SERVICE_STOPPED) ||
+          ris == static_cast<LONG>(SCARD_E_INVALID_HANDLE) ||
           ris == ERROR_INVALID_HANDLE) {
         if (!retry)
           retry = true;

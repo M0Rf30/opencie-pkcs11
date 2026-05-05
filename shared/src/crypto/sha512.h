@@ -20,7 +20,6 @@
  * Provides a single-shot Digest() interface; Init/Update/Final are private.
  */
 class CSHA512 {
-  bool isInit;      ///< Whether the hash context has been initialized.
   EVP_MD_CTX *ctx;  ///< OpenSSL EVP message digest context.
 
  public:

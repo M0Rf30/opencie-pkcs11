@@ -7,8 +7,12 @@
 #include <cstdarg>
 
 #ifdef _WIN32
+// clang-format off
+#include <winsock2.h>
 #include <shlwapi.h>
 #include <windows.h>
+// clang-format on
+#undef stat
 #define stat _stat
 #elif defined(__ANDROID__)
 #include <android/log.h>

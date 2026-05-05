@@ -52,7 +52,6 @@ class BufferedReader {
   // Modern C++ member variables
   std::vector<BYTE> m_buffer;       // Owns buffer data (RAII)
   size_t m_position;                // Current read position
-  bool m_eof;                       // End-of-buffer flag
   std::stack<size_t> m_mark_stack;  // Position stack for mark/reset
 
   // Helper methods

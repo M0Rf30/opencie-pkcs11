@@ -12,7 +12,10 @@
 #pragma once
 
 #ifdef _WIN32
+// clang-format off
+#include <winsock2.h>
 #include <windows.h>
+// clang-format on
 #else
 #include "../pcsc/scard_types.h"
 #endif

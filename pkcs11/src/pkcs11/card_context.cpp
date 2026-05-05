@@ -19,8 +19,8 @@ void CCardContext::getContext() {
     // When the Smart Card service (SCardSvr) is not running, treat as a
     // transient condition: leave hContext = 0 and return without throwing so
     // that C_Initialize() can still succeed with an empty slot list.
-    if (_call_ris == SCARD_E_NO_SERVICE ||
-        _call_ris == SCARD_E_NO_READERS_AVAILABLE) {
+    if (_call_ris == static_cast<LONG>(SCARD_E_NO_SERVICE) ||
+        _call_ris == static_cast<LONG>(SCARD_E_NO_READERS_AVAILABLE)) {
       hContext = 0;
       return;
     }

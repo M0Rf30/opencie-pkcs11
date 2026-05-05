@@ -996,7 +996,7 @@ long verify_xml(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
 
   long loadResult = verifier.Load(pContext->szInputFile);
   LOG_DBG((0, "verify_xml", "Load result: %ld", loadResult));
-  if (loadResult < 0 || loadResult >= 0x80000000L) {
+  if (loadResult < 0 || loadResult >= static_cast<long>(0x80000000L)) {
     LOG_ERR((0, "verify_xml", "Load failed with error: %lx", loadResult));
     return loadResult;
   }
@@ -1156,6 +1156,8 @@ long verify_m7m(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
   return verifyTST(tst, pVerifyInfo->pTSInfo, pContext->bVerifyCRL);
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winfinite-recursion"
 int getEmbeddedSignatureCount(CSignedDocument& sd) {
   LOG_DBG((0, "--> getEmbeddedSignatureCount", ""));
 
@@ -1185,6 +1187,7 @@ int getEmbeddedSignatureCount(CSignedDocument& sd) {
     return n;
   }
 }
+#pragma GCC diagnostic pop
 
 SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
                                      CSignerInfo& si, CASN1SetOf& certificates,
@@ -1409,6 +1412,8 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
   return 0;
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winfinite-recursion"
 long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
                             CSignedDocument& sd, VERIFY_INFO* pVerifyInfo) {
   LOG_DBG((0, "--> verify_signed_document 2", "Index: %d", index));
@@ -1634,6 +1639,7 @@ long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
 
   return 0;
 }
+#pragma GCC diagnostic pop
 
 long verify_signed_document(CIE_VERIFY_CONTEXT* pContext, CSignedDocument& sd,
                             VERIFY_INFO* pVerifyInfo) {
