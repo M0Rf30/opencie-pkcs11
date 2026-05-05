@@ -40,6 +40,10 @@ jobs:
 
       - run: pip install meson ninja
 
+      - uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          key: codeql
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
@@ -50,6 +54,9 @@ jobs:
         run: |
           meson setup builddir-codeql -Dtests=false
           meson compile -C builddir-codeql
+        env:
+          CC: ccache gcc
+          CXX: ccache g++
 
       - name: Analyze
         uses: github/codeql-action/analyze@v4
@@ -93,13 +100,21 @@ jobs:
 
       - run: pip install meson ninja
 
+      - uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          key: test
+
       - name: Configure
         run: meson setup builddir-test -Db_sanitize=address,undefined -Db_lundef=false
+        env:
+          CC: ccache gcc
+          CXX: ccache g++
 
       - name: Test
         run: meson test -C builddir-test --print-errorlogs
         env:
-          ASAN_OPTIONS: halt_on_error=1:detect_leaks=0
+          ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
+          LSAN_OPTIONS: suppressions=${{ github.workspace }}/lsan-suppressions.txt
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
 
       - uses: actions/upload-artifact@v7
@@ -128,8 +143,15 @@ jobs:
 
       - run: pip install meson ninja
 
+      - uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          key: linux
+
       - name: Configure
         run: meson setup builddir -Dtests=false
+        env:
+          CC: ccache gcc
+          CXX: ccache g++
 
       - name: Build
         run: meson compile -C builddir
@@ -140,6 +162,7 @@ jobs:
       - name: Scan-build (Clang Static Analyzer)
         run: |
           meson setup builddir-scan -Dtests=false --wipe 2>/dev/null || meson setup builddir-scan -Dtests=false
+          mkdir -p scan-results
           scan-build --status-bugs -o scan-results meson compile -C builddir-scan
         continue-on-error: true
 
@@ -148,6 +171,7 @@ jobs:
         with:
           name: scan-build-results
           path: scan-results/
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v7
         with:
@@ -203,12 +227,18 @@ jobs:
 
       - run: pip install meson ninja
 
+      - uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          key: linux-arm64
+
       - name: Configure cross file
         run: sed -i "s|@SOURCE_ROOT@|${GITHUB_WORKSPACE}|g" toolchains/cross-aarch64.ini
 
       - name: Configure
         env:
           PKG_CONFIG_LIBDIR: /usr/lib/aarch64-linux-gnu/pkgconfig
+          CC: ccache aarch64-linux-gnu-gcc
+          CXX: ccache aarch64-linux-gnu-g++
         run: meson setup builddir-arm64 --cross-file toolchains/cross-aarch64.ini -Dtests=false
 
       - name: Build
@@ -245,6 +275,10 @@ jobs:
 
       - run: pip install meson ninja
 
+      - uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          key: windows
+
       - name: Install vcpkg
         uses: johnwason/vcpkg-action@v8
         with:
@@ -264,6 +298,8 @@ jobs:
       - name: Configure
         env:
           PKG_CONFIG_LIBDIR: ${{ github.workspace }}/vcpkg/installed/x64-mingw-dynamic/lib/pkgconfig
+          CC: ccache clang
+          CXX: ccache clang++
         run: meson setup builddir-clang-win --cross-file toolchains/cross-clang-mingw.ini -Dtests=false
 
       - name: Build
@@ -310,7 +346,7 @@ jobs:
 
       - name: Install dependencies
         run: >
-          brew install cryptopp curl fontconfig freetype
+          brew install --quiet cryptopp curl fontconfig freetype
           libpng libxml2 openssl
 
       - uses: actions/setup-python@v6
@@ -319,9 +355,14 @@ jobs:
 
       - run: pip install meson ninja
 
+      - uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          key: macos
+
       - name: Configure
         run: >
           PKG_CONFIG_PATH="$(brew --prefix openssl)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix curl)/lib/pkgconfig"
+          CC="ccache clang" CXX="ccache clang++"
           meson setup builddir-macos -Dtests=false
 
       - name: Build
