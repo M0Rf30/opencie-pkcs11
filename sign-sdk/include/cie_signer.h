@@ -21,8 +21,8 @@
  */
 class CCIESigner : public CBaseSigner {
  public:
-  CCIESigner(IAS* pIAS);
-  virtual ~CCIESigner(void);
+  explicit CCIESigner(IAS* pIAS);
+  virtual ~CCIESigner(void) override;
 
   /**
    * Initialize the signer by verifying the user PIN on the CIE card.
@@ -34,14 +34,14 @@ class CCIESigner : public CBaseSigner {
 
   /** @copydoc CBaseSigner::GetCertificate */
   virtual long GetCertificate(const char* alias, CCertificate** ppCertificate,
-                              ByteDynArray& id);
+                              ByteDynArray& id) override;
 
   /** @copydoc CBaseSigner::Sign */
   virtual long Sign(ByteDynArray& data, ByteDynArray& id, int algo,
-                    ByteDynArray& signature);
+                    ByteDynArray& signature) override;
 
   /** @copydoc CBaseSigner::Close */
-  virtual long Close();
+  virtual long Close() override;
 
  private:
   IAS* m_pIAS;     /**< IAS interface for card communication. */

@@ -41,7 +41,7 @@ class CRSA {
    * @param mod RSA modulus as a big-endian byte array.
    * @param exp RSA public exponent as a big-endian byte array.
    */
-  CRSA(ByteArray &mod, ByteArray &exp);
+  CRSA(const ByteArray &mod, const ByteArray &exp);
 
   /** @brief Destructor. */
   ~CRSA(void);
@@ -51,7 +51,7 @@ class CRSA {
    * @param data Input data to encrypt/verify (must be smaller than modulus).
    * @return ByteDynArray containing the RSA result.
    */
-  ByteDynArray RSA_PURE(ByteArray &data);
+  ByteDynArray RSA_PURE(const ByteArray &data);
 
   /**
    * @brief Verifies an RSA-PSS signature using SHA-512.
@@ -59,5 +59,5 @@ class CRSA {
    * @param toSign The original message that was signed.
    * @return true if the signature is valid, false otherwise.
    */
-  bool RSA_PSS(ByteArray &signatureData, ByteArray &toSign);
+  bool RSA_PSS(const ByteArray &signatureData, const ByteArray &toSign);
 };

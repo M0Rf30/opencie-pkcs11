@@ -24,7 +24,7 @@
  */
 class SignedDataGeneratorEx {
  public:
-  SignedDataGeneratorEx(CSignedDocument& sd);
+  explicit SignedDataGeneratorEx(CSignedDocument& sd);
 
   virtual ~SignedDataGeneratorEx();
 
@@ -57,6 +57,7 @@ class SignedDataGeneratorEx {
   CASN1SetOf m_certificates;
   CASN1SetOf m_digestAlgos;
 
-  bool addCounterSignature(CSignerInfo& signerInfo, CSignerInfo& signerInfoRef,
-                           CSignerInfo& counterSignature);
+  static bool addCounterSignature(CSignerInfo& signerInfo,
+                                  CSignerInfo& signerInfoRef,
+                                  CSignerInfo& counterSignature);
 };

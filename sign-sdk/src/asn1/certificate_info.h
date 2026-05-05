@@ -33,15 +33,15 @@ class CCertificateInfo : public CASN1Sequence {
    * @brief Parses a TBSCertificate from a DER-encoded stream.
    * @param reader Buffered reader positioned at the TBSCertificate SEQUENCE.
    */
-  CCertificateInfo(BufferedReader& reader);
+  explicit CCertificateInfo(BufferedReader& reader);
 
   /**
    * @brief Constructs a TBSCertificate from an already-parsed ASN.1 object.
    * @param cert Generic ASN.1 object containing TBSCertificate encoding.
    */
-  CCertificateInfo(const CASN1Object& cert);
+  explicit CCertificateInfo(const CASN1Object& cert);
 
-  virtual ~CCertificateInfo();
+  virtual ~CCertificateInfo() override;
 
   /** @brief Returns the certificate version (v1=0, v2=1, v3=2). */
   CASN1Integer getVersion();

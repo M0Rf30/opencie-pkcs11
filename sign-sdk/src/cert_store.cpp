@@ -6,7 +6,6 @@
 
 #include "util/util.h"
 
-
 unsigned long getHash(const char* szKey);
 
 #ifdef WIN32
@@ -24,16 +23,15 @@ std::map<unsigned long, CCertificate*> CCertStore::m_certMap;
 void CCertStore::AddCertificate(CCertificate& certificate) {
   // LOG_DBG((0, "--> CertStore::AddCertificate", ""));
 
-  unsigned long nHash;
-
   try {
+    unsigned long nHash;
     CASN1OctetString subjectKeyIdentifier =
         certificate.getSubjectKeyIdentifier();
 
     if (subjectKeyIdentifier.getLength() > 0) {
-      ByteDynArray* pValue =
-          const_cast<ByteDynArray*>(subjectKeyIdentifier.getValue());
-      const char* szSki = dumpHexData(*pValue).c_str();
+      const ByteDynArray* pValue = subjectKeyIdentifier.getValue();
+      std::string skiHex = dumpHexData(*pValue);
+      const char* szSki = skiHex.c_str();
 
       // LOG_DBG((0, "AddCertificate", "szSki: %s", szSki));
 
@@ -55,9 +53,8 @@ void CCertStore::AddCertificate(CCertificate& certificate) {
 }
 
 CCertificate* CCertStore::GetCertificate(CCertificate& certificate) {
-  unsigned long nHash;
-
   try {
+    unsigned long nHash;
     CASN1OctetString autorityKeyIdentifier =
         certificate.getAuthorithyKeyIdentifier();
 
@@ -66,7 +63,8 @@ CCertificate* CCertStore::GetCertificate(CCertificate& certificate) {
           const_cast<ByteDynArray*>(autorityKeyIdentifier.getValue());
       pValue->set(0, 0x04);
 
-      const char* szAki = dumpHexData(*pValue).c_str();
+      std::string akiHex = dumpHexData(*pValue);
+      const char* szAki = akiHex.c_str();
 
       LOG_DBG((0, "GetCertificate", "szAki: %s", szAki));
 
@@ -101,8 +99,8 @@ void CCertStore::CleanUp() {
 unsigned long getHash(const char* szKey) {
   int h = 0;
   int off = 0;
-  char* val = const_cast<char*>(szKey);
-  int len = strlen(const_cast<char*>(szKey));
+  const char* val = szKey;
+  int len = strlen(szKey);
 
   if (len < 16) {
     for (int i = len; i > 0; i--) {

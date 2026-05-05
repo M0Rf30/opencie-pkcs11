@@ -57,7 +57,7 @@ void PdfSignatureGenerator::InitSignature(
     const char* szName, const char* szNameLabel, const char* szLocation,
     const char* szLocationLabel, const char* szFieldName,
     const char* szSubFilter) {
-  LOG_DBG((0, "quella con tutti 0\n", ""));
+  LOG_DBG((0, "all zeros\n", ""));
   InitSignature(pageIndex, 0, 0, 0, 0, szReason, szReasonLabel, szName,
                 szNameLabel, szLocation, szLocationLabel, szFieldName,
                 szSubFilter);
@@ -69,7 +69,7 @@ void PdfSignatureGenerator::InitSignature(
     const char* szNameLabel, const char* szLocation,
     const char* szLocationLabel, const char* szFieldName,
     const char* szSubFilter) {
-  LOG_DBG((0, "quella senza tutti 0\n", ""));
+  LOG_DBG((0, "not all zeros\n", ""));
   InitSignature(pageIndex, left, bottom, width, height, szReason, szReasonLabel,
                 szName, szNameLabel, szLocation, szLocationLabel, szFieldName,
                 szSubFilter, nullptr, 0, nullptr);
@@ -148,9 +148,9 @@ void PdfSignatureGenerator::InitSignature(
 
     bool streamOk = false;
     {
-      PoDoFo::PdfPainter painter;
+      PoDoFo::PdfPainter painter2;
       try {
-        painter.SetCanvas(*sigXObject);
+        painter2.SetCanvas(*sigXObject);
 
         if (imageData && imageDataLen > 0) {
           auto image = m_pPdfDocument->CreateImage();
@@ -158,8 +158,8 @@ void PdfSignatureGenerator::InitSignature(
               reinterpret_cast<const char*>(imageData), imageDataLen));
           double scaleX = width0 / image->GetWidth();
           double scaleY = height0 / image->GetHeight();
-          painter.DrawImage(*image, 0, 0, std::min(scaleX, scaleY),
-                            std::min(scaleX, scaleY));
+          painter2.DrawImage(*image, 0, 0, std::min(scaleX, scaleY),
+                             std::min(scaleX, scaleY));
         }
 
         if (!signatureStamp.empty()) {
@@ -168,8 +168,8 @@ void PdfSignatureGenerator::InitSignature(
           if (font) {
             PoDoFo::Rect textRect(TXT_PAD, TXT_PAD, width0 - 2 * TXT_PAD,
                                   height0 - 2 * TXT_PAD);
-            painter.TextState.SetFont(*font, FONT_SIZE);
-            painter.DrawTextMultiLine(signatureStamp, textRect);
+            painter2.TextState.SetFont(*font, FONT_SIZE);
+            painter2.DrawTextMultiLine(signatureStamp, textRect);
           }
         }
 
@@ -177,7 +177,7 @@ void PdfSignatureGenerator::InitSignature(
       } catch (...) {
       }
       try {
-        painter.FinishDrawing();
+        painter2.FinishDrawing();
       } catch (...) {
         streamOk = false;
       }

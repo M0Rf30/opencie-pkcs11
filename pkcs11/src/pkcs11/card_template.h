@@ -35,13 +35,13 @@ using templateGetSerialFunc = ByteDynArray (*)(CSlot &pSlot);
 using templateGetModelFunc = void (*)(CSlot &pSlot, std::string &szModel);
 using templateGetTokenFlagsFunc = void (*)(CSlot &pSlot, CK_FLAGS &dwFlags);
 using templateLoginFunc = void (*)(void *pTemplateData, CK_USER_TYPE userType,
-                                   ByteArray &Pin);
+                                   const ByteArray &Pin);
 using templateLogoutFunc = void (*)(void *pTemplateData, CK_USER_TYPE userType);
 using templateReadObjectAttributesFunc = void (*)(void *pCardTemplateData,
                                                   CP11Object *pObject);
 using templateSignFunc = void (*)(void *pCardTemplateData,
                                   CP11PrivateKey *pPrivKey,
-                                  ByteArray &baSignBuffer,
+                                  const ByteArray &baSignBuffer,
                                   ByteDynArray &baSignature,
                                   CK_MECHANISM_TYPE mechanism, bool bSilent);
 using templateSignRecoverFunc = void (*)(
@@ -54,9 +54,11 @@ using templateDecryptFunc = void (*)(void *pCardTemplateData,
                                      CK_MECHANISM_TYPE mechanism, bool bSilent);
 using templateGenerateRandomFunc = void (*)(void *pCardTemplateData,
                                             ByteArray &baRandomData);
-using templateInitPINFunc = void (*)(void *pCardTemplateData, ByteArray &baPin);
+using templateInitPINFunc = void (*)(void *pCardTemplateData,
+                                     const ByteArray &baPin);
 using templateSetPINFunc = void (*)(void *pCardTemplateData,
-                                    ByteArray &baOldPin, ByteArray &baNewPin,
+                                    const ByteArray &baOldPin,
+                                    const ByteArray &baNewPin,
                                     CK_USER_TYPE User);
 using templateGetObjectSizeFunc = CK_ULONG (*)(void *pCardTemplateData,
                                                CP11Object *pObject);

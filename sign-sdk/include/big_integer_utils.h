@@ -73,4 +73,3 @@ BigInteger dataToBigInteger(const T *data, BigInteger::Index length,
   delete[] blocks;
   return x;
 }
-

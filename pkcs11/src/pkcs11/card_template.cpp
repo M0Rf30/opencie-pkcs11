@@ -35,7 +35,7 @@ void CCardTemplate::InitTemplateList() {
   init_func
 
       auto pTemplate = std::make_unique<CCardTemplate>();
-  pTemplate->szName = "CIE";  // "Carta d'Identità Elettronica";
+  pTemplate->szName = "CIE";
   pTemplate->szManifacturer = "";
   pTemplate->FunctionList.templateInitLibrary = CIEtemplateInitLibrary;
   pTemplate->FunctionList.templateInitCard = CIEtemplateInitCard;

@@ -29,13 +29,13 @@ class CRSAPublicKey : public CASN1Sequence {
    * @brief Constructs an RSAPublicKey by reading from a BufferedReader.
    * @param reader The reader positioned at the RSAPublicKey SEQUENCE TLV.
    */
-  CRSAPublicKey(BufferedReader& reader);
+  explicit CRSAPublicKey(BufferedReader& reader);
 
   /**
    * @brief Constructs an RSAPublicKey from a generic ASN.1 object.
    * @param obj The ASN.1 object to reinterpret as an RSAPublicKey.
    */
-  CRSAPublicKey(const CASN1Object& obj);
+  explicit CRSAPublicKey(const CASN1Object& obj);
 
   /**
    * @brief Constructs an RSAPublicKey from modulus and exponent INTEGERs.

@@ -27,7 +27,7 @@ class CRelativeDistinguishedName : public CASN1SetOf {
    * @brief Parses an RDN from a DER-encoded stream.
    * @param reader Buffered reader positioned at the SET.
    */
-  CRelativeDistinguishedName(BufferedReader& reader);
+  explicit CRelativeDistinguishedName(BufferedReader& reader);
 
   /** @brief Constructs an empty RDN. */
   CRelativeDistinguishedName();
@@ -36,7 +36,7 @@ class CRelativeDistinguishedName : public CASN1SetOf {
    * @brief Constructs an RDN from an already-parsed ASN.1 object.
    * @param rname Generic ASN.1 object containing RDN encoding.
    */
-  CRelativeDistinguishedName(const CASN1Object& rname);
+  explicit CRelativeDistinguishedName(const CASN1Object& rname);
 
-  virtual ~CRelativeDistinguishedName();
+  virtual ~CRelativeDistinguishedName() override;
 };

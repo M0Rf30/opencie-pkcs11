@@ -12,10 +12,8 @@ const char* CContentType::OID_TYPE_TSTINFO = "1.2.840.113549.1.9.16.1.4";
 CContentType::CContentType(const CASN1ObjectIdentifier& algoId)
     : CASN1ObjectIdentifier(algoId) {}
 
-CContentType::CContentType(char* lpszOId) : CASN1ObjectIdentifier(lpszOId) {}
-
-CContentType::CContentType(const char* timeStampDataOID)
-    : CASN1ObjectIdentifier(timeStampDataOID) {}
+CContentType::CContentType(const char* lpszOId)
+    : CASN1ObjectIdentifier(lpszOId) {}
 
 CContentType::CContentType(BufferedReader& reader)
     : CASN1ObjectIdentifier(reader) {}

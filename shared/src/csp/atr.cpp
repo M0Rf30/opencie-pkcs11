@@ -54,27 +54,30 @@ bool IsSubset(const std::vector<T>& A, const std::vector<T>& B) {
   std::vector<T> sortedB(B);
   sort(sortedA.begin(), sortedA.end());
   sort(sortedB.begin(), sortedB.end());
-  return includes(sortedA.begin(), sortedA.end(), sortedB.begin(), sortedB.end());
+  return includes(sortedA.begin(), sortedA.end(), sortedB.begin(),
+                  sortedB.end());
 }
 
 string get_manufacturer(const vector<uint8_t>& atr) {
-  for (const cie_atr& el : atr_list) {
-    if (IsSubset(atr, el.atr)) {
-      LOG_INFO("ReadCIEType - get_manufacturer() CIE %s detected",
-               el.type.c_str());
-      return el.type;
-    }
+  auto it =
+      std::find_if(atr_list, atr_list + sizeof(atr_list) / sizeof(atr_list[0]),
+                   [&atr](const cie_atr& el) { return IsSubset(atr, el.atr); });
+  if (it != atr_list + sizeof(atr_list) / sizeof(atr_list[0])) {
+    LOG_INFO("ReadCIEType - get_manufacturer() CIE %s detected",
+             it->type.c_str());
+    return it->type;
   }
   LOG_INFO("ReadCIEType - get_manufacturer() Unkown CIE detected");
   return "";
 }
 
 CIE_Type get_type(const vector<uint8_t>& atr) {
-  for (const cie_atr& el : atr_list) {
-    if (IsSubset(atr, el.atr)) {
-      LOG_INFO("ReadCIEType - cie_type() CIE %s detected", el.type.c_str());
-      return el.cie_type;
-    }
+  auto it =
+      std::find_if(atr_list, atr_list + sizeof(atr_list) / sizeof(atr_list[0]),
+                   [&atr](const cie_atr& el) { return IsSubset(atr, el.atr); });
+  if (it != atr_list + sizeof(atr_list) / sizeof(atr_list[0])) {
+    LOG_INFO("ReadCIEType - cie_type() CIE %s detected", it->type.c_str());
+    return it->cie_type;
   }
   LOG_INFO("ReadCIEType - cie_type() Unkown CIE detected");
   return CIE_Type::CIE_Unknown;

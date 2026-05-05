@@ -50,8 +50,6 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
   std::unique_ptr<char, decltype(&free)> ATR(nullptr, free);
   bool panMismatch = false;
   try {
-    std::map<uint8_t, ByteDynArray> hashSet;
-
     DWORD len = 0;
     ByteDynArray CertCIE;
     ByteDynArray SOD;
@@ -123,7 +121,7 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
       }
       ias->ReadPAN();
 
-      if (!foundCIE) foundCIE = true;
+      foundCIE = true;
       ByteDynArray IntAuth;
       ias->SelectAID_CIE();
       ias->ReadDappPubKey(IntAuth);
@@ -174,7 +172,7 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
       LOG_INFO("cie_sign - completed, res: %d", ret);
 
       // At this point if there has been a pan mismatch doesn't matter
-      if (panMismatch) panMismatch = false;
+      panMismatch = false;
 
       completedCallBack(ret);
 

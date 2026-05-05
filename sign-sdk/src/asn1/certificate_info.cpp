@@ -21,11 +21,11 @@ CAlgorithmIdentifier CCertificateInfo::getSignatureAlgo() {
 CName CCertificateInfo::getIssuer() { return CName(elementAt(3)); }
 
 CASN1UTCTime CCertificateInfo::getExpiration() {
-  return CASN1Sequence(elementAt(4)).elementAt(1);
+  return CASN1UTCTime(CASN1Sequence(elementAt(4)).elementAt(1));
 }
 
 CASN1UTCTime CCertificateInfo::getFrom() {
-  return CASN1Sequence(elementAt(4)).elementAt(0);
+  return CASN1UTCTime(CASN1Sequence(elementAt(4)).elementAt(0));
 }
 
 CASN1Integer CCertificateInfo::getVersion() {
@@ -35,10 +35,10 @@ CASN1Integer CCertificateInfo::getVersion() {
 CName CCertificateInfo::getSubject() { return CName(elementAt(5)); }
 
 CSubjectPublicKeyInfo CCertificateInfo::getSubjectPublicKeyInfo() {
-  return elementAt(6);
+  return CSubjectPublicKeyInfo(elementAt(6));
 }
 
 CASN1Sequence CCertificateInfo::getExtensions() {
   int count = size();
-  return elementAt(count - 1);
+  return CASN1Sequence(elementAt(count - 1));
 }

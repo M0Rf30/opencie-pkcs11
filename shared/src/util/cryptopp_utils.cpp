@@ -136,7 +136,7 @@ void CryptoppUtils::Cert::BERDecodeTime(CryptoPP::BufferedTransformation &bt,
     else
       time = "19" + time;
   }
-  time = time.substr(0, 8) + "T" + time.substr(8);
+  time.insert(8, "T");
 }
 
 void CryptoppUtils::Cert::ReadDateTimeSequence(

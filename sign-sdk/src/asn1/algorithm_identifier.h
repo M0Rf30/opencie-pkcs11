@@ -29,26 +29,26 @@ class CAlgorithmIdentifier : public CASN1Sequence {
    * @brief Constructs an AlgorithmIdentifier from a generic ASN.1 object.
    * @param algoId The ASN.1 object to reinterpret as an AlgorithmIdentifier.
    */
-  CAlgorithmIdentifier(const CASN1Object& algoId);
+  explicit CAlgorithmIdentifier(const CASN1Object& algoId);
 
   /**
    * @brief Constructs an AlgorithmIdentifier by reading from a BufferedReader.
    * @param reader The reader positioned at the AlgorithmIdentifier SEQUENCE
    * TLV.
    */
-  CAlgorithmIdentifier(BufferedReader& reader);
+  explicit CAlgorithmIdentifier(BufferedReader& reader);
 
   /**
    * @brief Constructs an AlgorithmIdentifier from a dotted OID string.
    * @param szObjId Null-terminated OID string (e.g., "1.2.840.113549.1.1.11").
    */
-  CAlgorithmIdentifier(const char* szObjId);
+  explicit CAlgorithmIdentifier(const char* szObjId);
 
   /**
    * @brief Constructs an AlgorithmIdentifier from an OBJECT IDENTIFIER.
    * @param objId The algorithm OID.
    */
-  CAlgorithmIdentifier(const CASN1ObjectIdentifier& objId);
+  explicit CAlgorithmIdentifier(const CASN1ObjectIdentifier& objId);
 
   /**
    * @brief Returns the algorithm OID.

@@ -28,25 +28,25 @@ class CASN1OctetString : public CASN1Object {
    * @brief Constructs an OCTET STRING by reading from a BufferedReader.
    * @param reader The reader positioned at the OCTET STRING TLV.
    */
-  CASN1OctetString(BufferedReader& reader);
+  explicit CASN1OctetString(BufferedReader& reader);
 
   /**
    * @brief Constructs an OCTET STRING from a byte array.
    * @param bOctetString The byte array containing the octet data.
    */
-  CASN1OctetString(const ByteDynArray& bOctetString);
+  explicit CASN1OctetString(const ByteDynArray& bOctetString);
 
   /**
    * @brief Constructs an OCTET STRING from a hex or ASCII string.
    * @param szOctetString Null-terminated string to encode.
    */
-  CASN1OctetString(const char* szOctetString);
+  explicit CASN1OctetString(const char* szOctetString);
 
   /**
    * @brief Constructs an OCTET STRING from a generic ASN.1 object.
    * @param octetString The ASN.1 object to reinterpret as an OCTET STRING.
    */
-  CASN1OctetString(const CASN1Object& octetString);
+  explicit CASN1OctetString(const CASN1Object& octetString);
 
   /**
    * @brief Constructs an OCTET STRING from a raw byte buffer.
@@ -55,5 +55,5 @@ class CASN1OctetString : public CASN1Object {
    */
   CASN1OctetString(const BYTE* value, long len);
 
-  ~CASN1OctetString();
+  virtual ~CASN1OctetString() override;
 };

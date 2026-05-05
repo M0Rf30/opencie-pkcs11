@@ -29,7 +29,7 @@ class CASN1Exception {
    * @brief Constructs an ASN.1 exception with a message.
    * @param lpszMsg Null-terminated error description.
    */
-  CASN1Exception(const char* lpszMsg) : m_lpszMsg(lpszMsg) {}
+  explicit CASN1Exception(const char* lpszMsg) : m_lpszMsg(lpszMsg) {}
 
   virtual ~CASN1Exception() {}
 
@@ -59,7 +59,7 @@ class CASN1ParsingException : public CASN1Exception {
  public:
   CASN1ParsingException() : CASN1Exception("Bad ASN1Object parsed") {}
 
-  virtual ~CASN1ParsingException() {}
+  virtual ~CASN1ParsingException() override {}
 };
 
 /**
@@ -71,10 +71,10 @@ class CASN1ObjectNotFoundException : public CASN1Exception {
    * @brief Constructs with the name of the missing element.
    * @param lpszClass Name or description of the element not found.
    */
-  CASN1ObjectNotFoundException(const char* lpszClass)
+  explicit CASN1ObjectNotFoundException(const char* lpszClass)
       : CASN1Exception(lpszClass) {}
 
-  virtual ~CASN1ObjectNotFoundException() {}
+  virtual ~CASN1ObjectNotFoundException() override {}
 };
 
 /**
@@ -86,9 +86,10 @@ class CASN1BadObjectIdException : public CASN1Exception {
    * @brief Constructs with a description of the OID mismatch.
    * @param strClass Description or expected OID string.
    */
-  CASN1BadObjectIdException(const char* strClass) : CASN1Exception(strClass) {}
+  explicit CASN1BadObjectIdException(const char* strClass)
+      : CASN1Exception(strClass) {}
 
-  virtual ~CASN1BadObjectIdException() {}
+  virtual ~CASN1BadObjectIdException() override {}
 };
 
 /**
@@ -98,5 +99,5 @@ class CBadContentTypeException : public CASN1Exception {
  public:
   CBadContentTypeException() : CASN1Exception("Bad Content Type") {}
 
-  virtual ~CBadContentTypeException() {}
+  virtual ~CBadContentTypeException() override {}
 };

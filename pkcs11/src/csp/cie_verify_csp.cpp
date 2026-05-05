@@ -40,7 +40,7 @@ CK_RV CK_ENTRY cie_verify(const char* inFilePath, const char* proxyAddress,
 
   if (!hasSigners && (ret != 0 || verifyResult.nErrorCode != 0)) {
     long err = verifyResult.nErrorCode != 0 ? verifyResult.nErrorCode : ret;
-    LOG_ERROR("Errore nella verifica: %ld", err);
+    LOG_ERROR("Verification error: %ld", err);
     verifyResult.verifyInfo.pSignerInfos = nullptr;
     return static_cast<CK_RV>(err);
   }

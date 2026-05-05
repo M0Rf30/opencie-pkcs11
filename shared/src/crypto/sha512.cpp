@@ -14,31 +14,8 @@ CSHA512::~CSHA512() {
   }
 }
 
-void CSHA512::Init() {
-  if (ctx) EVP_MD_CTX_free(ctx);
-  ctx = EVP_MD_CTX_new();
-  if (!ctx) throw logged_error("Errore allocazione contesto EVP_MD");
-  if (EVP_DigestInit_ex(ctx, EVP_sha512(), nullptr) != 1)
-    throw logged_error("Errore inizializzazione SHA512");
-  isInit = true;
-}
-void CSHA512::Update(ByteArray data) {
-  if (!isInit) throw logged_error("Hash non inizializzato");
-  EVP_DigestUpdate(ctx, data.data(), data.size());
-}
-ByteDynArray CSHA512::Final() {
-  if (!isInit) throw logged_error("Hash non inizializzato");
-  ByteDynArray resp(SHA512_DIGEST_LENGTH);
-  unsigned int len = 0;
-  EVP_DigestFinal_ex(ctx, resp.data(), &len);
-  resp.resize(len, true);
-  isInit = false;
-
-  return resp;
-}
-
-ByteDynArray CSHA512::Digest(ByteArray& data) {
-  const BYTE* pbData = static_cast<BYTE*>(data.data());
+ByteDynArray CSHA512::Digest(const ByteArray& data) {
+  const BYTE* pbData = static_cast<const BYTE*>(data.data());
   unsigned int nDataLen = data.size();
   BYTE abDigest[CryptoPP::SHA512::DIGESTSIZE];
 
@@ -46,5 +23,5 @@ ByteDynArray CSHA512::Digest(ByteArray& data) {
 
   ByteArray resp(abDigest, CryptoPP::SHA512::DIGESTSIZE);
 
-  return resp;
+  return ByteDynArray(resp);
 }

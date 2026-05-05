@@ -102,7 +102,7 @@ class CToken {
    * @param resp Pointer to a ByteDynArray receiving the response data.
    * @return StatusWord (SW1-SW2) returned by the card.
    */
-  StatusWord Transmit(APDU &apdu, ByteDynArray *resp);
+  StatusWord Transmit(const APDU &apdu, ByteDynArray *resp);
 
   /**
    * @brief Transmits a raw byte-array APDU command to the card.
@@ -110,5 +110,5 @@ class CToken {
    * @param resp Pointer to a ByteDynArray receiving the response data.
    * @return StatusWord (SW1-SW2) returned by the card.
    */
-  StatusWord Transmit(ByteArray apdu, ByteDynArray *resp);
+  StatusWord Transmit(const ByteArray &apdu, ByteDynArray *resp);
 };

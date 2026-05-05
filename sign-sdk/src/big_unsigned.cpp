@@ -138,10 +138,6 @@ void BigUnsigned::add(const BigUnsigned &a, const BigUnsigned &b) {
     return;
   }
   // Some variables...
-  // Carries in and out of an addition stage
-  bool carryIn, carryOut;
-  Blk temp;
-  Index i;
   // a2 points to the longer input, b2 points to the shorter
   const BigUnsigned *a2, *b2;
   if (a.len >= b.len) {
@@ -155,24 +151,28 @@ void BigUnsigned::add(const BigUnsigned &a, const BigUnsigned &b) {
   len = a2->len + 1;
   allocate(len);
   // For each block index that is present in both inputs...
+  bool carryIn = false;
+  Index i;
   for (i = 0, carryIn = false; i < b2->len; i++) {
     // Add input blocks
-    temp = a2->blk[i] + b2->blk[i];
-    // If a rollover occurred, the result is less than either input.
-    // This test is used many times in the BigUnsigned code.
-    carryOut = (temp < a2->blk[i]);
-    // If a carry was input, handle it
-    if (carryIn) {
-      temp++;
-      carryOut |= (temp == 0);
+    {
+      Blk temp_local = a2->blk[i] + b2->blk[i];
+      // If a rollover occurred, the result is less than either input.
+      // This test is used many times in the BigUnsigned code.
+      bool carryOut = (temp_local < a2->blk[i]);
+      // If a carry was input, handle it
+      if (carryIn) {
+        temp_local++;
+        carryOut |= (temp_local == 0);
+      }
+      blk[i] = temp_local;  // Save the addition result
+      carryIn = carryOut;   // Pass the carry along
     }
-    blk[i] = temp;       // Save the addition result
-    carryIn = carryOut;  // Pass the carry along
   }
   // If there is a carry left over, increase blocks until
   // one does not roll over.
   for (; i < a2->len && carryIn; i++) {
-    temp = a2->blk[i] + 1;
+    Blk temp = a2->blk[i] + 1;
     carryIn = (temp == 0);
     blk[i] = temp;
   }
@@ -197,25 +197,26 @@ void BigUnsigned::subtract(const BigUnsigned &a, const BigUnsigned &b) {
     throw "BigUnsigned::subtract: "
         "Negative result in unsigned calculation";
   // Some variables...
-  bool borrowIn, borrowOut;
-  Blk temp;
   Index i;
+  bool borrowIn;
   // Set preliminary length and make room
   len = a.len;
   allocate(len);
   // For each block index that is present in both inputs...
   for (i = 0, borrowIn = false; i < b.len; i++) {
-    temp = a.blk[i] - b.blk[i];
-    // If a reverse rollover occurred,
-    // the result is greater than the block from a.
-    borrowOut = (temp > a.blk[i]);
-    // Handle an incoming borrow
-    if (borrowIn) {
-      borrowOut |= (temp == 0);
-      temp--;
+    {
+      Blk temp_local = a.blk[i] - b.blk[i];
+      // If a reverse rollover occurred,
+      // the result is greater than the block from a.
+      bool borrowOut = (temp_local > a.blk[i]);
+      // Handle an incoming borrow
+      if (borrowIn) {
+        borrowOut |= (temp_local == 0);
+        temp_local--;
+      }
+      blk[i] = temp_local;   // Save the subtraction result
+      borrowIn = borrowOut;  // Pass the borrow along
     }
-    blk[i] = temp;         // Save the subtraction result
-    borrowIn = borrowOut;  // Pass the borrow along
   }
   // If there is a borrow left over, decrease blocks until
   // one does not reverse rollover.
@@ -319,8 +320,6 @@ void BigUnsigned::multiply(const BigUnsigned &a, const BigUnsigned &b) {
   // Variables for the calculation
   Index i, j, k;
   unsigned int i2;
-  Blk temp;
-  bool carryIn, carryOut;
   // Set preliminary length and make room
   len = a.len + b.len;
   allocate(len);
@@ -344,25 +343,28 @@ void BigUnsigned::multiply(const BigUnsigned &a, const BigUnsigned &b) {
        * Instead, this loop runs an additional time with j == b.len.
        * These changes were made on 2005.01.11.
        */
-      for (j = 0, k = i, carryIn = false; j <= b.len; j++, k++) {
-        /*
-         * The body of this loop is very similar to the body of the first loop
-         * in `add', except that this loop does a `+=' instead of a `+'.
-         */
-        temp = blk[k] + getShiftedBlock(b, j, i2);
-        carryOut = (temp < blk[k]);
-        if (carryIn) {
-          temp++;
-          carryOut |= (temp == 0);
+      {
+        bool carryIn = false;
+        for (j = 0, k = i; j <= b.len; j++, k++) {
+          /*
+           * The body of this loop is very similar to the body of the first loop
+           * in `add', except that this loop does a `+=' instead of a `+'.
+           */
+          Blk temp_local = blk[k] + getShiftedBlock(b, j, i2);
+          bool carryOut = (temp_local < blk[k]);
+          if (carryIn) {
+            temp_local++;
+            carryOut |= (temp_local == 0);
+          }
+          blk[k] = temp_local;
+          carryIn = carryOut;
         }
-        blk[k] = temp;
-        carryIn = carryOut;
-      }
-      // No more extra iteration to deal with `bHigh'.
-      // Roll-over a carry as necessary.
-      for (; carryIn; k++) {
-        blk[k]++;
-        carryIn = (blk[k] == 0);
+        // No more extra iteration to deal with `bHigh'.
+        // Roll-over a carry as necessary.
+        for (; carryIn; k++) {
+          blk[k]++;
+          carryIn = (blk[k] == 0);
+        }
       }
     }
   }
@@ -445,9 +447,6 @@ void BigUnsigned::divideWithRemainder(const BigUnsigned &b, BigUnsigned &q) {
    * blocks. */
   // Variables for the calculation
   Index i, j, k;
-  unsigned int i2;
-  Blk temp;
-  bool borrowIn, borrowOut;
 
   /*
    * Make sure we have an extra zero block just past the value.
@@ -482,50 +481,37 @@ void BigUnsigned::divideWithRemainder(const BigUnsigned &b, BigUnsigned &q) {
     // For each possible left-shift of b in bits...
     // (Remember, N is the number of bits in a Blk.)
     q.blk[i] = 0;
-    i2 = N;
-    while (i2 > 0) {
-      i2--;
-      /*
-       * Subtract b, shifted left i blocks and i2 bits, from *this,
-       * and store the answer in subtractBuf.  In the for loop, `k == i + j'.
-       *
-       * Compare this to the middle section of `multiply'.  They
-       * are in many ways analogous.  See especially the discussion
-       * of `getShiftedBlock'.
-       */
-      for (j = 0, k = i, borrowIn = false; j <= b.len; j++, k++) {
-        temp = blk[k] - getShiftedBlock(b, j, i2);
-        borrowOut = (temp > blk[k]);
-        if (borrowIn) {
-          borrowOut |= (temp == 0);
-          temp--;
-        }
-        // Since 2005.01.11, indices of `subtractBuf' directly match those of
-        // `blk', so use `k'.
-        subtractBuf[k] = temp;
-        borrowIn = borrowOut;
-      }
-      // No more extra iteration to deal with `bHigh'.
-      // Roll-over a borrow as necessary.
-      for (; k < origLen && borrowIn; k++) {
-        borrowIn = (blk[k] == 0);
-        subtractBuf[k] = blk[k] - 1;
-      }
-      /*
-       * If the subtraction was performed successfully (!borrowIn),
-       * set bit i2 in block i of the quotient.
-       *
-       * Then, copy the portion of subtractBuf filled by the subtraction
-       * back to *this.  This portion starts with block i and ends--
-       * where?  Not necessarily at block `i + b.len'!  Well, we
-       * increased k every time we saved a block into subtractBuf, so
-       * the region of subtractBuf we copy is just [i, k).
-       */
-      if (!borrowIn) {
-        q.blk[i] |= (static_cast<Blk>(1) << i2);
-        while (k > i) {
-          k--;
-          blk[k] = subtractBuf[k];
+    {
+      unsigned int i2_local = N;
+      while (i2_local > 0) {
+        i2_local--;
+        /*
+         * Subtract b, shifted left i blocks and i2 bits, from *this,
+         * and store the answer in subtractBuf.  In the for loop, `k == i + j'.
+         *
+         * Compare this to the middle section of `multiply'.  They
+         * are in many ways analogous.  See especially the discussion
+         * of `getShiftedBlock'.
+         */
+        {
+          bool borrowIn = false;
+          for (j = 0, k = i; j <= b.len; j++, k++) {
+            Blk temp_local = blk[k] - getShiftedBlock(b, j, i2_local);
+            bool borrowOut = (temp_local > blk[k]);
+            if (borrowIn) {
+              borrowOut |= (temp_local == 0);
+              temp_local--;
+            }
+            subtractBuf[k] = temp_local;
+            borrowIn = borrowOut;
+          }
+          // If the subtraction was successful, set bit i2 of block i of the
+          // quotient.
+          if (!borrowIn) {
+            q.blk[i] |= (static_cast<Blk>(1) << i2_local);
+            // Copy the portion of subtractBuf into blk.
+            for (k = i; k <= origLen; k++) blk[k] = subtractBuf[k];
+          }
         }
       }
     }
@@ -590,7 +576,7 @@ void BigUnsigned::bitXor(const BigUnsigned &a, const BigUnsigned &b) {
 void BigUnsigned::bitShiftLeft(const BigUnsigned &a, int b) {
   DTRT_ALIASED(this == &a, bitShiftLeft(a, b));
   if (b < 0) {
-    if (b << 1 == 0)
+    if (static_cast<unsigned int>(b) << 1 == 0)
       throw "BigUnsigned::bitShiftLeft: "
             "Pathological shift amount not implemented";
     else {
@@ -614,7 +600,7 @@ void BigUnsigned::bitShiftLeft(const BigUnsigned &a, int b) {
 void BigUnsigned::bitShiftRight(const BigUnsigned &a, int b) {
   DTRT_ALIASED(this == &a, bitShiftRight(a, b));
   if (b < 0) {
-    if (b << 1 == 0)
+    if (static_cast<unsigned int>(b) << 1 == 0)
       throw "BigUnsigned::bitShiftRight: "
             "Pathological shift amount not implemented";
     else {

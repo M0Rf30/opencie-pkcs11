@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Gianluca Boiano
 // SPDX-License-Identifier: LGPL-3.0-or-later
 
+#include <algorithm>
 #include <cstddef>
 #include <sstream>
 #ifndef HP_UX
@@ -23,7 +24,7 @@ extern logFunc pfnCrashliticsLog;
 
 using namespace PoDoFo;
 
-PDFVerifier::PDFVerifier() : m_actualLen(0) {}
+PDFVerifier::PDFVerifier() : m_actualLen(0), m_szDocBuffer(nullptr) {}
 
 PDFVerifier::~PDFVerifier() = default;
 
@@ -71,7 +72,7 @@ int PDFVerifier::Load(const char *szFilePath) {
       fclose(f);
     }
     m_actualLen = m_data.size();
-    m_szDocBuffer = (char *)m_data.data();
+    m_szDocBuffer = reinterpret_cast<char *>(m_data.data());
 
     return 0;
   } catch (::PoDoFo::PdfError &err) {
@@ -98,7 +99,7 @@ int PDFVerifier::GetNumberOfSignatures(const char *szFilePath) {
     pfnCrashliticsLog("file loaded");
 
     return GetNumberOfSignatures(&doc);
-  } catch (::PoDoFo::PdfError &err) {
+  } catch (const ::PoDoFo::PdfError &err) {
     return -2;
   } catch (...) {
     return -1;
@@ -217,11 +218,11 @@ int PDFVerifier::VerifySignature(const PdfMemDocument *pDoc,
     // Parse byteRange "[ start0 len0 start1 len1 ]" — strip brackets then parse
     // ints
     std::string cleanRange = byteRange;
-    for (char &c : cleanRange) {
-      if (c == '[' || c == ']') c = ' ';
-    }
-    int _start0_unused, len, start1, len1;
+    std::replace(cleanRange.begin(), cleanRange.end(), '[', ' ');
+    std::replace(cleanRange.begin(), cleanRange.end(), ']', ' ');
+    int len, start1, len1;
     {
+      int _start0_unused;
       std::istringstream brss(cleanRange);
       brss >> _start0_unused >> len >> start1 >> len1;
     }
@@ -334,8 +335,8 @@ int PDFVerifier::GetSignature(size_t index, ByteDynArray &signedDocument,
                       signatureInfo);
 }
 
-int PDFVerifier::GetSignature(const PdfMemDocument *pDoc,
-                              const PdfObject *const pObj,
+int PDFVerifier::GetSignature(const PoDoFo::PdfMemDocument *pDoc,
+                              const PoDoFo::PdfObject *const pObj,
                               ByteDynArray &signedDocument,
                               SignatureAppearanceInfo &appearanceInfo) {
   if (pObj == 0) return -1;

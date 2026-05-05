@@ -32,21 +32,21 @@ class CASN1UTCTime : public CASN1Object {
    * @brief Parses a UTCTime from a DER-encoded stream.
    * @param reader Buffered reader positioned at the UTCTime TLV.
    */
-  CASN1UTCTime(BufferedReader& reader);
+  explicit CASN1UTCTime(BufferedReader& reader);
 
   /**
    * @brief Constructs a UTCTime from a string representation.
    * @param szUTCTime UTC time string (e.g. "YYMMDDHHMMSSZ").
    */
-  CASN1UTCTime(const char* szUTCTime);
+  explicit CASN1UTCTime(const char* szUTCTime);
 
   /**
    * @brief Constructs a UTCTime from an already-parsed ASN.1 object.
    * @param obj Generic ASN.1 object containing UTCTime encoding.
    */
-  CASN1UTCTime(const CASN1Object& obj);
+  explicit CASN1UTCTime(const CASN1Object& obj);
 
-  virtual ~CASN1UTCTime();
+  virtual ~CASN1UTCTime() override;
 
   /**
    * @brief Extracts the time value as a null-terminated string.

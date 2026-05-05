@@ -313,12 +313,12 @@ std::string dumpHexData(ByteArray data);
  *  Apply and remove PKCS#1 v1.5 block type padding.
  *  @{
  */
-void PutPaddingBT0(ByteArray &ba, long dwLen);
+void PutPaddingBT0(const ByteArray &ba, long dwLen);
 void PutPaddingBT1(ByteArray &ba, unsigned long dwLen);
 void PutPaddingBT2(ByteArray &ba, unsigned long dwLen);
-unsigned long RemovePaddingBT1(ByteArray &paddedData);
-unsigned long RemovePaddingBT2(ByteArray &paddedData);
-unsigned long RemoveISOPad(ByteArray &paddedData);
+unsigned long RemovePaddingBT1(const ByteArray &paddedData);
+unsigned long RemovePaddingBT2(const ByteArray &paddedData);
+unsigned long RemoveISOPad(const ByteArray &paddedData);
 /** @} */
 
 /**
@@ -326,24 +326,24 @@ unsigned long RemoveISOPad(ByteArray &paddedData);
  * @param paddedData Data to process.
  * @return Length of remaining data after prefix removal.
  */
-unsigned long RemoveSha1(ByteArray &paddedData);
+unsigned long RemoveSha1(const ByteArray &paddedData);
 
 /**
  * @brief Remove SHA-256 DigestInfo prefix from decrypted signature data.
  * @param paddedData Data to process.
  * @return Length of remaining data after prefix removal.
  */
-unsigned long RemoveSha256(ByteArray &paddedData);
+unsigned long RemoveSha256(const ByteArray &paddedData);
 
 /** @name ISO Padding Functions
  *  Apply and calculate ISO 9797-1 padding.
  *  @{
  */
 unsigned long ANSIPadLen(unsigned long Len);
-void ANSIPad(ByteArray &Data, unsigned long DataLen);
+void ANSIPad(const ByteArray &Data, unsigned long DataLen);
 unsigned long ISOPadLen(unsigned long Len);
 void ISOPad(const ByteArray &Data, unsigned long DataLen);
-long ByteArrayToInt(ByteArray &ba);
+long ByteArrayToInt(const ByteArray &ba);
 ByteDynArray ISOPad(const ByteArray &data);
 ByteDynArray ISOPad16(const ByteArray &data);
 /** @} */
@@ -381,7 +381,7 @@ void Debug(ByteArray ba);
  * @param content Byte array with the tag content.
  * @return Encoded TLV byte array.
  */
-ByteDynArray ASN1Tag(DWORD tag, ByteArray &content);
+ByteDynArray ASN1Tag(DWORD tag, const ByteArray &content);
 
 /**
  * @brief Format a string using printf-style arguments.
@@ -405,7 +405,7 @@ class scopeExitClass {
 
  public:
   /** @brief Construct with a callable to invoke on scope exit. */
-  scopeExitClass(t in_o) : o(std::move(in_o)) {}
+  explicit scopeExitClass(t in_o) : o(std::move(in_o)) {}
 
   /** @brief Move constructor. Disarms the source guard. */
   scopeExitClass(scopeExitClass &&se) : o(se.o) { se.toDelete = false; };

@@ -3,50 +3,33 @@
 
 #include <cryptopp/base64.h>
 #include <cryptopp/cryptlib.h>
-#include <vector>
+#include <cryptopp/filters.h>
 
 #include "util/definitions.h"
 
 extern CLog Log;
-#if (CRYPTOPP_VERSION >= 600) && (__cplusplus >= 201103L)
-using byte = CryptoPP::byte;
-#else
-typedef unsigned char byte;
-#endif
 
 CBase64::CBase64() {}
 
 CBase64::~CBase64() {}
 
-std::string &CBase64::Encode(ByteArray &data, std::string &encodedData) {
-  init_func CryptoPP::ArraySink sink;
-  CryptoPP::Base64Encoder encoder(&sink, false);
-  CryptoPP::StringSource(data.data(), data.size(), true, &encoder);
-
-  std::vector<byte> encoded(sink.AvailableSize());
-
-  sink.Get(encoded.data(), encoded.size());
-  encodedData.append(reinterpret_cast<char *>(encoded.data()), encoded.size());
-
+std::string &CBase64::Encode(const ByteArray &data, std::string &encodedData) {
+  init_func std::string encoded;
+  CryptoPP::StringSource(
+      data.data(), data.size(), true,
+      new CryptoPP::Base64Encoder(new CryptoPP::StringSink(encoded), false));
+  encodedData.append(encoded);
   return encodedData;
   exit_func
 }
 
 ByteDynArray &CBase64::Decode(const char *encodedData, ByteDynArray &data) {
-  init_func
-
-      CryptoPP::ArraySink sink;
-  CryptoPP::Base64Decoder decoder(&sink);
-  CryptoPP::StringSource((BYTE *)encodedData, strlen(encodedData), true,
-                         &decoder);
-
-  std::vector<byte> decoded(sink.AvailableSize());
-
-  sink.Get(decoded.data(), decoded.size());
-  ByteArray decodedBa(static_cast<BYTE *>(decoded.data()), decoded.size());
-
+  init_func std::string decoded;
+  CryptoPP::StringSource(
+      reinterpret_cast<const BYTE *>(encodedData), strlen(encodedData), true,
+      new CryptoPP::Base64Decoder(new CryptoPP::StringSink(decoded)));
+  ByteArray decodedBa(reinterpret_cast<BYTE *>(decoded.data()), decoded.size());
   data.append(decodedBa);
-
   return data;
   exit_func
 }

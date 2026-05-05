@@ -46,17 +46,17 @@ class BigInteger {
   BigInteger(const BigUnsigned &x, Sign s);
 
   // Nonnegative constructor from a BigUnsigned
-  BigInteger(const BigUnsigned &x) : mag(x) {
+  explicit BigInteger(const BigUnsigned &x) : mag(x) {
     sign = mag.isZero() ? zero : positive;
   }
 
   // Constructors from primitive integer types
-  BigInteger(unsigned long x);
-  BigInteger(long x);
-  BigInteger(unsigned int x);
-  BigInteger(int x);
-  BigInteger(unsigned short x);
-  BigInteger(short x);
+  explicit BigInteger(unsigned long x);
+  explicit BigInteger(long x);
+  explicit BigInteger(unsigned int x);
+  explicit BigInteger(int x);
+  explicit BigInteger(unsigned short x);
+  explicit BigInteger(short x);
 
   /* Converters to primitive integer types
    * The implicit conversion operators caused trouble, so these are now
@@ -203,4 +203,3 @@ inline void BigInteger::operator%=(const BigInteger &x) {
 }
 // This one is trivial
 inline void BigInteger::flipSign() { sign = Sign(-sign); }
-

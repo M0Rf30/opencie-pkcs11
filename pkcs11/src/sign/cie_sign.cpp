@@ -28,8 +28,8 @@ uint16_t CIESign::sign(const char* inFilePath, const char* type,
     if (ret != 0) {
       throw ret;
     }
-    ret =
-        cie_sign_sign_set(ctx, CIE_SIGN_OPT_CADES, reinterpret_cast<void*>(1));
+    ret = cie_sign_sign_set(ctx, CIE_SIGN_OPT_CADES,
+                            reinterpret_cast<void*>(static_cast<uintptr_t>(1)));
     if (ret != 0) {
       throw ret;
     }
@@ -53,7 +53,8 @@ uint16_t CIESign::sign(const char* inFilePath, const char* type,
 
     if (strcmp(type, "xml") == 0) {
       ret = cie_sign_sign_set(ctx, CIE_SIGN_OPT_INPUTFILE_TYPE,
-                              reinterpret_cast<void*>(CIE_SIGN_FILETYPE_XML));
+                              reinterpret_cast<void*>(static_cast<uintptr_t>(
+                                  CIE_SIGN_FILETYPE_XML)));
       if (ret != 0) {
         throw ret;
       }
@@ -116,7 +117,8 @@ uint16_t CIESign::sign(const char* inFilePath, const char* type,
       }
 
       ret = cie_sign_sign_set(ctx, CIE_SIGN_OPT_INPUTFILE_TYPE,
-                              reinterpret_cast<void*>(CIE_SIGN_FILETYPE_PDF));
+                              reinterpret_cast<void*>(static_cast<uintptr_t>(
+                                  CIE_SIGN_FILETYPE_PDF)));
       if (ret != 0) {
         throw ret;
       }

@@ -12,7 +12,6 @@
 #include "asn1/certificate.h"
 #include "crypto/base64.h"
 
-
 CSignedDocument::CSignedDocument(const BYTE* content, int len) {
   LOG_DBG((0, "--> CSignedDocument", "CSignedDocument: %d", len));
 
@@ -77,13 +76,13 @@ void CSignedDocument::toByteArray(ByteDynArray& signedData) {
   m_pCMSSignedData->toByteArray(signedData);
 }
 
-CSignedDocument::CSignedDocument(const CSignedDocument& CSignedDocument) {
-  m_pCMSSignedData =
-      std::make_unique<CContentInfo>(*CSignedDocument.m_pCMSSignedData);
-  m_pSignedData = std::make_unique<CSignedData>(*m_pCMSSignedData->getValue());
-  m_signerInfos = m_pSignedData->getSignerInfos();
-  m_certificates = m_pSignedData->getCertificates();
-}
+CSignedDocument::CSignedDocument(const CSignedDocument& CSignedDocument)
+    : m_pCMSSignedData(
+          std::make_unique<CContentInfo>(*CSignedDocument.m_pCMSSignedData)),
+      m_pSignedData(
+          std::make_unique<CSignedData>(*m_pCMSSignedData->getValue())),
+      m_signerInfos(m_pSignedData->getSignerInfos()),
+      m_certificates(m_pSignedData->getCertificates()) {}
 
 CSignedDocument::~CSignedDocument() = default;
 
@@ -105,7 +104,7 @@ int CSignedDocument::verify() { return verify(nullptr); }
 
 int CSignedDocument::verify(const char* dateTime) {
   int bitmask = 0;
-  // verifica la firma per ciascun signer
+  // Verify the signature for each signer
   for (size_t i = 0; i < m_signerInfos.size(); i++) {
     bitmask |= verify(static_cast<int>(i), dateTime, nullptr);
   }
@@ -130,7 +129,7 @@ int CSignedDocument::verify(int i, const char* dateTime,
 int CSignedDocument::getSignerCount() { return m_signerInfos.size(); }
 
 CSignerInfo CSignedDocument::getSignerInfo(int index) {
-  return m_signerInfos.elementAt(index);
+  return CSignerInfo(m_signerInfos.elementAt(index));
 }
 
 void CSignedDocument::getContent(ByteDynArray& content) {
@@ -152,13 +151,13 @@ void CSignedDocument::getContent(ByteDynArray& content) {
 }
 
 CCertificate CSignedDocument::getSignerCertificate(int index) {
-  CSignerInfo sinfo = m_signerInfos.elementAt(index);
+  CSignerInfo sinfo(m_signerInfos.elementAt(index));
 
   CIssuerAndSerialNumber issuerAndSerialNumber =
       sinfo.getIssuerAndSerialNumber();
 
   for (size_t i = 0; i < m_certificates.size(); i++) {
-    CCertificate cert = m_certificates.elementAt(i);
+    CCertificate cert(m_certificates.elementAt(i));
     CName issuer = cert.getIssuer();
     CASN1Integer serialNumber = cert.getSerialNumber();
 
@@ -187,7 +186,7 @@ int CSignedDocument::get452009Range(char* szDateTime) {
 
       CASN1UTCTime dateTime(szDateTime);
 
-      // verifica 30 giugno 2011
+      // Check against June 30, 2011 cutoff date
       int len = dateTime.getLength() > trentaGiugno2011.getLength()
                     ? trentaGiugno2011.getLength()
                     : dateTime.getLength();

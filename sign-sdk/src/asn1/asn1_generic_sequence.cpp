@@ -6,7 +6,10 @@
 #include "asn1_exception.h"
 
 CASN1GenericSequence::CASN1GenericSequence(BYTE btTag)
-    : m_pnOffsets(nullptr), m_nOffsetsMax(MAXSIZE), m_nSize(0) {
+    : m_pnOffsets(nullptr),
+      m_nOffsetsMax(MAXSIZE),
+      m_nSize(0),
+      m_nextOffset(0) {
   m_pnOffsets = static_cast<unsigned int*>(
       calloc(m_nOffsetsMax + 2, sizeof(m_pnOffsets[0])));
   setTag(btTag);
@@ -16,7 +19,8 @@ CASN1GenericSequence::CASN1GenericSequence(BufferedReader& reader)
     : CASN1Object(reader),
       m_pnOffsets(nullptr),
       m_nOffsetsMax(MAXSIZE),
-      m_nSize(0) {
+      m_nSize(0),
+      m_nextOffset(0) {
   m_pnOffsets = static_cast<unsigned int*>(
       calloc(m_nOffsetsMax + 2, sizeof(m_pnOffsets[0])));
   m_nSize = makeOffset();
@@ -26,7 +30,8 @@ CASN1GenericSequence::CASN1GenericSequence(const ByteDynArray& content)
     : CASN1Object(content),
       m_pnOffsets(nullptr),
       m_nOffsetsMax(MAXSIZE),
-      m_nSize(0) {
+      m_nSize(0),
+      m_nextOffset(0) {
   m_pnOffsets = static_cast<unsigned int*>(
       calloc(m_nOffsetsMax + 2, sizeof(m_pnOffsets[0])));
   m_nSize = makeOffset();
@@ -36,7 +41,8 @@ CASN1GenericSequence::CASN1GenericSequence(const CASN1Object& obj)
     : CASN1Object(obj),
       m_pnOffsets(nullptr),
       m_nOffsetsMax(MAXSIZE),
-      m_nSize(0) {
+      m_nSize(0),
+      m_nextOffset(0) {
   m_pnOffsets = static_cast<unsigned int*>(
       calloc(m_nOffsetsMax + 2, sizeof(m_pnOffsets[0])));
   m_nSize = makeOffset();
@@ -46,7 +52,8 @@ CASN1GenericSequence::CASN1GenericSequence(const CASN1GenericSequence& obj)
     : CASN1Object(obj),
       m_pnOffsets(nullptr),
       m_nOffsetsMax(MAXSIZE),
-      m_nSize(0) {
+      m_nSize(0),
+      m_nextOffset(0) {
   m_pnOffsets = static_cast<unsigned int*>(
       calloc(m_nOffsetsMax + 2, sizeof(m_pnOffsets[0])));
   m_nSize = makeOffset();
@@ -56,7 +63,8 @@ CASN1GenericSequence::CASN1GenericSequence(const BYTE* value, long len)
     : CASN1Object(value, len),
       m_pnOffsets(nullptr),
       m_nOffsetsMax(MAXSIZE),
-      m_nSize(0) {
+      m_nSize(0),
+      m_nextOffset(0) {
   m_pnOffsets = static_cast<unsigned int*>(
       calloc(m_nOffsetsMax + 2, sizeof(m_pnOffsets[0])));
   m_nSize = makeOffset();
@@ -75,6 +83,7 @@ CASN1GenericSequence& CASN1GenericSequence::operator=(
   return *this;
 }
 
+// cppcheck-suppress duplInheritedMember
 void CASN1GenericSequence::fromByteArray(const ByteDynArray& content) {
   BufferedReader reader(content);
 
@@ -257,7 +266,7 @@ int CASN1GenericSequence::makeOffset() {
     }
     m_pnOffsets[i] = offset;
 
-    // oggetto corrente
+    // Current object
     try {
       CASN1Object currentObj(pContent->data() + offset,
                              pContent->size() - offset + 1);

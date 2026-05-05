@@ -156,12 +156,12 @@ class ByteArray {
    */
   ByteArray revmid(size_t toend, size_t size) const;
   /**
-   * @brief Search for @p data within this array.
+   * @brief Search for a sub-array within this array.
    * @param[in]  data     Sub-array to find.
    * @param[out] position Set to the first match index on success.
    * @return true if found.
    */
-  bool indexOf(ByteArray &data, size_t &position) const;
+  bool indexOf(const ByteArray &data, size_t &position) const;
 
   /** @brief Interpret the bytes as ASCII decimal digits and convert to int. */
   int atoi() const;
@@ -200,18 +200,18 @@ class ByteDynArray : public ByteArray {
   /** @brief Construct an empty (null) owning array. */
   ByteDynArray();
   /** @brief Deep-copy construct from a non-owning ByteArray. */
-  ByteDynArray(const ByteArray &src);
+  explicit ByteDynArray(const ByteArray &src);
   /** @brief Deep-copy construct from another ByteDynArray. */
   ByteDynArray(const ByteDynArray &src);
   /** @brief Allocate an uninitialized buffer of @p size bytes. */
-  ByteDynArray(size_t size);
+  explicit ByteDynArray(size_t size);
   /** @brief Construct by parsing a hex string (e.g. "0A 1B 2C"). */
-  ByteDynArray(const std::string &hexdata);
+  explicit ByteDynArray(const std::string &hexdata);
   /** @brief Move constructor — transfers ownership, leaves @p src empty. */
   ByteDynArray(ByteDynArray &&src);
 
   /** @brief Destructor — frees the owned buffer. */
-  ~ByteDynArray();
+  ~ByteDynArray() override;
   /** @brief Deep-copy assignment operator. */
   ByteDynArray &operator=(const ByteDynArray &src);
   /** @brief Move assignment — transfers ownership. */
@@ -237,22 +237,23 @@ class ByteDynArray : public ByteArray {
   uint8_t *detach();
 
  private:
-  size_t internalSet(ByteArray *ba, uint8_t data) {
+  static size_t internalSet(ByteArray *ba, uint8_t data) {
     if (ba != nullptr) (*ba)[0] = data;
     return 1;
   }
 
-  size_t internalSet(ByteArray *ba, const ByteArray *data) {
-    if (ba != nullptr) ba->copy(*data);
+  static size_t internalSet(const ByteArray *ba, const ByteArray *data) {
+    if (ba != nullptr) const_cast<ByteArray *>(ba)->copy(*data);
     return data->size();
   }
 
-  size_t internalSet(ByteArray *ba, const std::string &data) {
-    if (ba != nullptr) return setHexData(data, ba->data());
+  static size_t internalSet(const ByteArray *ba, const std::string &data) {
+    if (ba != nullptr)
+      return setHexData(data, const_cast<ByteArray *>(ba)->data());
     return countHexData(data);
   }
 
-  size_t internalSet(ByteArray * /*ba*/) { return 0; }
+  static size_t internalSet(ByteArray * /*ba*/) { return 0; }
 
  public:
   /**
@@ -292,14 +293,15 @@ class ByteDynArray : public ByteArray {
 
   /** @brief Build an ASN.1 TLV from @p tag and @p content, storing result in
    * this array. */
-  ByteDynArray &setASN1Tag(unsigned int tag, ByteArray &content);
+  ByteDynArray &setASN1Tag(unsigned int tag, const ByteArray &content);
   /** @brief Load the entire contents of file @p fname into this array. */
   void load(const char *fname);
 };
 
 /** @brief Create a ByteArray view over a local variable. */
-#define VarToByteArray(a) (ByteArray((uint8_t *)&(a), sizeof(a)))
+#define VarToByteArray(a) \
+  (ByteArray(reinterpret_cast<uint8_t *>(&(a)), sizeof(a)))
 /** @brief Create an owning ByteDynArray copy of a local variable. */
 #define VarToByteDynArray(a) (ByteDynArray(VarToByteArray(a)))
 /** @brief Reinterpret a ByteArray's data as a value of type @p b. */
-#define ByteArrayToVar(a, b) (*(b *)(a).data())
+#define ByteArrayToVar(a, b) (*(reinterpret_cast<b *>((a).data())))

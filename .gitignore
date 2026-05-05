@@ -16,6 +16,7 @@ meson-logs/
 meson-private/
 subprojects/packagecache/
 output/
+subprojects/Catch2-*/
 subprojects/PCSC-*/
 subprojects/podofo-*/
 subprojects/.wraplock

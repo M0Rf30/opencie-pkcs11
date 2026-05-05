@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #include "asn_parser.h"
 
+#include <algorithm>
+#include <numeric>
+
 #include "util/array.h"
 
 extern CLog Log;
 
 #define BitValue(a, b) ((a >> b) & 1)
 
-size_t GetASN1DataLenght(ByteArray &data) {
+size_t GetASN1DataLenght(const ByteArray &data) {
   size_t l = 1;
-  uint8_t *cur = data.data();
+  const uint8_t *cur = data.data();
 
   size_t len = 0;
   uint8_t curv = cur[0];
@@ -18,7 +21,7 @@ size_t GetASN1DataLenght(ByteArray &data) {
     while (true) {
       l++;
       cur++;
-      if (l >= data.size()) throw logged_error("lunghezza eccessiva nell'ASN1");
+      if (l >= data.size()) throw logged_error("Excessive length in ASN.1");
       curv = cur[0];
       if ((curv & 0x80) != 0x80) break;
     }
@@ -49,26 +52,21 @@ size_t CASNTag::ContentLen() {
   if (!isSequence())
     return content.size();
   else {
-    size_t len = 0;
-    for (const auto& tag : tags)
-      len += tag->EncodeLen();
-    return len;
+    return std::accumulate(
+        tags.begin(), tags.end(), size_t(0),
+        [](size_t sum, const auto &tag2) { return sum + tag2->EncodeLen(); });
   }
 }
 
 size_t CASNTag::tagInt() {
-  size_t intVal = 0;
-  for (const auto& byte : tag) {
-    intVal = (intVal << 8) | byte;
-  }
-  return intVal;
+  return std::accumulate(
+      tag.begin(), tag.end(), size_t(0),
+      [](size_t val, uint8_t byte) { return (val << 8) | byte; });
 }
 
 void CASNTag::Reparse() {
   CASNParser parser;
-  // se è una bit string salto il numero di bit non usati
-  // attenzione in encode! non memorizzo il numero di bit non usati, quindi non
-  // posso ricostruirl'array originale! quindi lancio un'eccezione
+  // For bit strings, skip the unused-bits count byte
   if (tag.size() == 1 && tag[0] == 3) {
     ByteArray input(content.mid(1));
     parser.Parse(input);
@@ -76,8 +74,7 @@ void CASNTag::Reparse() {
     parser.Parse(content);
   if (parser.tags.size() > 0) {
     forcedSequence = true;
-    for (auto& t : parser.tags)
-      tags.emplace_back(std::move(t));
+    std::move(parser.tags.begin(), parser.tags.end(), std::back_inserter(tags));
     parser.tags.clear();
     content.clear();
   }
@@ -93,22 +90,22 @@ size_t CASNTag::EncodeLen() {
 void CASNTag::Encode(ByteArray &data, size_t &len) {
   int tlen = static_cast<int>(tag.size());
   if (tlen == 1 && tag[0] == 3 && forcedSequence)
-    throw logged_error("Bit string reparsed non gestite in encode!");
+    throw logged_error("Bit string reparsed not handled in encode!");
   data.copy(ByteArray(&tag[0], tlen));
   size_t clen = ContentLen();
   size_t llen = ASN1LLength(clen);
-  ByteArray input(data.mid(tlen));
-  putASN1Length(clen, input);
+  ByteArray input2(data.mid(tlen));
+  putASN1Length(clen, input2);
 
   if (!isSequence()) {
     data.mid(tlen + llen).copy(content);
     len = tlen + llen + clen;
   } else {
     size_t ptrPos = tlen + llen;
-    for (const auto& tag : tags) {
+    for (const auto &tag2 : tags) {
       size_t taglen;
-      ByteArray input(data.mid(ptrPos));
-      tag->Encode(input, taglen);
+      ByteArray cur_input(data.mid(ptrPos));
+      tag2->Encode(cur_input, taglen);
       ptrPos += taglen;
     }
     len = ptrPos;
@@ -117,20 +114,20 @@ void CASNTag::Encode(ByteArray &data, size_t &len) {
 
 CASNTag &CASNTag::Child(std::size_t num, uint8_t tag) {
   if (num >= tags.size())
-    throw logged_error("Errore nella verifica della struttura ASN1");
+    throw logged_error("ASN.1 structure verification error");
   if (tags[num]->tag.size() == 1 && tags[num]->tag[0] == tag)
     return *tags[num];
   else
-    throw logged_error("Errore nella verifica del tag ASN1");
+    throw logged_error("ASN.1 tag verification error");
 }
 CASNTag &CASNTag::CheckTag(uint8_t checkTag) {
   if (tag.size() != 1 || tag[0] != checkTag)
-    throw logged_error("Errore nella verifica del tag ASN1");
+    throw logged_error("ASN.1 tag verification error");
   return *this;
 }
 void CASNTag::Verify(ByteArray checkContent) {
   if (content != checkContent)
-    throw logged_error("Errore nella verifica del tag ASN1");
+    throw logged_error("ASN.1 tag verification error");
 }
 
 CASNTag::CASNTag(void) {
@@ -142,15 +139,14 @@ CASNTag::CASNTag(void) {
 CASNParser::CASNParser(void) {}
 
 size_t CASNParser::CalcLen() {
-  size_t len = 0;
-  for (const auto& tag : tags)
-    len += tag->EncodeLen();
-  return len;
+  return std::accumulate(
+      tags.begin(), tags.end(), size_t(0),
+      [](size_t sum, const auto &tag) { return sum + tag->EncodeLen(); });
 }
 
-void CASNParser::Encode(ByteArray &data, CASNTagArray &tags) {
+void CASNParser::Encode(const ByteArray &data, const CASNTagArray &tags) {
   size_t ptrPos = 0;
-  for (const auto& tag : tags) {
+  for (const auto &tag : tags) {
     size_t len;
     ByteArray input(data.mid(ptrPos));
     tag->Encode(input, len);
@@ -164,12 +160,13 @@ void CASNParser::Encode(ByteDynArray &data) {
   Encode(data, tags);
 }
 
-void CASNParser::Parse(ByteArray &data) {
+void CASNParser::Parse(const ByteArray &data) {
   init_func tags.clear();
   Parse(data, tags, 0);
 }
 
-void CASNParser::Parse(ByteArray &data, CASNTagArray &tags, size_t startseq) {
+void CASNParser::Parse(const ByteArray &data, CASNTagArray &tags,
+                       size_t startseq) {
   init_func size_t l = 0;
   uint8_t *cur = data.data();
   while (l < data.size()) {
@@ -183,12 +180,11 @@ void CASNParser::Parse(ByteArray &data, CASNTagArray &tags, size_t startseq) {
       while (true) {
         l++;
         cur++;
-        if (l >= data.size())
-          throw logged_error("lunghezza eccessiva nell'ASN1");
+        if (l >= data.size()) throw logged_error("Excessive length in ASN.1");
         curv = cur[0];
         tagv.push_back(curv);
         if ((curv & 0x80) != 0x80)
-          // è l'ultimo byte del tag
+          // last byte of the tag
           break;
       }
     }
@@ -212,7 +208,7 @@ void CASNParser::Parse(ByteArray &data, CASNTagArray &tags, size_t startseq) {
       return;
     }
     if (l + (len + llen + 1) > data.size())
-      throw logged_error("lunghezza eccessiva nell'ASN1");
+      throw logged_error("Excessive length in ASN.1");
 
     auto tag = std::unique_ptr<CASNTag>(new CASNTag());
     tag->startPos = startseq + l;
@@ -221,8 +217,8 @@ void CASNParser::Parse(ByteArray &data, CASNTagArray &tags, size_t startseq) {
       ByteArray input(&cur[llen + 1], len);
       Parse(input, tag->tags, startseq + l + llen + 1);
     } else {
-      // è un valore singolo
-      tag->content = ByteArray(&cur[llen + 1], len);
+      // single value
+      tag->content = ByteDynArray(ByteArray(&cur[llen + 1], len));
     }
     l += len + llen + 1;
     cur += len + llen + 1;

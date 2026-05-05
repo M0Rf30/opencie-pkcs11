@@ -76,9 +76,9 @@ void initLog(const char *moduleName, const char * /*iniFile*/,
 #if defined(_MSC_VER)
   _dupenv_s(&buf, &sz, "PROGRAMDATA");
 #else
-  if (const char* _pd = getenv("PROGRAMDATA")) {
+  if (const char *_pd = getenv("PROGRAMDATA")) {
     sz = strlen(_pd) + 1;
-    buf = static_cast<char*>(malloc(sz));
+    buf = static_cast<char *>(malloc(sz));
     if (buf) memcpy(buf, _pd, sz);
   }
 #endif
@@ -97,7 +97,7 @@ void initLog(const char *moduleName, const char * /*iniFile*/,
 #else
   char *home = getenv("HOME");
   if (home == nullptr) {
-    struct passwd *pw = getpwuid(getuid());
+    const struct passwd *pw = getpwuid(getuid());
 
     home = pw->pw_dir;
     printf("home: %s", home);
@@ -107,7 +107,7 @@ void initLog(const char *moduleName, const char * /*iniFile*/,
 
   path.append("/.CIEPKI/");
 
-  struct stat st{};
+  struct stat st {};
 
   if (stat(path.c_str(), &st) == -1) {
     mkdir(path.c_str(), 0700);
@@ -117,7 +117,9 @@ void initLog(const char *moduleName, const char * /*iniFile*/,
   globalLogDir = settings.getProperty("LogDir", path.c_str());
 }
 
-CLog::CLog() { init(); }
+CLog::CLog() : FunctionLog(false), ModuleNum(0), _stack_logged(false) {
+  init();
+}
 
 CLog::~CLog() {
   Enabled = false;
@@ -192,9 +194,8 @@ void CLog::init() {
 DWORD CLog::write(const char *format, ...) {
   va_list params;
   va_start(params, format);
-  char pbtDate[20];
-  unsigned int dummy = 0;
-  unsigned int *Num = &dummy;
+  char pbtDate[20] = {0};
+  const unsigned int *Num = nullptr;
 
   if (Enabled && Initialized && mainEnable) {
     if (!firstGlobal && LogMode == LM_Single) {
@@ -243,32 +244,11 @@ DWORD CLog::write(const char *format, ...) {
 
 #ifdef _WIN32
     fopen_s(&lf, logPath.c_str(), "a+t");
-    if (lf) {
-      switch (LogMode) {
-        case (LM_Single):
-          fprintf(lf, "%s|%04lu|%04lx|%02i|", pbtDate,
-                  (unsigned long)GetCurrentProcessId(),
-                  (unsigned long)dwThreadID, ModuleNum);
-          break;
-        case (LM_Module):
-          fprintf(lf, "%s|%04lu|%04lx|", pbtDate,
-                  (unsigned long)GetCurrentProcessId(),
-                  (unsigned long)dwThreadID);
-          break;
-        case (LM_Thread):
-          fprintf(lf, "%s|%04lu|%02i|", pbtDate,
-                  (unsigned long)GetCurrentProcessId(), ModuleNum);
-          break;
-        case (LM_Module_Thread):
-          fprintf(lf, "%s|", pbtDate);
-          break;
-      }
-      vfprintf(lf, format, params);
-      fprintf(lf, "\n");
-      fclose(lf);
-    }
 #else
+    lf = fopen(logPath.c_str(), "a+t");
+#endif
     if (lf) {
+#ifndef _WIN32
       struct stat lstat_buf;
       struct stat fstat_buf;
 
@@ -276,17 +256,20 @@ DWORD CLog::write(const char *format, ...) {
 
       if (r == -1) {
         fclose(lf);
+        va_end(params);
         return ERROR_FILE_NOT_FOUND;
       }
 
       if (S_ISLNK(lstat_buf.st_mode)) {
         fclose(lf);
+        va_end(params);
         return static_cast<long>(ERROR_FILE_NOT_FOUND);
       }
 
       r = stat(logPath.c_str(), &fstat_buf);
       if (r == -1) {
         fclose(lf);
+        va_end(params);
         return static_cast<long>(ERROR_FILE_NOT_FOUND);
       }
 
@@ -294,19 +277,38 @@ DWORD CLog::write(const char *format, ...) {
           lstat_buf.st_ino != fstat_buf.st_ino ||
           (S_IFMT & lstat_buf.st_mode) != (S_IFMT & fstat_buf.st_mode)) {
         fclose(lf);
+        va_end(params);
         return static_cast<long>(ERROR_FILE_NOT_FOUND);
       }
+#endif
 
       switch (LogMode) {
         case (LM_Single):
-          fprintf(lf, "%s|%04i|%04lx|%02i|", pbtDate, getpid(), dwThreadID,
+#ifdef _WIN32
+          fprintf(lf, "%s|%04lu|%04lx|%02u|", pbtDate,
+                  (unsigned long)GetCurrentProcessId(),
+                  (unsigned long)dwThreadID, ModuleNum);
+#else
+          fprintf(lf, "%s|%04d|%04lx|%02u|", pbtDate, getpid(), dwThreadID,
                   ModuleNum);
+#endif
           break;
         case (LM_Module):
-          fprintf(lf, "%s|%04i|%04lx|", pbtDate, getpid(), dwThreadID);
+#ifdef _WIN32
+          fprintf(lf, "%s|%04lu|%04lx|", pbtDate,
+                  (unsigned long)GetCurrentProcessId(),
+                  (unsigned long)dwThreadID);
+#else
+          fprintf(lf, "%s|%04d|%04lx|", pbtDate, getpid(), dwThreadID);
+#endif
           break;
         case (LM_Thread):
-          fprintf(lf, "%s|%04i|%02i|", pbtDate, getpid(), ModuleNum);
+#ifdef _WIN32
+          fprintf(lf, "%s|%04lu|%02u|", pbtDate,
+                  (unsigned long)GetCurrentProcessId(), ModuleNum);
+#else
+          fprintf(lf, "%s|%04d|%02u|", pbtDate, getpid(), ModuleNum);
+#endif
           break;
         case (LM_Module_Thread):
           fprintf(lf, "%s|", pbtDate);
@@ -316,25 +318,27 @@ DWORD CLog::write(const char *format, ...) {
       fprintf(lf, "\n");
       fclose(lf);
     }
-#endif
   }
 
 #ifdef _DEBUG
   puts(pbtDate);
 #endif
   va_end(params);
-  switch (LogMode) {
-    case (LM_Module):
-      LogCount++;
-      break;
-    case (LM_Module_Thread):
-    case (LM_Thread):
-      break;
-    case (LM_Single):
-      GlobalCount++;
-      break;
+  if (Num != nullptr) {
+    switch (LogMode) {
+      case (LM_Module):
+        LogCount++;
+        break;
+      case (LM_Module_Thread):
+      case (LM_Thread):
+        break;
+      case (LM_Single):
+        GlobalCount++;
+        break;
+    }
+    return (*Num);
   }
-  return (*Num);
+  return 0;
 }
 
 void CLog::writePure(const char *format, ...) {
@@ -358,51 +362,17 @@ void CLog::writePure(const char *format, ...) {
 
       logPath.replace(threadPos, threadPos + 14, th.str());
     }
-    FILE *lf = nullptr;
 #ifdef _WIN32
+    FILE *lf = nullptr;
     fopen_s(&lf, logPath.c_str(), "a+t");
-#else
-    lf = 0;
-#endif
     if (lf) {
-#ifndef _WIN32
-      struct stat lstat_buf;
-      struct stat fstat_buf;
-
-      int r = lstat(logPath.c_str(), &lstat_buf);
-
-      if (r == -1) {
-        fclose(lf);
-        return;
-      }
-
-      if (S_ISLNK(lstat_buf.st_mode)) {
-        fclose(lf);
-        return;
-      }
-
-      r = stat(logPath.c_str(), &fstat_buf);
-      if (r == -1) {
-        fclose(lf);
-        return;
-      }
-
-      if (lstat_buf.st_dev != fstat_buf.st_dev ||
-          lstat_buf.st_ino != fstat_buf.st_ino ||
-          (S_IFMT & lstat_buf.st_mode) != (S_IFMT & fstat_buf.st_mode)) {
-        fclose(lf);
-        return;
-      }
-#endif
       vfprintf(lf, format, params);
       fprintf(lf, "\n");
       fclose(lf);
     }
-  }
-#ifdef _DEBUG
-  char pbtDate[20] = {0};
-  puts(pbtDate);
 #endif
+  }
+
   va_end(params);
 }
 

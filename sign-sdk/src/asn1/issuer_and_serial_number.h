@@ -29,13 +29,13 @@ class CIssuerAndSerialNumber : public CASN1Sequence {
    * @brief Parses an IssuerAndSerialNumber from a DER-encoded stream.
    * @param reader Buffered reader positioned at the SEQUENCE.
    */
-  CIssuerAndSerialNumber(BufferedReader& reader);
+  explicit CIssuerAndSerialNumber(BufferedReader& reader);
 
   /**
    * @brief Constructs from an already-parsed ASN.1 object.
    * @param issuerAndSerNum Generic ASN.1 object with the encoding.
    */
-  CIssuerAndSerialNumber(const CASN1Object& issuerAndSerNum);
+  explicit CIssuerAndSerialNumber(const CASN1Object& issuerAndSerNum);
 
   /**
    * @brief Constructs from explicit issuer name and serial number.
@@ -46,5 +46,5 @@ class CIssuerAndSerialNumber : public CASN1Sequence {
   CIssuerAndSerialNumber(const CName& issuer, const CASN1Integer& serNum,
                          bool contextSpecific);
 
-  virtual ~CIssuerAndSerialNumber();
+  virtual ~CIssuerAndSerialNumber() override;
 };

@@ -35,10 +35,11 @@ long CIEVerify::verify(const char* input_file, VERIFY_RESULT* verifyResult,
       throw ret;
     }
 
-    // PARAMETRO 0 non usa verifica OCSP
-    // PARAMETRO 1 OK OCSP
-    ret = cie_sign_verify_set(ctx, CIE_SIGN_OPT_VERIFY_REVOCATION,
-                              reinterpret_cast<void*>(1));
+    // PARAMETER 0: skip OCSP revocation check
+    // PARAMETER 1: enable OCSP revocation check
+    ret =
+        cie_sign_verify_set(ctx, CIE_SIGN_OPT_VERIFY_REVOCATION,
+                            reinterpret_cast<void*>(static_cast<uintptr_t>(1)));
     if (ret != 0) {
       throw ret;
     }

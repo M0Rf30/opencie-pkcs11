@@ -41,8 +41,8 @@ ByteDynArray CAES::AES(const ByteArray &data, int encOp) {
   return perform_cipher_operation(data, encOp, cipher, AES_BLOCK_SIZE);
 }
 void CAES::Init(const ByteArray &key, const ByteArray &iv) {
-  init_func this->iv = iv;
-  this->key = key;
+  init_func this->iv = ByteDynArray(iv);
+  this->key = ByteDynArray(key);
 
   exit_func
 }

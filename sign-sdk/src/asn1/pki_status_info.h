@@ -31,14 +31,14 @@ class CPKIStatusInfo : public CASN1Sequence {
    * @brief Parses a PKIStatusInfo from a DER-encoded stream.
    * @param reader Buffered reader positioned at the PKIStatusInfo SEQUENCE.
    */
-  CPKIStatusInfo(BufferedReader& reader);
+  explicit CPKIStatusInfo(BufferedReader& reader);
 
   /**
    * @brief Constructs a PKIStatusInfo from an already-parsed ASN.1 object.
    * @param PKIStatusInfo Generic ASN.1 object containing PKIStatusInfo
    * encoding.
    */
-  CPKIStatusInfo(const CASN1Object& PKIStatusInfo);
+  explicit CPKIStatusInfo(const CASN1Object& PKIStatusInfo);
 
   virtual ~CPKIStatusInfo();
 

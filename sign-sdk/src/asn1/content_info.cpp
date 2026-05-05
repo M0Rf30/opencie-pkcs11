@@ -38,6 +38,6 @@ CContentType CContentInfo::getContentType() {
 }
 
 CASN1Object CContentInfo::getContent() {
-  // il getValue è necessario perchè il content è dichiarato explicit [0]
+  // getValue is required because content is declared as explicit [0]
   return CASN1Object(*elementAt(1).getValue());
 }

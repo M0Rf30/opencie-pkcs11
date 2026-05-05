@@ -31,13 +31,13 @@ class CTSTInfo : public CASN1Sequence {
    * @brief Parses a TSTInfo from a DER-encoded stream.
    * @param reader Buffered reader positioned at the TSTInfo SEQUENCE.
    */
-  CTSTInfo(BufferedReader& reader);
+  explicit CTSTInfo(BufferedReader& reader);
 
   /**
    * @brief Constructs from an already-parsed ASN.1 object.
    * @param tstInfo Generic ASN.1 object containing TSTInfo encoding.
    */
-  CTSTInfo(const CASN1Object& tstInfo);
+  explicit CTSTInfo(const CASN1Object& tstInfo);
 
   virtual ~CTSTInfo();
 

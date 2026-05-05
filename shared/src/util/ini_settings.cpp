@@ -2,7 +2,6 @@
 #include "util/ini_settings.h"
 
 #include <cstring>
-
 #include <sstream>
 
 #include "crypto/base64.h"
@@ -33,7 +32,9 @@ IniSettingsInt::IniSettingsInt(const char* section, const char* name,
   this->defaultVal = defaultValue;
 }
 
-int IniSettingsInt::GetValue(const char* /*fileName*/) { return this->defaultVal; }
+int IniSettingsInt::GetValue(const char* /*fileName*/) {
+  return this->defaultVal;
+}
 
 IniSettingsInt::~IniSettingsInt() {}
 
@@ -64,7 +65,7 @@ IniSettingsByteArray::IniSettingsByteArray(const char* section,
                                            ByteArray defaultValue,
                                            const char* description)
     : IniSettings(3, section, name, description) {
-  this->defaultVal = defaultValue;
+  this->defaultVal = ByteDynArray(defaultValue);
 }
 
 void IniSettingsByteArray::GetValue(const char* fileName, ByteDynArray& value) {
@@ -81,7 +82,7 @@ IniSettingsByteArray::~IniSettingsByteArray() {}
 IniSettingsB64::IniSettingsB64(const char* section, const char* name,
                                ByteArray defaultValue, const char* description)
     : IniSettings(4, section, name, description) {
-  this->defaultVal = defaultValue;
+  this->defaultVal = ByteDynArray(defaultValue);
 }
 
 IniSettingsB64::IniSettingsB64(const char* section, const char* name,
@@ -121,17 +122,16 @@ int GetIniSettings(int i, void* data) {
 
   std::string out2;
   if (id == 0) {
-    out2 = ((IniSettingsInt*)is)->defaultVal;
+    out2 = (static_cast<IniSettingsInt*>(is))->defaultVal;
   } else if (id == 1) {
-    out2 = ((IniSettingsString*)is)->defaultVal;
+    out2 = (static_cast<IniSettingsString*>(is))->defaultVal;
   } else if (id == 2) {
-    out2 = ((IniSettingsBool*)is)->defaultVal ? 1 : 0;
+    out2 = (static_cast<IniSettingsBool*>(is))->defaultVal ? 1 : 0;
   } else if (id == 3 || id == 4) {
-    b64.Encode(((IniSettingsByteArray*)is)->defaultVal, out2);
+    b64.Encode((static_cast<IniSettingsByteArray*>(is))->defaultVal, out2);
   }
   std::string res = out + out2;
-  if (data != nullptr)
-    std::memcpy(data, res.c_str(), res.size());
+  if (data != nullptr) std::memcpy(data, res.c_str(), res.size());
   return (int)res.size();
 }
 }

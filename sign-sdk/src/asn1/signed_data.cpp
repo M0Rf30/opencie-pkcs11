@@ -45,15 +45,15 @@ CCertificate CSignedData::getSignerCertificate(int index) {
   CASN1SetOf signerInfos = getSignerInfos();
   CASN1SetOf certificates = getCertificates();
 
-  CSignerInfo sinfo = signerInfos.elementAt(index);
+  CSignerInfo sinfo(signerInfos.elementAt(index));
 
   CIssuerAndSerialNumber issuerAndSerialNumber =
       sinfo.getIssuerAndSerialNumber();
 
   for (unsigned int i = 0; i < certificates.size(); i++) {
-    CCertificate cert = certificates.elementAt(i);
+    CCertificate cert(certificates.elementAt(i));
     CName issuer = cert.getIssuer();
-    CName serialNumber = cert.getSerialNumber();
+    CASN1Integer serialNumber = cert.getSerialNumber();
 
     CIssuerAndSerialNumber issuerAndSerial(issuer, serialNumber, false);
 
@@ -75,7 +75,7 @@ int CSignedData::verify(int i, const char* date,
   CASN1SetOf signerInfos = getSignerInfos();
   CSignerInfo signerInfo(signerInfos.elementAt(i));
   CASN1SetOf certificates = getCertificates();
-  CASN1OctetString content = getContentInfo().getContent();
+  CASN1OctetString content(getContentInfo().getContent());
   return CSignerInfo::verifySignature(content, signerInfo, certificates, date,
                                       pRevocationInfo);
 }
@@ -87,8 +87,8 @@ void CSignedData::makeDetached() {
 void CSignedData::setContent(ByteDynArray& content) {
   CASN1ObjectIdentifier dataOID(szDataOID);
   CASN1OctetString data(content);
-  CContentInfo ci(dataOID, data);
+  CContentInfo ci(CContentType(dataOID), data);
   setElementAt(ci, 2);
 }
 
-CASN1SetOf CSignedData::getCertificates() { return elementAt(3); }
+CASN1SetOf CSignedData::getCertificates() { return CASN1SetOf(elementAt(3)); }

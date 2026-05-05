@@ -38,16 +38,14 @@ CertID ::= SEQUENCE {
  serialNumber       CertificateSerialNumber }
 */
 
-
 #include "asn1/asn1_sequence.h"
 #include "asn1/certificate.h"
 
 class COCSPRequest : public CASN1Sequence {
  public:
-  COCSPRequest(BufferedReader& reader);
+  explicit COCSPRequest(BufferedReader& reader);
 
-  COCSPRequest(const CASN1Object& contentInfo);
+  explicit COCSPRequest(const CASN1Object& contentInfo);
 
-  COCSPRequest(CCertificate& certificate);
+  explicit COCSPRequest(CCertificate& certificate);
 };
-

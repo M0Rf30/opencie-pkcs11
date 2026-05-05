@@ -369,3 +369,5 @@ install_headers(
     'include/opencie/cie_ext.h',
     subdir: 'opencie',
 )
+
+subdir('tests')

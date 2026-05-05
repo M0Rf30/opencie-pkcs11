@@ -42,7 +42,7 @@ class BigUnsignedInABase : protected NumberlikeArray<unsigned short> {
   Base base;
 
   // Creates a BigUnsignedInABase with a capacity; for internal use.
-  BigUnsignedInABase(int, Index c) : NumberlikeArray<Digit>(0, c) {}
+  BigUnsignedInABase(int, Index c) : NumberlikeArray<Digit>(0, c), base(2) {}
 
   // Decreases len to eliminate any leading zero digits.
   void zapLeadingZeros() {
@@ -116,4 +116,3 @@ class BigUnsignedInABase : protected NumberlikeArray<unsigned short> {
   }
   bool operator!=(const BigUnsignedInABase &x) const { return !operator==(x); }
 };
-

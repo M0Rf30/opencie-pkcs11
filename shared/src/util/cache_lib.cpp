@@ -54,14 +54,14 @@ extern "C" __attribute__((visibility("default"))) void cie_set_data_dir(
 #ifndef _WIN32
 using namespace CryptoPP;
 
-int decrypt(std::string &ciphertext, std::string &message);
+int decrypt(const std::string &ciphertext, std::string &message);
 #endif
 
-/// Questa implementazione della cache del PIN e del certificato è fornita solo
-/// a scopo dimostrativo. Questa versione NON protegge a sufficienza il PIN
-/// dell'utente, che potrebbe essere ricavato da un'applicazione malevola. Si
-/// raccomanda di utilizzare, in contesti di produzione, un'implementazione che
-/// fornisca un elevato livello di sicurezza
+/// This PIN and certificate cache implementation is provided for demonstration
+/// purposes only. This version does NOT adequately protect the user's PIN,
+/// which could be extracted by a malicious application. In production
+/// environments, an implementation providing a high level of security is
+/// strongly recommended.
 
 #ifdef _WIN32
 bool file_exists(const char *name) { return PathFileExists(name); }
@@ -96,7 +96,7 @@ std::string GetCardDir() {
 
   char *home = getenv("HOME");
   if (home == nullptr) {
-    struct passwd *pw = getpwuid(getuid());
+    const struct passwd *pw = getpwuid(getuid());
 
     home = pw->pw_dir;
   }
@@ -107,7 +107,7 @@ std::string GetCardDir() {
 
   CACHE_LOG("GetCardDir: %s", path.c_str());
 
-  return path.c_str();
+  return path;
 }
 #endif
 
@@ -146,7 +146,7 @@ bool CacheRemove(const char *PAN) {
 }
 
 void CacheGetCertificate(const char *PAN, std::vector<uint8_t> &certificate) {
-  if (PAN == nullptr) throw logged_error("Il PAN è necessario");
+  if (PAN == nullptr) throw logged_error("PAN is required");
 
   std::string sPath;
   GetCardPath(PAN, sPath);
@@ -158,12 +158,14 @@ void CacheGetCertificate(const char *PAN, std::vector<uint8_t> &certificate) {
 #ifdef _WIN32
     uint8_t *ptr = data.data();
 #else
-    std::string ciphertext(reinterpret_cast<char *>(data.data()), data.size());
+    std::string ciphertext(reinterpret_cast<const char *>(data.data()),
+                           data.size());
     std::string plaintext;
 
     decrypt(ciphertext, plaintext);
 
-    uint8_t *ptr = (uint8_t *)plaintext.c_str();
+    uint8_t *ptr =
+        reinterpret_cast<uint8_t *>(const_cast<char *>(plaintext.c_str()));
 #endif
 
     uint32_t len = *reinterpret_cast<uint32_t *>(ptr);
@@ -178,12 +180,12 @@ void CacheGetCertificate(const char *PAN, std::vector<uint8_t> &certificate) {
     certificate.resize(Cert.size());
     ByteArray(certificate.data(), certificate.size()).copy(Cert);
   } else {
-    throw logged_error("CIE non abilitata");
+    throw logged_error("CIE not enabled");
   }
 }
 
 void CacheGetPIN(const char *PAN, std::vector<uint8_t> &PIN) {
-  if (PAN == nullptr) throw logged_error("Il PAN è necessario");
+  if (PAN == nullptr) throw logged_error("PAN is required");
 
   std::string sPath;
   GetCardPath(PAN, sPath);
@@ -195,12 +197,14 @@ void CacheGetPIN(const char *PAN, std::vector<uint8_t> &PIN) {
 #ifdef _WIN32
     uint8_t *ptr = data.data();
 #else
-    std::string ciphertext(reinterpret_cast<char *>(data.data()), data.size());
+    std::string ciphertext(reinterpret_cast<const char *>(data.data()),
+                           data.size());
     std::string plaintext;
 
     decrypt(ciphertext, plaintext);
 
-    uint8_t *ptr = (uint8_t *)plaintext.c_str();
+    uint8_t *ptr =
+        reinterpret_cast<uint8_t *>(const_cast<char *>(plaintext.c_str()));
 #endif
     uint32_t len = *reinterpret_cast<uint32_t *>(ptr);
     ptr += sizeof(uint32_t);
@@ -211,12 +215,12 @@ void CacheGetPIN(const char *PAN, std::vector<uint8_t> &PIN) {
     ByteArray(PIN.data(), PIN.size()).copy(ClearPIN);
 
   } else
-    throw logged_error("CIE non abilitata");
+    throw logged_error("CIE not enabled");
 }
 
 void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
                   uint8_t *FirstPIN, int FirstPINSize) {
-  if (PAN == nullptr) throw logged_error("Il PAN è necessario");
+  if (PAN == nullptr) throw logged_error("PAN is required");
 
   auto szDir = GetCardDir();
 
@@ -237,20 +241,20 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
           GetNamedSecurityInfo(chDir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
                                nullptr, nullptr, &pOldDACL, nullptr, &pSD);
       if (dwRes != ERROR_SUCCESS)
-        throw logged_error("Impossibile attivare la CIE nel processo corrente");
+        throw logged_error("Unable to activate CIE in the current process");
 
       PSID TheSID = nullptr;
       DWORD SidSize = SECURITY_MAX_SID_SIZE;
       if (!(TheSID = LocalAlloc(LMEM_FIXED, SidSize))) {
         if (pSD != nullptr) LocalFree((HLOCAL)pSD);
-        throw logged_error("Impossibile attivare la CIE nel processo corrente");
+        throw logged_error("Unable to activate CIE in the current process");
       }
 
       if (!CreateWellKnownSid(WinBuiltinAnyPackageSid, nullptr, TheSID,
                               &SidSize)) {
         if (TheSID != nullptr) LocalFree((HLOCAL)TheSID);
         if (pSD != nullptr) LocalFree((HLOCAL)pSD);
-        throw logged_error("Impossibile attivare la CIE nel processo corrente");
+        throw logged_error("Unable to activate CIE in the current process");
       }
 
       ZeroMemory(&ea, sizeof(EXPLICIT_ACCESS));
@@ -265,7 +269,7 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
         if (TheSID != nullptr) LocalFree((HLOCAL)TheSID);
         if (pSD != nullptr) LocalFree((HLOCAL)pSD);
         if (pNewDACL != nullptr) LocalFree((HLOCAL)pNewDACL);
-        throw logged_error("Impossibile attivare la CIE nel processo corrente");
+        throw logged_error("Unable to activate CIE in the current process");
       }
 
       if (SetNamedSecurityInfo(chDir, SE_FILE_OBJECT, si, nullptr, nullptr,
@@ -273,12 +277,12 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
         if (pNewDACL != nullptr) LocalFree((HLOCAL)pNewDACL);
         if (TheSID != nullptr) LocalFree((HLOCAL)TheSID);
         if (pSD != nullptr) LocalFree((HLOCAL)pSD);
-        throw logged_error("Impossibile attivare la CIE nel processo corrente");
+        throw logged_error("Unable to activate CIE in the current process");
       }
     }
   }
 #else
-  struct stat st{};
+  struct stat st {};
 
   if (stat(szDir.c_str(), &st) == -1) {
     mkdir(szDir.c_str(), 0700);
@@ -295,12 +299,12 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
   std::ofstream file(sPath.c_str(), std::ofstream::out | std::ofstream::binary);
 
   uint32_t len = (uint32_t)baFirstPIN.size();
-  file.write((char *)&len, sizeof(len));
-  file.write((char *)baFirstPIN.data(), len);
+  file.write(reinterpret_cast<char *>(&len), sizeof(len));
+  file.write(reinterpret_cast<char *>(baFirstPIN.data()), len);
 
   len = (uint32_t)baCertificate.size();
-  file.write((char *)&len, sizeof(len));
-  file.write((char *)baCertificate.data(), len);
+  file.write(reinterpret_cast<char *>(&len), sizeof(len));
+  file.write(reinterpret_cast<char *>(baCertificate.data()), len);
 #else
   uint32_t pinlen = static_cast<uint32_t>(baFirstPIN.size());
   uint32_t certlen = static_cast<uint32_t>(baCertificate.size());
@@ -313,7 +317,8 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
   std::string enckey = ENCRYPTION_KEY;
 
   byte digest[SHA1::DIGESTSIZE];
-  SHA1().CalculateDigest(digest, (byte *)enckey.c_str(), enckey.length());
+  SHA1().CalculateDigest(digest, reinterpret_cast<const byte *>(enckey.c_str()),
+                         enckey.length());
   memcpy(key, digest, CryptoPP::AES::DEFAULT_KEYLENGTH);
   //
   // Create Cipher Text

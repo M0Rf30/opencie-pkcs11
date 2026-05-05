@@ -95,27 +95,27 @@ class Logger {
   /** @brief Log a debug message (printf-style format string). */
   void debug(const char* fmt, ...) noexcept;
   /** @brief Log a debug message (string reference). */
-  void debug(std::string& text) noexcept;
+  void debug(const std::string& text) noexcept;
   /** @brief Log a debug message (ostringstream). */
-  void debug(std::ostringstream& stream) noexcept;
+  void debug(const std::ostringstream& stream) noexcept;
 
   /** @brief Log an informational message (printf-style format string). */
   void info(const char* fmt, ...) noexcept;
   /** @brief Log an informational message (string reference). */
-  void info(std::string& text) noexcept;
+  void info(const std::string& text) noexcept;
   /** @brief Log an informational message (ostringstream). */
-  void info(std::ostringstream& stream) noexcept;
+  void info(const std::ostringstream& stream) noexcept;
 
   /** @brief Log an error message (printf-style format string).
    *  @return Always returns -1 for convenient error-return chaining. */
   int error(const char* fmt, ...) noexcept;
   /** @brief Log an error message (string reference). */
-  int error(std::string& text) noexcept;
+  int error(const std::string& text) noexcept;
   /** @brief Log an error message (ostringstream). */
-  int error(std::ostringstream& stream) noexcept;
+  int error(const std::ostringstream& stream) noexcept;
 
   /** @brief Log a raw byte buffer as hex dump at debug level. */
-  void buffer(uint8_t* buff, size_t buff_size) noexcept;
+  void buffer(const uint8_t* buff, size_t buff_size) noexcept;
   // void buffer(std::string& text) noexcept;
   // void buffer(std::ostringstream& stream) noexcept;
 
@@ -131,16 +131,17 @@ class Logger {
 
  private:
   /** @brief Write a log entry to the log file. */
-  void logIntoFile(std::string& data);
+  void logIntoFile(const std::string& data);
   /** @brief Write a log entry to the console (stdout). */
-  void logOnConsole(std::string& data);
+  void logOnConsole(const std::string& data);
   /** @brief Core logging implementation that formats and writes a message. */
   void log_log(std::ostream& out, LogLevel level, const char* text) noexcept;
   /** @brief Write the current configuration to a file. */
-  void writeConfigFile(std::string& filePath, std::string& sConfig) noexcept;
+  void writeConfigFile(const std::string& filePath,
+                       const std::string& sConfig) noexcept;
 
   /** @brief Format and print raw bytes as a hex dump. */
-  void print_bytes(std::ostream& out, uint8_t* data, size_t dataLen,
+  void print_bytes(std::ostream& out, const uint8_t* data, size_t dataLen,
                    bool format);
 
  private:

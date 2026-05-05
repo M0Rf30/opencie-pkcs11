@@ -92,7 +92,7 @@ typedef struct _CIE_SIGN_CONTEXT {
 
 class CIEPdfSigner : public PdfSigner {
  public:
-  CIEPdfSigner(CIE_SIGN_CONTEXT* pContext) : m_pContext(pContext) {}
+  explicit CIEPdfSigner(CIE_SIGN_CONTEXT* pContext) : m_pContext(pContext) {}
 
  protected:
   void Reset() override { m_buffer.clear(); }
@@ -134,7 +134,7 @@ Properties g_mapOIDProps;
 
 IAS* ias = nullptr;
 
-int get_file_type(char* szFileName);
+int get_file_type(const char* szFileName);
 long verifyTST(CTimeStampToken& tst, TS_INFO* pTSInfo, BOOL bVerifyCRL);
 
 long verify_signed_document(CIE_VERIFY_CONTEXT* pContext, CSignedDocument& sd,
@@ -149,9 +149,9 @@ long verify_xml(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo);
 long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& data,
                 VERIFY_INFO* pVerifyInfo);
 
-long sign_pdf(CIE_SIGN_CONTEXT* pContext, ByteDynArray& data);
-long sign_xml(CIE_SIGN_CONTEXT* pContext, ByteDynArray& data);
-long HTTPRequest(ByteDynArray& data, const char* szUrl,
+long sign_pdf(CIE_SIGN_CONTEXT* pContext, const ByteDynArray& data);
+long sign_xml(CIE_SIGN_CONTEXT* pContext, const ByteDynArray& data);
+long HTTPRequest(const ByteDynArray& data, const char* szUrl,
                  const char* szContentType, ByteDynArray& response);
 
 const char* FILETYPE[] = {"PKCS7 file", "PDF file", "M7M file", "TSR file",
@@ -160,23 +160,23 @@ const char* FILETYPE[] = {"PKCS7 file", "PDF file", "M7M file", "TSR file",
 long cie_sign_set(int option, void* value) {
   switch (option) {
     case CIE_SIGN_OPT_CACERT_DIR:
-      LOG_DBG(
-          (0, "cie_sign_set", "set CIE_SIGN_OPT_CACERT_DIR: %s", (char*)value));
+      LOG_DBG((0, "cie_sign_set", "set CIE_SIGN_OPT_CACERT_DIR: %s",
+               static_cast<char*>(value)));
       snprintf(g_szCACertDir, MAX_PATH, "%s", static_cast<char*>(value));
       g_bCACertDirSet = true;
       break;
 
     case CIE_SIGN_OPT_LOG_FILE:
-      SET_LOG_FILE((char*)value);
+      SET_LOG_FILE(static_cast<char*>(value));
       break;
 
     case CIE_SIGN_OPT_LOG_LEVEL:
-      SET_LOG_LEVEL(*(int*)value);
+      SET_LOG_LEVEL(*(static_cast<int*>(value)));
       break;
 
     case CIE_SIGN_OPT_OID_MAP_FILE: {
-      LOG_DBG(
-          (0, "cie_sign_set", "CIE_SIGN_OPT_OID_MAP_FILE: %s", (char*)value));
+      LOG_DBG((0, "cie_sign_set", "CIE_SIGN_OPT_OID_MAP_FILE: %s",
+               static_cast<char*>(value)));
       long nRet = g_mapOIDProps.load(static_cast<char*>(value));
       if (nRet) return nRet;
     } break;
@@ -187,13 +187,13 @@ long cie_sign_set(int option, void* value) {
 
 long cie_sign_set_int(int option, int value) {
   int* valuePtr = new int(value);
-  long result = cie_sign_set(option, (void*)valuePtr);
+  long result = cie_sign_set(option, reinterpret_cast<void*>(valuePtr));
   delete valuePtr;  // Clean up the allocated memory
   return result;
 }
 
 long cie_sign_set_string(int option, char* value) {
-  return cie_sign_set(option, (void*)value);
+  return cie_sign_set(option, reinterpret_cast<void*>(value));
 }
 
 void cie_sign_cleanup() { CCertStore::CleanUp(); }
@@ -239,18 +239,19 @@ CIE_SIGN_CTX cie_sign_sign_init(void) {
 
   LOG_MSG((0, "<-- cie_sign_sign_init", "Context: %p", pContext));
 
-  return (CIE_SIGN_CTX)pContext;
+  return reinterpret_cast<CIE_SIGN_CTX>(pContext);
 }
 
 long cie_sign_sign_set_int(CIE_SIGN_CTX ctx, int option, int value) {
   int* valuePtr = new int(value);
-  long result = cie_sign_sign_set(ctx, option, (void*)valuePtr);
+  long result =
+      cie_sign_sign_set(ctx, option, reinterpret_cast<void*>(valuePtr));
   delete valuePtr;  // Clean up the allocated memory
   return result;
 }
 
 long cie_sign_sign_set_string(CIE_SIGN_CTX ctx, int option, char* value) {
-  return cie_sign_sign_set(ctx, option, (void*)value);
+  return cie_sign_sign_set(ctx, option, reinterpret_cast<void*>(value));
 }
 
 long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
@@ -265,7 +266,7 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
   switch (option) {
     case CIE_SIGN_OPT_IAS_INSTANCE:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_IAS_INSTANCE", (char*)value));
+               ctx, "CIE_SIGN_OPT_IAS_INSTANCE", static_cast<char*>(value)));
       pContext->pIAS = static_cast<IAS*>(value);
       break;
 
@@ -277,9 +278,9 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
 
     case CIE_SIGN_OPT_ALIAS:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_ALIAS", (char*)value));
+               ctx, "CIE_SIGN_OPT_ALIAS", static_cast<char*>(value)));
       snprintf(pContext->szAlias, MAX_PATH, "%s", static_cast<char*>(value));
-      // pContext->pSignatureGenerator->SetAlias((char*)value);
+      // pContext->pSignatureGenerator->SetAlias(static_cast<char*>(value));
       break;
 
     case CIE_SIGN_OPT_CADES:
@@ -291,14 +292,14 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
 
     case CIE_SIGN_OPT_INPUTFILE:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_INPUTFILE", (char*)value));
+               ctx, "CIE_SIGN_OPT_INPUTFILE", static_cast<char*>(value)));
       snprintf(pContext->szInputFile, MAX_PATH, "%s",
                static_cast<char*>(value));
       break;
 
     case CIE_SIGN_OPT_OUTPUTFILE:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_OUTPUTFILE", (char*)value));
+               ctx, "CIE_SIGN_OPT_OUTPUTFILE", static_cast<char*>(value)));
       snprintf(pContext->szOutputFile, MAX_PATH, "%s",
                static_cast<char*>(value));
       break;
@@ -317,80 +318,81 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
 
     case CIE_SIGN_OPT_TSA_URL:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_TSA_URL", (char*)value));
+               ctx, "CIE_SIGN_OPT_TSA_URL", static_cast<char*>(value)));
       snprintf(pContext->szTSAUrl, MAX_PATH, "%s", static_cast<char*>(value));
-      // pContext->pSignatureGenerator->SetTSA((char*)value, nullptr, nullptr);
+      // pContext->pSignatureGenerator->SetTSA(static_cast<char*>(value),
+      // nullptr, nullptr);
       break;
 
     case CIE_SIGN_OPT_TSA_USERNAME:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_TSA_USERNAME", (char*)value));
+               ctx, "CIE_SIGN_OPT_TSA_USERNAME", static_cast<char*>(value)));
       snprintf(pContext->szTSAUsername, MAX_PATH, "%s",
                static_cast<char*>(value));
-      // pContext->pSignatureGenerator->SetTSAUsername((char*)value);
+      // pContext->pSignatureGenerator->SetTSAUsername(static_cast<char*>(value));
       break;
 
     case CIE_SIGN_OPT_TSA_PASSWORD:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_TSA_PASSWORD", (char*)value));
+               ctx, "CIE_SIGN_OPT_TSA_PASSWORD", static_cast<char*>(value)));
       snprintf(pContext->szTSAPassword, MAX_PATH, "%s",
                static_cast<char*>(value));
       break;
 
     case CIE_SIGN_OPT_PDF_SUBFILTER:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_PDF_SUBFILTER", (char*)value));
+               ctx, "CIE_SIGN_OPT_PDF_SUBFILTER", static_cast<char*>(value)));
       snprintf(pContext->szPdfSubfilter, MAX_PATH, "%s",
                static_cast<char*>(value));
       break;
 
     case CIE_SIGN_OPT_PDF_LOCATION:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_LOCATION", (char*)value));
+               ctx, "CIE_SIGN_OPT_LOCATION", static_cast<char*>(value)));
       snprintf(pContext->szPdfLocation, MAX_PATH, "%s",
                static_cast<char*>(value));
       break;
 
     case CIE_SIGN_OPT_PDF_NAME:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_PDF_NAME", (char*)value));
+               ctx, "CIE_SIGN_OPT_PDF_NAME", static_cast<char*>(value)));
       snprintf(pContext->szPdfName, MAX_PATH, "%s", static_cast<char*>(value));
       break;
 
     case CIE_SIGN_OPT_PDF_REASON:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_PDF_REASON", (char*)value));
+               ctx, "CIE_SIGN_OPT_PDF_REASON", static_cast<char*>(value)));
       snprintf(pContext->szPdfReason, MAX_PATH, "%s",
                static_cast<char*>(value));
       break;
 
     case CIE_SIGN_OPT_PDF_BOTTOM:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %f",
-               ctx, "CIE_SIGN_OPT_PDF_BOTTOM", *(float*)value));
+               ctx, "CIE_SIGN_OPT_PDF_BOTTOM", *(static_cast<float*>(value))));
       pContext->fPdfBottom = *(static_cast<float*>(value));
       break;
 
     case CIE_SIGN_OPT_PDF_LEFT:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %f",
-               ctx, "CIE_SIGN_OPT_PDF_LEFT", *((float*)value)));
+               ctx, "CIE_SIGN_OPT_PDF_LEFT", *(static_cast<float*>(value))));
       pContext->fPdfLeft = *(static_cast<float*>(value));
       break;
 
     case CIE_SIGN_OPT_PDF_WIDTH:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %f",
-               ctx, "CIE_SIGN_OPT_PDF_WIDTH", *((float*)value)));
+               ctx, "CIE_SIGN_OPT_PDF_WIDTH", *(static_cast<float*>(value))));
       pContext->fPdfWidth = *(static_cast<float*>(value));
       break;
 
     case CIE_SIGN_OPT_PDF_HEIGHT:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %f",
-               ctx, "CIE_SIGN_OPT_PDF_HEIGHT", *((float*)value)));
+               ctx, "CIE_SIGN_OPT_PDF_HEIGHT", *(static_cast<float*>(value))));
       pContext->fPdfHeight = *(static_cast<float*>(value));
       break;
 
     case CIE_SIGN_OPT_PDF_PAGE:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %d",
-               ctx, "CIE_SIGN_OPT_PDF_PAGE", *((long*)value)));
+               ctx, "CIE_SIGN_OPT_PDF_PAGE", *(static_cast<long*>(value))));
       pContext->nPdfPage = *(static_cast<long*>(value));
       break;
 
@@ -408,35 +410,39 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
 
     case CIE_SIGN_OPT_PDF_DESCRIPTION:
       LOG_MSG((0, "digitsign_sign_setopt", "Context: %p, Option: %s, Value: %s",
-               ctx, "DIGITSIGN_OPT_PDF_DESCRIPTION", (char*)value));
+               ctx, "DIGITSIGN_OPT_PDF_DESCRIPTION",
+               static_cast<char*>(value)));
       snprintf(pContext->szPdfDescription, MAX_PATH, "%s",
                static_cast<char*>(value));
       break;
 
     case CIE_SIGN_OPT_PDF_LOCATION_LABEL:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_PDF_LOCATION_LABEL", (char*)value));
+               ctx, "CIE_SIGN_OPT_PDF_LOCATION_LABEL",
+               static_cast<char*>(value)));
       snprintf(pContext->szPdfLocationLabel, MAX_PATH, "%s",
                static_cast<char*>(value));
       break;
 
     case CIE_SIGN_OPT_PDF_NAME_LABEL:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_PDF_NAME_LABEL", (char*)value));
+               ctx, "CIE_SIGN_OPT_PDF_NAME_LABEL", static_cast<char*>(value)));
       snprintf(pContext->szPdfNameLabel, MAX_PATH, "%s",
                static_cast<char*>(value));
       break;
 
     case CIE_SIGN_OPT_PDF_REASON_LABEL:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_PDF_REASON_LABEL", (char*)value));
+               ctx, "CIE_SIGN_OPT_PDF_REASON_LABEL",
+               static_cast<char*>(value)));
       snprintf(pContext->szPdfReasonLabel, MAX_PATH, "%s",
                static_cast<char*>(value));
       break;
 
     case CIE_SIGN_OPT_VERIFY_USER_CERTIFICATE:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_VERIFY_USER_CERTIFICATE", (char*)value));
+               ctx, "CIE_SIGN_OPT_VERIFY_USER_CERTIFICATE",
+               static_cast<char*>(value)));
       pContext->bVerifyCert = static_cast<BOOL>((intptr_t)value);
       break;
   }
@@ -609,18 +615,19 @@ CIE_SIGN_CTX cie_sign_verify_init(void) {
   g_nVerifyProxyPort = -1;
   LOG_MSG((0, "<-- cie_sign_verify_init", "Context: %p", pContext));
 
-  return (CIE_SIGN_CTX)pContext;
+  return reinterpret_cast<CIE_SIGN_CTX>(pContext);
 }
 
 long cie_sign_verify_set_int(CIE_SIGN_CTX ctx, int option, int value) {
   int* valuePtr = new int(value);
-  long result = cie_sign_verify_set(ctx, option, (void*)valuePtr);
+  long result =
+      cie_sign_verify_set(ctx, option, reinterpret_cast<void*>(valuePtr));
   delete valuePtr;  // Clean up the allocated memory
   return result;
 }
 
 long cie_sign_verify_set_string(CIE_SIGN_CTX ctx, int option, char* value) {
-  return cie_sign_verify_set(ctx, option, (void*)value);
+  return cie_sign_verify_set(ctx, option, reinterpret_cast<void*>(value));
 }
 
 long cie_sign_verify_set(CIE_SIGN_CTX ctx, int option, void* value) {
@@ -828,16 +835,15 @@ long cie_sign_verify_cleanup_result(VERIFY_RESULT* pVerifyResult) {
                    pVerifyResult->verifyInfo.pSignerInfos->pSignerInfo[i]
                        .pTimeStamp))
                   ->signerInfo.pRevocationInfo)
-            SAFEDELETE(((TS_INFO*)pVerifyResult->verifyInfo.pSignerInfos
-                            ->pSignerInfo[i]
-                            .pTimeStamp)
-                           ->signerInfo.pRevocationInfo);
+            SAFEDELETE(
+                (static_cast<TS_INFO*>(
+                     pVerifyResult->verifyInfo.pSignerInfos->pSignerInfo[i]
+                         .pTimeStamp))
+                    ->signerInfo.pRevocationInfo);
         }
 
-        if (pVerifyResult->verifyInfo.pSignerInfos->pSignerInfo[i]
-                .pRevocationInfo)
-          SAFEDELETE(pVerifyResult->verifyInfo.pSignerInfos->pSignerInfo[i]
-                         .pRevocationInfo);
+        SAFEDELETE(pVerifyResult->verifyInfo.pSignerInfos->pSignerInfo[i]
+                       .pRevocationInfo);
       }
 
       SAFEDELETE(pVerifyResult->verifyInfo.pSignerInfos);
@@ -1018,7 +1024,8 @@ long verify_xml(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
     CASN1ObjectIdentifier digestOID = verifier.GetDigestAlgorithm(i);
     ByteDynArray oid;
     digestOID.ToOidString(oid);
-    snprintf(pSI->szDigestAlgorithm, MAX_LEN, "%s", (char*)oid.data());
+    snprintf(pSI->szDigestAlgorithm, MAX_LEN, "%s",
+             reinterpret_cast<char*>(oid.data()));
 
     if (pContext->bVerifyCRL) pSI->pRevocationInfo = new REVOCATION_INFO;
 
@@ -1035,27 +1042,30 @@ long verify_xml(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
     ByteDynArray subject;
     pCert->getSubject().getNameAsString(subject);
 
-    snprintf(pSI->szDN, MAX_LEN * 2, "%s", (char*)subject.data());
+    snprintf(pSI->szDN, MAX_LEN * 2, "%s",
+             reinterpret_cast<char*>(subject.data()));
     snprintf(pSI->szSN, MAX_LEN * 2, "%s",
              dumpHexData(*(const_cast<ByteDynArray*>(
                              pCert->getSerialNumber().getValue())))
                  .c_str());
 
     CASN1Sequence certExtensions(pCert->getExtensions());
-    CASN1Sequence extensions = certExtensions.elementAt(0);
+    CASN1Sequence extensions(certExtensions.elementAt(0));
     int count = extensions.size();
     pSI->nExtensionsCount = count;
     pSI->pszExtensions = new char*[count];
     for (int j = 0; j < count; j++) {
-      CASN1Sequence extension = extensions.elementAt(j);
-      CASN1ObjectIdentifier extoid = extension.elementAt(0);
+      CASN1Sequence extension(extensions.elementAt(j));
+      CASN1ObjectIdentifier extoid(extension.elementAt(0));
       CASN1OctetString value(extension.elementAt(1));
       ByteDynArray oidName;
       extoid.ToOidString(oidName);
-      const char* szoid = g_mapOIDProps.getProperty((char*)oidName.data(),
-                                                    (char*)oidName.data());
-      const char* hexval =
-          dumpHexData(*(const_cast<ByteDynArray*>(value.getValue()))).c_str();
+      const char* szoid =
+          g_mapOIDProps.getProperty(reinterpret_cast<char*>(oidName.data()),
+                                    reinterpret_cast<char*>(oidName.data()));
+      std::string hexvalStr =
+          dumpHexData(*(const_cast<ByteDynArray*>(value.getValue())));
+      const char* hexval = hexvalStr.c_str();
       char* szAux = new char[strlen(szoid) + strlen(hexval) + 5];
       snprintf(szAux, strlen(szoid) + strlen(hexval) + 5, "%s:%s", szoid,
                hexval);
@@ -1066,7 +1076,8 @@ long verify_xml(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
 
     ByteDynArray issuer;
     pCert->getIssuer().getNameAsString(issuer);
-    snprintf(pSI->szCADN, MAX_LEN * 2, "%s", (char*)issuer.data());
+    snprintf(pSI->szCADN, MAX_LEN * 2, "%s",
+             reinterpret_cast<char*>(issuer.data()));
 
     pCert->getExpiration().getUTCTime(pSI->szExpiration);
     pCert->getFrom().getUTCTime(pSI->szValidFrom);
@@ -1097,7 +1108,7 @@ long verify_m7m(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
 
   M7MParser m7mParser;
 
-  int nRes = m7mParser.Load((char*)data.data(), data.size());
+  int nRes = m7mParser.Load(reinterpret_cast<char*>(data.data()), data.size());
   if (nRes) return nRes;
 
   ByteDynArray p7mData;
@@ -1189,7 +1200,7 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
     pSignerInfo->nCounterSignatureCount = counterSignatureCount;
 
     for (int i = 0; i < counterSignatureCount; i++) {
-      CSignerInfo counterSignature = counterSignatures.elementAt(i);
+      CSignerInfo counterSignature(counterSignatures.elementAt(i));
 
       CCertificate cert =
           CSignerInfo::getSignatureCertificate(counterSignature, certificates);
@@ -1222,36 +1233,41 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
       snprintf(pSI->szGIVENNAME, MAX_LEN * 2, "%s", giveName.c_str());
       snprintf(pSI->szSURNAME, MAX_LEN * 2, "%s", surname.c_str());
 
-      snprintf(pSI->szDN, MAX_LEN * 2, "%s", (char*)subject.data());
+      snprintf(pSI->szDN, MAX_LEN * 2, "%s",
+               reinterpret_cast<char*>(subject.data()));
 
       snprintf(pSI->szSN, MAX_LEN * 2, "%s",
                dumpHexData(*(const_cast<ByteDynArray*>(
                                cert.getSerialNumber().getValue())))
                    .c_str());
 
-      snprintf(pSI->szCADN, MAX_LEN * 2, "%s", (char*)issuer.data());
+      snprintf(pSI->szCADN, MAX_LEN * 2, "%s",
+               reinterpret_cast<char*>(issuer.data()));
 
-      CASN1ObjectIdentifier digestOID = si.getDigestAlgorithn().elementAt(0);
+      CASN1ObjectIdentifier digestOID(si.getDigestAlgorithn().elementAt(0));
       ByteDynArray oid;
       digestOID.ToOidString(oid);
-      snprintf(pSI->szDigestAlgorithm, MAX_LEN, "%s", (char*)oid.data());
+      snprintf(pSI->szDigestAlgorithm, MAX_LEN, "%s",
+               reinterpret_cast<char*>(oid.data()));
 
       CASN1Sequence certExtensions(cert.getExtensions());
-      CASN1Sequence extensions = certExtensions.elementAt(0);
+      CASN1Sequence extensions(certExtensions.elementAt(0));
       int count = extensions.size();
       pSI->nExtensionsCount = count;
       pSI->pszExtensions = new char*[count];
       for (int j = 0; j < count; j++) {
-        CASN1Sequence extension = extensions.elementAt(j);
-        CASN1ObjectIdentifier extoid = extension.elementAt(0);
+        CASN1Sequence extension(extensions.elementAt(j));
+        CASN1ObjectIdentifier extoid(extension.elementAt(0));
         CASN1OctetString value(extension.elementAt(1));
 
         ByteDynArray oidName;
         extoid.ToOidString(oidName);
-        const char* szoid = g_mapOIDProps.getProperty((char*)oidName.data(),
-                                                      (char*)oidName.data());
-        const char* hexval =
-            dumpHexData(*(const_cast<ByteDynArray*>(value.getValue()))).c_str();
+        const char* szoid =
+            g_mapOIDProps.getProperty(reinterpret_cast<char*>(oidName.data()),
+                                      reinterpret_cast<char*>(oidName.data()));
+        std::string hexvalStr =
+            dumpHexData(*(const_cast<ByteDynArray*>(value.getValue())));
+        const char* hexval = hexvalStr.c_str();
         char* szAux = new char[strlen(szoid) + strlen(hexval) + 5];
         snprintf(szAux, strlen(szoid) + strlen(hexval) + 5, "%s:%s", szoid,
                  hexval);
@@ -1299,16 +1315,16 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
 
         CCertificate tsacert(tst.getCertificates().elementAt(0));
 
-        ByteDynArray subject;
-        ByteDynArray issuer;
+        ByteDynArray subject2;
+        ByteDynArray issuer2;
 
-        tsacert.getSubject().getNameAsString(subject);
-        tsacert.getIssuer().getNameAsString(issuer);
+        tsacert.getSubject().getNameAsString(subject2);
+        tsacert.getIssuer().getNameAsString(issuer2);
 
         snprintf(pTSInfo->signerInfo.szDN, MAX_LEN * 2, "%s",
-                 (char*)subject.data());
+                 reinterpret_cast<char*>(subject2.data()));
         snprintf(pTSInfo->signerInfo.szCADN, MAX_LEN * 2, "%s",
-                 (char*)issuer.data());
+                 reinterpret_cast<char*>(issuer2.data()));
 
         CTSTInfo tstInfo(tst.getTSTInfo());
 
@@ -1326,13 +1342,13 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
         tsacert.getExpiration().getUTCTime(pTSInfo->signerInfo.szExpiration);
         tsacert.getFrom().getUTCTime(pTSInfo->signerInfo.szValidFrom);
 
-        ByteDynArray* certificate =
+        const ByteDynArray* certificate2 =
             const_cast<ByteDynArray*>(tsacert.getValue());
 
-        pTSInfo->signerInfo.nCertLen = certificate->size();
+        pTSInfo->signerInfo.nCertLen = certificate2->size();
         pTSInfo->signerInfo.pCertificate =
             new BYTE[pTSInfo->signerInfo.nCertLen];
-        memcpy(pTSInfo->signerInfo.pCertificate, certificate->data(),
+        memcpy(pTSInfo->signerInfo.pCertificate, certificate2->data(),
                pTSInfo->signerInfo.nCertLen);
 
         pTSInfo->signerInfo.pRevocationInfo = nullptr;
@@ -1352,10 +1368,10 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
         ByteDynArray oid1;
         timeStampImprintAlgorithm.ToOidString(oid1);
         snprintf(pTSInfo->szTimeStampImprintAlgorithm, MAX_LEN, "%s",
-                 (char*)oid1.data());
+                 reinterpret_cast<char*>(oid1.data()));
 
         // imprint b64
-        CASN1OctetString mimprint = messageImprint.elementAt(1);
+        CASN1OctetString mimprint(messageImprint.elementAt(1));
         const ByteDynArray* val = mimprint.getValue();
 
         ByteArray ba(const_cast<BYTE*>(val->data()), val->size());
@@ -1366,12 +1382,12 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
                  b64Encoded.c_str());
 
         // digest algo
-        CASN1ObjectIdentifier digestOID(
+        CASN1ObjectIdentifier digestOID2(
             tstInfo.getDigestAlgorithn().elementAt(0));
-        ByteDynArray oid;
-        digestOID.ToOidString(oid);
+        ByteDynArray oid2;
+        digestOID2.ToOidString(oid2);
         snprintf(pTSInfo->signerInfo.szDigestAlgorithm, MAX_LEN, "%s",
-                 (char*)oid.data());
+                 reinterpret_cast<char*>(oid2.data()));
         pSI->pTimeStamp = pTSInfo;
       } else {
         LOG_DBG((0, "verify_signed_document 2", "Doesn't Have TimeStamp"));
@@ -1434,36 +1450,41 @@ long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
     snprintf(pSI->szGIVENNAME, MAX_LEN * 2, "%s", giveName.c_str());
     snprintf(pSI->szSURNAME, MAX_LEN * 2, "%s", surname.c_str());
 
-    snprintf(pSI->szDN, MAX_LEN * 2, "%s", (char*)subject.data());
+    snprintf(pSI->szDN, MAX_LEN * 2, "%s",
+             reinterpret_cast<char*>(subject.data()));
 
     snprintf(pSI->szSN, MAX_LEN * 2, "%s",
              dumpHexData(*(const_cast<ByteDynArray*>(
                              cert.getSerialNumber().getValue())))
                  .c_str());
 
-    snprintf(pSI->szCADN, MAX_LEN * 2, "%s", (char*)issuer.data());
+    snprintf(pSI->szCADN, MAX_LEN * 2, "%s",
+             reinterpret_cast<char*>(issuer.data()));
 
-    CASN1ObjectIdentifier digestOID = si.getDigestAlgorithn().elementAt(0);
+    CASN1ObjectIdentifier digestOID(si.getDigestAlgorithn().elementAt(0));
     ByteDynArray oid;
     digestOID.ToOidString(oid);
-    snprintf(pSI->szDigestAlgorithm, MAX_LEN, "%s", (char*)oid.data());
+    snprintf(pSI->szDigestAlgorithm, MAX_LEN, "%s",
+             reinterpret_cast<char*>(oid.data()));
 
     CASN1Sequence certExtensions(cert.getExtensions());
-    CASN1Sequence extensions = certExtensions.elementAt(0);
+    CASN1Sequence extensions(certExtensions.elementAt(0));
     int count = extensions.size();
     pSI->nExtensionsCount = count;
     pSI->pszExtensions = new char*[count];
     for (int j = 0; j < count; j++) {
-      CASN1Sequence extension = extensions.elementAt(j);
-      CASN1ObjectIdentifier extoid = extension.elementAt(0);
+      CASN1Sequence extension(extensions.elementAt(j));
+      CASN1ObjectIdentifier extoid(extension.elementAt(0));
       CASN1OctetString value(extension.elementAt(1));
 
       ByteDynArray oidName;
       extoid.ToOidString(oidName);
-      const char* szoid = g_mapOIDProps.getProperty((char*)oidName.data(),
-                                                    (char*)oidName.data());
-      const char* hexval =
-          dumpHexData(*(const_cast<ByteDynArray*>(value.getValue()))).c_str();
+      const char* szoid =
+          g_mapOIDProps.getProperty(reinterpret_cast<char*>(oidName.data()),
+                                    reinterpret_cast<char*>(oidName.data()));
+      std::string hexvalStr =
+          dumpHexData(*(const_cast<ByteDynArray*>(value.getValue())));
+      const char* hexval = hexvalStr.c_str();
       char* szAux = new char[strlen(szoid) + strlen(hexval) + 5];
       snprintf(szAux, strlen(szoid) + strlen(hexval) + 5, "%s:%s", szoid,
                hexval);
@@ -1517,16 +1538,16 @@ long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
 
       CCertificate tsacert(tst.getCertificates().elementAt(0));
 
-      ByteDynArray subject;
-      ByteDynArray issuer;
+      ByteDynArray subject2;
+      ByteDynArray issuer2;
 
-      tsacert.getSubject().getNameAsString(subject);
-      tsacert.getIssuer().getNameAsString(issuer);
+      tsacert.getSubject().getNameAsString(subject2);
+      tsacert.getIssuer().getNameAsString(issuer2);
 
       snprintf(pTSInfo->signerInfo.szDN, MAX_LEN * 2, "%s",
-               (char*)subject.data());
+               reinterpret_cast<char*>(subject2.data()));
       snprintf(pTSInfo->signerInfo.szCADN, MAX_LEN * 2, "%s",
-               (char*)issuer.data());
+               reinterpret_cast<char*>(issuer2.data()));
 
       CTSTInfo tstInfo(tst.getTSTInfo());
 
@@ -1544,12 +1565,12 @@ long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
       tsacert.getExpiration().getUTCTime(pTSInfo->signerInfo.szExpiration);
       tsacert.getFrom().getUTCTime(pTSInfo->signerInfo.szValidFrom);
 
-      ByteDynArray certificate;
-      tsacert.toByteArray(certificate);
+      ByteDynArray certificate2;
+      tsacert.toByteArray(certificate2);
 
-      pTSInfo->signerInfo.nCertLen = certificate.size();
+      pTSInfo->signerInfo.nCertLen = certificate2.size();
       pTSInfo->signerInfo.pCertificate = new BYTE[pTSInfo->signerInfo.nCertLen];
-      memcpy(pTSInfo->signerInfo.pCertificate, certificate.data(),
+      memcpy(pTSInfo->signerInfo.pCertificate, certificate2.data(),
              pTSInfo->signerInfo.nCertLen);
 
       pTSInfo->signerInfo.pRevocationInfo = nullptr;
@@ -1569,10 +1590,10 @@ long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
       ByteDynArray oid1;
       timeStampImprintAlgorithm.ToOidString(oid1);
       snprintf(pTSInfo->szTimeStampImprintAlgorithm, MAX_LEN, "%s",
-               (char*)oid1.data());
+               reinterpret_cast<char*>(oid1.data()));
 
       // imprint b64
-      CASN1OctetString mimprint = messageImprint.elementAt(1);
+      CASN1OctetString mimprint(messageImprint.elementAt(1));
       const ByteDynArray* val = mimprint.getValue();
 
       ByteArray ba(const_cast<BYTE*>(val->data()), val->size());
@@ -1583,12 +1604,12 @@ long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
                b64Encoded.c_str());
 
       // digest algo
-      CASN1ObjectIdentifier digestOID(
+      CASN1ObjectIdentifier digestOID2(
           tstInfo.getDigestAlgorithn().elementAt(0));
-      ByteDynArray oid;
-      digestOID.ToOidString(oid);
+      ByteDynArray oid2;
+      digestOID2.ToOidString(oid2);
       snprintf(pTSInfo->signerInfo.szDigestAlgorithm, MAX_LEN, "%s",
-               (char*)oid.data());
+               reinterpret_cast<char*>(oid2.data()));
       pSI->pTimeStamp = pTSInfo;
     } else {
       LOG_DBG((0, "verify_signed_document 2", "Doesn't Have TimeStamp"));
@@ -1630,7 +1651,7 @@ long verify_signed_document(CIE_VERIFY_CONTEXT* pContext, CSignedDocument& sd,
   return verify_signed_document(0, pContext, sd, pVerifyInfo);
 }
 
-long sign_xml(CIE_SIGN_CONTEXT* pContext, ByteDynArray& data) {
+long sign_xml(CIE_SIGN_CONTEXT* pContext, const ByteDynArray& data) {
   LOG_MSG((0, "--> sign_xml", "Context: %p", pContext));
 
   CXAdESGenerator xadesGenerator(pContext->pSignatureGenerator);
@@ -1667,12 +1688,13 @@ long sign_xml(CIE_SIGN_CONTEXT* pContext, ByteDynArray& data) {
   return nRes;
 }
 
-long sign_pdf(CIE_SIGN_CONTEXT* pContext, ByteDynArray& data) {
+long sign_pdf(CIE_SIGN_CONTEXT* pContext, const ByteDynArray& data) {
   LOG_MSG((0, "--> sign_pdf", "Context: %p", pContext));
 
   PdfSignatureGenerator sigGen;
 
-  int nSigCount = sigGen.Load((char*)data.data(), data.size());
+  int nSigCount =
+      sigGen.Load(reinterpret_cast<char*>(data.data()), data.size());
 
   LOG_DBG((0, "sign_pdf", "Context: %p, SigCount %d", pContext, nSigCount));
 
@@ -1704,7 +1726,7 @@ long sign_pdf(CIE_SIGN_CONTEXT* pContext, ByteDynArray& data) {
                  surname.c_str());
 
         time_t rawtime;
-        struct tm* timeinfo;
+        const struct tm* timeinfo;
         char buffer[80];
 
         time(&rawtime);
@@ -1770,7 +1792,7 @@ long sign_pdf(CIE_SIGN_CONTEXT* pContext, ByteDynArray& data) {
   return 0;
 }
 
-long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& data,
+long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& /*data*/,
                 VERIFY_INFO* pVerifyInfo) {
   PDFVerifier pdfVerifier;
 
@@ -1833,8 +1855,10 @@ long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& data,
     snprintf(pSI->szGIVENNAME, MAX_LEN * 2, "%s", giveName.c_str());
     snprintf(pSI->szSURNAME, MAX_LEN * 2, "%s", surname.c_str());
 
-    snprintf(pSI->szDN, MAX_LEN * 2, "%s", (char*)subject.data());
-    snprintf(pSI->szCADN, MAX_LEN * 2, "%s", (char*)issuer.data());
+    snprintf(pSI->szDN, MAX_LEN * 2, "%s",
+             reinterpret_cast<char*>(subject.data()));
+    snprintf(pSI->szCADN, MAX_LEN * 2, "%s",
+             reinterpret_cast<char*>(issuer.data()));
 
     snprintf(pSI->szSN, MAX_LEN * 2, "%s",
              dumpHexData(*(const_cast<ByteDynArray*>(
@@ -1860,24 +1884,27 @@ long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& data,
 
     ByteDynArray oid;
     digestOID.ToOidString(oid);
-    snprintf(pSI->szDigestAlgorithm, MAX_LEN, "%s", (char*)oid.data());
+    snprintf(pSI->szDigestAlgorithm, MAX_LEN, "%s",
+             reinterpret_cast<char*>(oid.data()));
 
     CASN1Sequence certExtensions(cert.getExtensions());
-    CASN1Sequence extensions = certExtensions.elementAt(0);
+    CASN1Sequence extensions(certExtensions.elementAt(0));
     int count = extensions.size();
     pSI->nExtensionsCount = count;
     pSI->pszExtensions = new char*[count];
     for (int j = 0; j < count; j++) {
-      CASN1Sequence extension = extensions.elementAt(j);
-      CASN1ObjectIdentifier extoid = extension.elementAt(0);
+      CASN1Sequence extension(extensions.elementAt(j));
+      CASN1ObjectIdentifier extoid(extension.elementAt(0));
       CASN1OctetString value(extension.elementAt(1));
 
       ByteDynArray oidName;
       extoid.ToOidString(oidName);
-      const char* szoid = g_mapOIDProps.getProperty((char*)oidName.data(),
-                                                    (char*)oidName.data());
-      const char* hexval =
-          dumpHexData(*(const_cast<ByteDynArray*>(value.getValue()))).c_str();
+      const char* szoid =
+          g_mapOIDProps.getProperty(reinterpret_cast<char*>(oidName.data()),
+                                    reinterpret_cast<char*>(oidName.data()));
+      std::string hexvalStr =
+          dumpHexData(*(const_cast<ByteDynArray*>(value.getValue())));
+      const char* hexval = hexvalStr.c_str();
       char* szAux = new char[strlen(szoid) + strlen(hexval) + 5];
       snprintf(szAux, strlen(szoid) + strlen(hexval) + 5, "%s:%s", szoid,
                hexval);
@@ -1903,25 +1930,25 @@ long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& data,
 
       CCertificate tsacert(tst.getCertificates().elementAt(0));
 
-      ByteDynArray subject;
-      ByteDynArray issuer;
+      ByteDynArray subject2;
+      ByteDynArray issuer2;
 
-      tsacert.getSubject().getNameAsString(subject);
-      tsacert.getIssuer().getNameAsString(issuer);
+      tsacert.getSubject().getNameAsString(subject2);
+      tsacert.getIssuer().getNameAsString(issuer2);
 
       snprintf(pTSInfo->signerInfo.szDN, MAX_LEN * 2, "%s",
-               (char*)subject.data());
+               reinterpret_cast<char*>(subject2.data()));
       snprintf(pTSInfo->signerInfo.szCADN, MAX_LEN * 2, "%s",
-               (char*)issuer.data());
+               reinterpret_cast<char*>(issuer2.data()));
 
       CTSTInfo tstInfo(tst.getTSTInfo());
 
-      CASN1ObjectIdentifier digestOID(
+      CASN1ObjectIdentifier digestOID2(
           tstInfo.getDigestAlgorithn().elementAt(0));
-      ByteDynArray oid;
-      digestOID.ToOidString(oid);
+      ByteDynArray oid2;
+      digestOID2.ToOidString(oid2);
       snprintf(pTSInfo->signerInfo.szDigestAlgorithm, MAX_LEN, "%s",
-               (char*)oid.data());
+               reinterpret_cast<char*>(oid2.data()));
 
       snprintf(pTSInfo->signerInfo.szSN, MAX_LEN * 2, "%s",
                dumpHexData(*(const_cast<ByteDynArray*>(
@@ -1933,12 +1960,12 @@ long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& data,
       tsacert.getExpiration().getUTCTime(pTSInfo->signerInfo.szExpiration);
       tsacert.getFrom().getUTCTime(pTSInfo->signerInfo.szValidFrom);
 
-      ByteDynArray certificate;
-      tsacert.toByteArray(certificate);
+      ByteDynArray certificate2;
+      tsacert.toByteArray(certificate2);
 
-      pTSInfo->signerInfo.nCertLen = certificate.size();
+      pTSInfo->signerInfo.nCertLen = certificate2.size();
       pTSInfo->signerInfo.pCertificate = new BYTE[pTSInfo->signerInfo.nCertLen];
-      memcpy(pTSInfo->signerInfo.pCertificate, certificate.data(),
+      memcpy(pTSInfo->signerInfo.pCertificate, certificate2.data(),
              pTSInfo->signerInfo.nCertLen);
 
       pTSInfo->signerInfo.pRevocationInfo = nullptr;
@@ -2139,8 +2166,10 @@ long verifyTST(CTimeStampToken& tst, TS_INFO* pTSInfo, BOOL bVerifyCRL) {
   tsacert.getSubject().getNameAsString(subject);
   tsacert.getIssuer().getNameAsString(issuer);
 
-  snprintf(pTSInfo->signerInfo.szDN, MAX_LEN * 2, "%s", (char*)subject.data());
-  snprintf(pTSInfo->signerInfo.szCADN, MAX_LEN * 2, "%s", (char*)issuer.data());
+  snprintf(pTSInfo->signerInfo.szDN, MAX_LEN * 2, "%s",
+           reinterpret_cast<char*>(subject.data()));
+  snprintf(pTSInfo->signerInfo.szCADN, MAX_LEN * 2, "%s",
+           reinterpret_cast<char*>(issuer.data()));
 
   CTSTInfo tstInfo(tst.getTSTInfo());
   tstInfo.getUTCTime().getUTCTime(pTSInfo->szTimestamp);
@@ -2157,7 +2186,8 @@ long verifyTST(CTimeStampToken& tst, TS_INFO* pTSInfo, BOOL bVerifyCRL) {
   tsacert.getExpiration().getUTCTime(pTSInfo->signerInfo.szExpiration);
   tsacert.getFrom().getUTCTime(pTSInfo->signerInfo.szValidFrom);
 
-  ByteDynArray* certificate = const_cast<ByteDynArray*>(tsacert.getValue());
+  const ByteDynArray* certificate =
+      const_cast<ByteDynArray*>(tsacert.getValue());
 
   pTSInfo->signerInfo.nCertLen = certificate->size();
   pTSInfo->signerInfo.pCertificate = new BYTE[pTSInfo->signerInfo.nCertLen];
@@ -2179,10 +2209,10 @@ long verifyTST(CTimeStampToken& tst, TS_INFO* pTSInfo, BOOL bVerifyCRL) {
   ByteDynArray oid1;
   timeStampImprintAlgorithm.ToOidString(oid1);
   snprintf(pTSInfo->szTimeStampImprintAlgorithm, MAX_LEN, "%s",
-           (char*)oid1.data());
+           reinterpret_cast<char*>(oid1.data()));
 
   // imprint b64
-  CASN1OctetString mimprint = messageImprint.elementAt(1);
+  CASN1OctetString mimprint(messageImprint.elementAt(1));
   const ByteDynArray* val = mimprint.getValue();
 
   ByteArray ba(const_cast<BYTE*>(val->data()), val->size());
@@ -2196,7 +2226,7 @@ long verifyTST(CTimeStampToken& tst, TS_INFO* pTSInfo, BOOL bVerifyCRL) {
   ByteDynArray oid;
   digestOID.ToOidString(oid);
   snprintf(pTSInfo->signerInfo.szDigestAlgorithm, MAX_LEN, "%s",
-           (char*)oid.data());
+           reinterpret_cast<char*>(oid.data()));
 
   pTSInfo->signerInfo.nExtensionsCount = 0;
 
@@ -2205,8 +2235,8 @@ long verifyTST(CTimeStampToken& tst, TS_INFO* pTSInfo, BOOL bVerifyCRL) {
   return 0;
 }
 
-int get_file_type(char* szFileName) {
-  char* pos = strrchr(szFileName, '.');
+int get_file_type(const char* szFileName) {
+  const char* pos = strrchr(szFileName, '.');
   if (pos) {
     const char* szExt = pos;
     if (STRICMP(szExt, ".p7m") == 0)
@@ -2247,6 +2277,7 @@ void CIEPdfSigner::ComputeSignature(charbuff& buffer, bool dryrun) {
     }
 
     buffer.resize(signedData.size());
-    std::memcpy(buffer.data(), (char*)signedData.data(), signedData.size());
+    std::memcpy(buffer.data(), reinterpret_cast<char*>(signedData.data()),
+                signedData.size());
   }
 }

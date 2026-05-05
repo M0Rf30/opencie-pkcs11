@@ -2,7 +2,6 @@
 #include "pcsc/token.h"
 
 #include <cstring>
-
 #include <vector>
 
 #include "pcsc/apdu.h"
@@ -18,16 +17,15 @@ CToken::CToken() {
 CToken::~CToken() {}
 
 void CToken::Reset(bool unpower) {
-  init_func ER_ASSERT(transmitCallback != nullptr, "Carta non Connessa")
+  init_func ER_ASSERT(transmitCallback != nullptr, "Card not connected")
 
       WORD reset = unpower ? 0xfffe : 0xffff;
-  StatusWord sw;
-  if ((sw = Transmit(VarToByteArray(reset), nullptr)) != 0x9000)
-    Log.writePure("transmit error: %x", sw);
+  if ((Transmit(VarToByteArray(reset), nullptr)) != 0x9000)
+    Log.writePure("transmit error: %x", 0);
 }
 
 void CToken::SelectMF() {
-  init_func ER_ASSERT(transmitCallback != nullptr, "Carta non Connessa")
+  init_func ER_ASSERT(transmitCallback != nullptr, "Card not connected")
 
       APDU apdu(0x00, 0xA4, 0x00, 0x00);
   StatusWord sw;
@@ -37,12 +35,10 @@ void CToken::SelectMF() {
 ByteDynArray CToken::BinaryRead(WORD start, BYTE size) {
   init_func
 
-      std::vector<BYTE>
-          dt;
+      ER_ASSERT(transmitCallback, "Card not connected")
 
-  ER_ASSERT(transmitCallback, "Carta non Connessa")
-
-  APDU apdu(0x00, 0xB0, static_cast<BYTE>(start >> 8), static_cast<BYTE>(start & 0xff), size);
+          APDU apdu(0x00, 0xB0, static_cast<BYTE>(start >> 8),
+                    static_cast<BYTE>(start & 0xff), size);
   ByteDynArray resp;
   StatusWord sw;
   if ((sw = Transmit(apdu, &resp)) != 0x9000) throw scard_error(sw);
@@ -50,37 +46,35 @@ ByteDynArray CToken::BinaryRead(WORD start, BYTE size) {
   return resp;
 }
 
-StatusWord CToken::Transmit(ByteArray apdu, ByteDynArray *resp) {
+StatusWord CToken::Transmit(const ByteArray &apdu, ByteDynArray *resp) {
   init_func
 
       BYTE pbtResp[3000];
   DWORD dwResp = 3000;
-  HRESULT res = transmitCallback(transmitCallbackData, apdu.data(), apdu.size(),
-                                 pbtResp, &dwResp);
+  HRESULT res = transmitCallback(transmitCallbackData,
+                                 reinterpret_cast<uint8_t *>(apdu.data()),
+                                 apdu.size(), pbtResp, &dwResp);
   ByteArray scResp(pbtResp, dwResp);
 
-  // la smart card è stata estratta durante l'operazione
+  // the smart card was removed during the operation
   if (res != SCARD_S_SUCCESS) {
     Log.writePure("sc err %lx", res);
     throw windows_error(res);
   }
 
-  if (scResp.size() < 2)
-    throw logged_error("Risposta della smart card non valida");
+  if (scResp.size() < 2) throw logged_error("Invalid smart card response");
 
-  if (resp != nullptr) *resp = scResp.left(scResp.size() - 2);
+  if (resp != nullptr) *resp = ByteDynArray(scResp.left(scResp.size() - 2));
 
   auto sw = ByteArrayToVar(scResp.right(2).reverse(), uint16_t);
   return sw;
 }
 
-StatusWord CToken::Transmit(APDU &apdu, ByteDynArray *resp) {
+StatusWord CToken::Transmit(const APDU &apdu, ByteDynArray *resp) {
   init_func
 
       BYTE pbtAPDU[3000];
   BYTE pbtResp[3000];
-
-  ByteDynArray baSMData;
 
   int iAPDUSize = 0;
   pbtAPDU[0] = apdu.btCLA;
@@ -107,13 +101,12 @@ StatusWord CToken::Transmit(APDU &apdu, ByteDynArray *resp) {
   HRESULT res = transmitCallback(transmitCallbackData, pbtAPDU, iAPDUSize,
                                  pbtResp, &dwResp);
   ByteArray scResp(pbtResp, dwResp);
-  // la smart card è stata estratta durante l'operazione
+  // the smart card was removed during the operation
   if (res != SCARD_S_SUCCESS) throw windows_error(res);
 
-  if (scResp.size() < 2)
-    throw logged_error("Risposta della smart card non valida");
+  if (scResp.size() < 2) throw logged_error("Invalid smart card response");
 
-  if (resp != nullptr) *resp = scResp.left(scResp.size() - 2);
+  if (resp != nullptr) *resp = ByteDynArray(scResp.left(scResp.size() - 2));
 
   auto sw = ByteArrayToVar(scResp.right(2).reverse(), uint16_t);
   return sw;

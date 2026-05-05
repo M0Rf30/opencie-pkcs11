@@ -27,28 +27,29 @@ class CASN1OptionalField : public CASN1Object {
    * @brief Constructs an optional field by reading from a BufferedReader.
    * @param reader The reader positioned at the tagged TLV.
    */
-  CASN1OptionalField(BufferedReader& reader);
+  explicit CASN1OptionalField(BufferedReader& reader);
 
   /**
    * @brief Constructs an optional field by applying a context class tag.
    * @param pAsn1Obj The ASN.1 object to wrap.
    * @param btClass  The context-specific tag number.
    */
-  CASN1OptionalField(const CASN1Object& pAsn1Obj, const BYTE& btClass);
+  explicit CASN1OptionalField(const CASN1Object& pAsn1Obj, const BYTE& btClass);
 
   /**
    * @brief Constructs an optional field from an existing ASN.1 object.
    * @param opt The ASN.1 object to copy as an optional field.
    */
+  // cppcheck-suppress noExplicitConstructor
   CASN1OptionalField(const CASN1Object& opt);
 
-  ~CASN1OptionalField();
+  virtual ~CASN1OptionalField() override;
 
   /**
    * @brief Returns the context-specific tag byte for this optional field.
    * @return The tag byte including class and tag number bits.
    */
-  BYTE getTag() const;
+  virtual BYTE getTag() const override;
 
  private:
   static const BYTE TAG;

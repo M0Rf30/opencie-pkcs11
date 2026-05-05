@@ -32,16 +32,22 @@ char* Bin128ToDec(const uint32 N[4]);
 void printBigInt(const BYTE* buffer, int buflen, std::string& sDecimalValue);
 
 CXAdESGenerator::CXAdESGenerator(CBaseSigner* pCryptoki)
-    : CSignatureGeneratorBase(pCryptoki), m_bXAdES(false) {}
+    : CSignatureGeneratorBase(pCryptoki),
+      m_bXAdES(false),
+      m_szID(""),
+      m_szFileName("") {}
 
 CXAdESGenerator::CXAdESGenerator(CSignatureGeneratorBase* pGenerator)
-    : CSignatureGeneratorBase(pGenerator), m_bXAdES(false) {}
+    : CSignatureGeneratorBase(pGenerator),
+      m_bXAdES(false),
+      m_szID(""),
+      m_szFileName("") {}
 
 CXAdESGenerator::~CXAdESGenerator(void) {}
 
 void CXAdESGenerator::SetXAdES(bool xades) { m_bXAdES = xades; }
 
-void CXAdESGenerator::SetFileName(char* szFileName) {
+void CXAdESGenerator::SetFileName(const char* szFileName) {
   snprintf(m_szFileName, sizeof(m_szFileName), "%s", szFileName);
 }
 
@@ -132,7 +138,6 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
   // QualifyingProperties
   xmlDocPtr docQualifyingProperties = nullptr;
   std::string strQualifPropsHashB64;
-  std::string strCanonicalForm;
 
   if (m_bXAdES) {
     docQualifyingProperties =
@@ -151,6 +156,7 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
       }
     }
 
+    std::string strCanonicalForm;
     CanonicalizeAndHashBase64(doc1, strQualifPropsHashB64, strCanonicalForm);
 
     xmlFreeDoc(doc0);
@@ -212,15 +218,13 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
 
   // static xmlChar nl[] = "\n";
 
-  std::string strSignatureB64;
   {
+    std::string strSignatureB64;
     ByteArray baSig(signature.data(), signature.size());
     CBase64().Encode(baSig, strSignatureB64);
   }
 
-  xmlNodePtr pSignatureRoot;
-
-  pSignatureRoot = xmlDocGetRootElement(docSignedInfo);
+  xmlNodePtr pSignatureRoot = xmlDocGetRootElement(docSignedInfo);
 
   // KeyInfo
   xmlNewChild(pSignatureRoot, nullptr, BAD_CAST "ds:KeyInfo", nullptr);
@@ -229,8 +233,8 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
   ByteDynArray baCert;
   pSignerCertificate->toByteArray(baCert);
 
-  std::string strCertB64;
   {
+    std::string strCertB64;
     ByteArray baCertArg(baCert.data(), baCert.size());
     CBase64().Encode(baCertArg, strCertB64);
   }
@@ -287,7 +291,7 @@ void CXAdESGenerator::CanonicalizeAndHashBase64(xmlDocPtr pDoc,
     ByteDynArray sha256res = CSHA256().Digest(baCan);
     hashaux.append(ByteArray(sha256res.data(), 32));
   } else {
-    // calcola l'hash SHA1
+    // Compute SHA1 hash
     unsigned char hash[SHA_DIGEST_LENGTH];
 
     EVP_MD_CTX* sha1_ctx = EVP_MD_CTX_new();
@@ -315,8 +319,8 @@ void CXAdESGenerator::CanonicalizeAndHashBase64(xmlDocPtr pDoc,
 }
 
 xmlDocPtr CXAdESGenerator::CreateSignedInfo(
-    xmlDocPtr pDocument, std::string& strQualifyingPropertiesB64Hash,
-    bool bDetached, char* szFileName) {
+    xmlDocPtr pDocument, const std::string& strQualifyingPropertiesB64Hash,
+    bool bDetached, const char* szFileName) {
   // XML doc
   xmlDocPtr doc = xmlNewDoc(reinterpret_cast<const xmlChar*>("1.0"));
   doc->children = xmlNewDocNode(doc, nullptr, BAD_CAST "ds:Signature", nullptr);
@@ -404,14 +408,16 @@ xmlDocPtr CXAdESGenerator::CreateSignedInfo(
 
   // digest value
   // hash del documento
-  std::string strDocHashB64;
-  std::string strCanonicalDoc;
+  {
+    std::string strDocHashB64;
+    std::string strCanonicalDoc;
 
-  CanonicalizeAndHashBase64(pDocument, strDocHashB64, strCanonicalDoc);
+    CanonicalizeAndHashBase64(pDocument, strDocHashB64, strCanonicalDoc);
 
-  pN2 = xmlNewChild(pN1, nullptr,
-                    reinterpret_cast<const xmlChar*>("ds:DigestValue"),
-                    reinterpret_cast<const xmlChar*>(strDocHashB64.c_str()));
+    pN2 = xmlNewChild(pN1, nullptr,
+                      reinterpret_cast<const xmlChar*>("ds:DigestValue"),
+                      reinterpret_cast<const xmlChar*>(strDocHashB64.c_str()));
+  }
 
   if (!strQualifyingPropertiesB64Hash.empty()) {
     // XAdES xadesSignedProperties
@@ -482,7 +488,7 @@ xmlDocPtr CXAdESGenerator::CreateQualifyingProperties(
   /* Get UNIX-style time and display as number and string. */
   time_t ltime;
   time(&ltime);
-  tm* pCurTime = gmtime(&ltime);  // localtime(&ltime);
+  const tm* pCurTime = gmtime(&ltime);  // localtime(&ltime);
 
   char szTime[100];
 
@@ -520,8 +526,8 @@ xmlDocPtr CXAdESGenerator::CreateQualifyingProperties(
   ByteDynArray sha256cert = CSHA256().Digest(baCert2);
   ByteDynArray hashaux(ByteArray(sha256cert.data(), 32));
 
-  std::string strHashB64;
   {
+    std::string strHashB64;
     ByteArray baHashArg(hashaux.data(), hashaux.size());
     CBase64().Encode(baHashArg, strHashB64);
   }
@@ -532,13 +538,6 @@ xmlDocPtr CXAdESGenerator::CreateQualifyingProperties(
 
   // X509SerialNumber
   CASN1Integer serialNumber(pCertificate->getSerialNumber());
-  ByteDynArray* pSerialNumber =
-      const_cast<ByteDynArray*>(serialNumber.getValue());
-
-  BigInteger sernum = dataToBigInteger<const BYTE>(
-      pSerialNumber->data(), pSerialNumber->size(), BigInteger::positive);
-
-  std::string strSerNum = bigIntegerToString(sernum);
 
   return doc;
 }

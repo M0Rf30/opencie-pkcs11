@@ -83,16 +83,19 @@ class IAS {
   StatusWord SendAPDU_SM(ByteArray head, ByteArray data, ByteDynArray &resp,
                          uint8_t *le = nullptr);
   /** @brief Retrieve remaining response data via GET RESPONSE. */
-  StatusWord getResp(ByteDynArray &Cardresp, StatusWord sw, ByteDynArray &resp);
+  StatusWord getResp(const ByteDynArray &resp, StatusWord sw,
+                     ByteDynArray &elabresp);
   /** @brief Retrieve remaining response data via GET RESPONSE under SM. */
-  StatusWord getResp_SM(ByteArray &Cardresp, StatusWord sw, ByteDynArray &resp);
+  StatusWord getResp_SM(const ByteArray &resp, StatusWord sw,
+                        ByteDynArray &elabresp);
 
   /** @brief Wrap an APDU in a Secure Messaging envelope. */
-  ByteDynArray SM(ByteArray &keyEnc, ByteArray &keySig, ByteArray &apdu,
-                  ByteArray &seq);
+  static ByteDynArray SM(const ByteArray &keyEnc, const ByteArray &keySig,
+                         const ByteArray &apdu, ByteArray &seq);
   /** @brief Unwrap a Secure Messaging response APDU. */
-  StatusWord respSM(ByteArray &keyEnc, ByteArray &keySig, ByteArray &apdu,
-                    ByteArray &seq, ByteDynArray &elabResp);
+  static StatusWord respSM(const ByteArray &keyEnc, const ByteArray &keySig,
+                           const ByteArray &apdu, ByteArray &seq,
+                           ByteDynArray &elabResp);
 
   /** @brief Read an elementary file by ID using Secure Messaging. */
   void readfile_SM(uint16_t id, ByteDynArray &content);
@@ -100,7 +103,7 @@ class IAS {
   void readfile(uint16_t id, ByteDynArray &content);
 
   /** @brief Increment the Secure Messaging sequence counter. */
-  void increment(ByteArray &seq);
+  static void increment(ByteArray &seq);
   /** @brief Detect and store the CIE card type from the ATR. */
   void ReadCIEType();
 
@@ -160,20 +163,20 @@ class IAS {
   /** @brief Verify the cardholder PIN.
    *  @return Status word indicating success or failure with remaining attempts.
    */
-  StatusWord VerifyPIN(ByteArray &PIN);
+  StatusWord VerifyPIN(const ByteArray &PIN);
   /** @brief Verify the PUK (PIN Unblock Key).
    *  @return Status word indicating success or failure with remaining attempts.
    */
-  StatusWord VerifyPUK(ByteArray &PUK);
+  StatusWord VerifyPUK(const ByteArray &PUK);
   /** @brief Unblock a locked PIN using a previously verified PUK. */
   StatusWord UnblockPIN();
   /** @brief Change the PIN by providing the old and new PIN values. */
-  StatusWord ChangePIN(ByteArray &oldPIN, ByteArray &newPIN);
+  StatusWord ChangePIN(const ByteArray &oldPIN, const ByteArray &newPIN);
   /** @brief Change the PIN (requires prior PUK verification). */
-  StatusWord ChangePIN(ByteArray &newPIN);
+  StatusWord ChangePIN(const ByteArray &newPIN);
   /** @brief Perform a digital signature operation using the card's private key.
    */
-  void Sign(ByteArray &data, ByteDynArray &signedData);
+  void Sign(const ByteArray &data, ByteDynArray &signedData);
   /** @brief Reset the card's authentication state (deauthenticate). */
   void Deauthenticate();
   /** @brief Retrieve the CIE X.509 certificate, using cache if available.
@@ -184,7 +187,8 @@ class IAS {
   void GetFirstPIN(ByteDynArray &PIN);
   /** @brief Store card data (certificate and initial PIN) in the local cache.
    */
-  void SetCache(const char *PAN, ByteArray &certificate, ByteArray &FirstPIN);
+  void SetCache(const char *PAN, const ByteArray &certificate,
+                const ByteArray &FirstPIN);
   /** @brief Check whether this card is enrolled (cached) on the local machine.
    */
   bool IsEnrolled();
@@ -195,14 +199,16 @@ class IAS {
   /** @brief Remove enrollment data for the given PAN from the local cache. */
   static bool Unenroll(const char *szPAN);
   /** @brief Display the PIN unblock icon/dialog to the user. */
-  void IconaSbloccoPIN();
+  static void IconaSbloccoPIN();
 
   /** @brief Determine the digest algorithm used in the SOD signature. */
-  uint8_t GetSODDigestAlg(ByteArray &SOD);
+  static uint8_t GetSODDigestAlg(const ByteArray &SOD);
   /** @brief Verify the SOD signature using RSA-PSS and extract hash set. */
-  void VerificaSODPSS(ByteArray &SOD, std::map<uint8_t, ByteDynArray> &hashSet);
+  static void VerificaSODPSS(const ByteArray &SOD,
+                             std::map<uint8_t, ByteDynArray> &hashSet);
   /** @brief Verify the SOD signature and extract the data group hash set. */
-  void VerificaSOD(ByteArray &SOD, std::map<uint8_t, ByteDynArray> &hashSet);
+  static void VerificaSOD(const ByteArray &SOD,
+                          std::map<uint8_t, ByteDynArray> &hashSet);
 
   /** @brief Progress callback invoked during long-running operations.
    *  @param progress  Percentage of completion (0-100).

@@ -5,20 +5,18 @@
 #include "util/util.h"
 
 extern CLog Log;
-CSyncroMutex::CSyncroMutex(void) { hMutex = nullptr; }
+CSyncroMutex::CSyncroMutex(void) : hMutex(nullptr) {}
 
 #ifdef _WIN32
 
 void CSyncroMutex::Create(void) {
-  init_func
-  hMutex = CreateMutex(nullptr, FALSE, nullptr);
-  ER_ASSERT(hMutex != nullptr, "Errore nella creazione del Mutex");
+  init_func hMutex = CreateMutex(nullptr, FALSE, nullptr);
+  ER_ASSERT(hMutex != nullptr, "Error creating mutex");
   exit_func
 }
 
 void CSyncroMutex::Create(const char *szName) {
-  init_func
-  hMutex = OpenMutex(SYNCHRONIZE, FALSE, szName);
+  init_func hMutex = OpenMutex(SYNCHRONIZE, FALSE, szName);
   if (hMutex == nullptr) {
     HRESULT r = GetLastError();
     if (r == ERROR_FILE_NOT_FOUND) {
@@ -26,10 +24,11 @@ void CSyncroMutex::Create(const char *szName) {
       SECURITY_DESCRIPTOR secDesc;
       PSID pSid;
       SID_IDENTIFIER_AUTHORITY worldSidAuth = SECURITY_WORLD_SID_AUTHORITY;
-      AllocateAndInitializeSid(&worldSidAuth, 1, SECURITY_WORLD_RID, 0, 0, 0,
-                               0, 0, 0, 0, &pSid);
+      AllocateAndInitializeSid(&worldSidAuth, 1, SECURITY_WORLD_RID, 0, 0, 0, 0,
+                               0, 0, 0, &pSid);
 
-      DWORD dwACL = sizeof(ACL) + (sizeof(ACCESS_ALLOWED_ACE) - sizeof(DWORD)) + GetLengthSid(pSid);
+      DWORD dwACL = sizeof(ACL) + (sizeof(ACCESS_ALLOWED_ACE) - sizeof(DWORD)) +
+                    GetLengthSid(pSid);
       ByteDynArray pbtACL(dwACL);
       PACL pACL = (PACL)pbtACL.data();
 
@@ -45,48 +44,39 @@ void CSyncroMutex::Create(const char *szName) {
       attr.lpSecurityDescriptor = &secDesc;
 
       hMutex = CreateMutex(&attr, FALSE, szName);
-      ER_ASSERT(hMutex != nullptr,
-                "Errore nella creazione del Mutex con nome");
+      ER_ASSERT(hMutex != nullptr, "Error creating named mutex");
       FreeSid(pSid);
     } else {
-      ER_ASSERT(FALSE, "Errore nella creazione del Mutex")
+      ER_ASSERT(FALSE, "Error creating mutex")
     }
   }
   exit_func
 }
 
 CSyncroMutex::~CSyncroMutex(void) {
-  init_func
-  if (hMutex) CloseHandle(hMutex);
+  init_func if (hMutex) CloseHandle(hMutex);
   exit_func
 }
 
 void CSyncroMutex::Lock() {
-  init_func
-  DWORD res = WaitForSingleObject(hMutex, INFINITE);
-  ER_ASSERT(res == S_OK || res == WAIT_ABANDONED,
-            "Errore nel rilascio del mutex");
+  init_func DWORD res = WaitForSingleObject(hMutex, INFINITE);
+  ER_ASSERT(res == S_OK || res == WAIT_ABANDONED, "Error releasing mutex");
   exit_func
 }
 
 void CSyncroMutex::Unlock() {
-  init_func
-  if (!ReleaseMutex(hMutex)) {
-    ER_ASSERT(FALSE, "Errore nel rilascio del mutex")
-  }
-  exit_func
+  init_func if (!ReleaseMutex(hMutex)) {
+      ER_ASSERT(FALSE, "Error releasing mutex")} exit_func
 }
 
 CSyncroLocker::CSyncroLocker(CSyncroMutex &mutex) {
-  init_func
-  pMutex = &mutex;
+  init_func pMutex = &mutex;
   pMutex->Lock();
   exit_func
 }
 
 CSyncroLocker::~CSyncroLocker() {
-  init_func
-  pMutex->Unlock();
+  init_func pMutex->Unlock();
   exit_func
 }
 

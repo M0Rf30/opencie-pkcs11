@@ -15,8 +15,8 @@ CFuncCallInfo::CFuncCallInfo(const char *name, CLog &logInfo) : log(logInfo) {
   fName = name;
   if (FunctionLog) {
     if (tlsCallDepth < GlobalDepth) {
-      LogNum =
-          logInfo.write("%*sIN -> %s", static_cast<DWORD>(tlsCallDepth), szEmpty, fName);
+      LogNum = logInfo.write("%*sIN -> %s", static_cast<DWORD>(tlsCallDepth),
+                             szEmpty, fName);
     }
   }
 
@@ -26,8 +26,8 @@ CFuncCallInfo::CFuncCallInfo(const char *name, CLog &logInfo) : log(logInfo) {
 CFuncCallInfo::~CFuncCallInfo() {
   tlsCallDepth = tlsCallDepth - 1;
   if (fName)
-    log.write("%*sOUT -> %s (%u)", static_cast<DWORD>(tlsCallDepth), szEmpty, fName,
-              LogNum - 1);
+    log.write("%*sOUT -> %s (%u)", static_cast<DWORD>(tlsCallDepth), szEmpty,
+              fName, LogNum - 1);
 }
 
 const char *CFuncCallInfo::FunctionName() { return fName; }

@@ -57,13 +57,13 @@ class CName : public CASN1Sequence {
    * @brief Parses a Name from a DER-encoded stream.
    * @param reader Buffered reader positioned at the Name SEQUENCE.
    */
-  CName(BufferedReader& reader);
+  explicit CName(BufferedReader& reader);
 
   /**
    * @brief Constructs a Name from an already-parsed ASN.1 object.
    * @param name Generic ASN.1 object containing Name encoding.
    */
-  CName(const CASN1Object& name);
+  explicit CName(const CASN1Object& name);
 
   /**
    * @brief Retrieves a specific naming attribute by OID.
@@ -78,5 +78,5 @@ class CName : public CASN1Sequence {
    */
   void getNameAsString(ByteDynArray& objId);
 
-  virtual ~CName();
+  virtual ~CName() override;
 };

@@ -17,7 +17,7 @@
  * @param data Byte array positioned at the start of the length field.
  * @return The decoded data length in bytes.
  */
-size_t GetASN1DataLenght(ByteArray &data);
+size_t GetASN1DataLenght(const ByteArray &data);
 
 class CASNTag;
 
@@ -107,7 +107,7 @@ class CASNParser {
    * @param data Output byte array for the DER encoding.
    * @param tags Tag array to encode.
    */
-  void Encode(ByteArray &data, CASNTagArray &tags);
+  static void Encode(const ByteArray &data, const CASNTagArray &tags);
 
   /**
    * @brief Encodes the internal tag tree into a dynamic byte array.
@@ -119,7 +119,7 @@ class CASNParser {
    * @brief Parses DER-encoded data into the internal tag tree.
    * @param data Input byte array containing DER-encoded data.
    */
-  void Parse(ByteArray &data);
+  void Parse(const ByteArray &data);
 
   /**
    * @brief Parses DER-encoded data into the specified tag array.
@@ -127,7 +127,7 @@ class CASNParser {
    * @param tags Output tag array to populate.
    * @param startseq Starting byte offset for position tracking.
    */
-  void Parse(ByteArray &data, CASNTagArray &tags, size_t startseq);
+  void Parse(const ByteArray &data, CASNTagArray &tags, size_t startseq);
 
   CASNTagArray tags;  ///< Parsed ASN.1 tag tree.
 

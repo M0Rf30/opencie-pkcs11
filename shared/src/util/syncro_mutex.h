@@ -59,7 +59,7 @@ class CSyncroLocker {
    * @brief Construct and acquire the lock.
    * @param mutex Mutex to lock.
    */
-  CSyncroLocker(CSyncroMutex &mutex);
+  explicit CSyncroLocker(CSyncroMutex &mutex);
 
   /** @brief Destructor. Releases the mutex lock. */
   ~CSyncroLocker();

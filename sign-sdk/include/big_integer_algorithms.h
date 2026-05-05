@@ -21,4 +21,3 @@ BigUnsigned modinv(const BigInteger &x, const BigUnsigned &n);
 // Returns (base ^ exponent) % modulus.
 BigUnsigned modexp(const BigInteger &base, const BigUnsigned &exponent,
                    const BigUnsigned &modulus);
-

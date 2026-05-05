@@ -129,14 +129,14 @@ void CSignerInfoGenerator::getSignedAttributes(ByteDynArray &signedAttribute,
 }
 
 void CSignerInfoGenerator::toByteArray(ByteDynArray &signerInfoArray) {
-  // crea il SignerInfo
+  // Create the SignerInfo
   CSignerInfo signerInfo = getSignerInfo();
 
   signerInfo.toByteArray(signerInfoArray);
 }
 
 CSignerInfo CSignerInfoGenerator::getSignerInfo() {
-  // crea il SignerInfo
+  // Create the SignerInfo
   CSignerInfo signerInfo(
       CIssuerAndSerialNumber(*m_pIssuer, *m_pSerialNumber, false),
       CAlgorithmIdentifier(szSHA256OID),

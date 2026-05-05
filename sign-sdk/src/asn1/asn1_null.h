@@ -29,10 +29,10 @@ class CASN1Null : public CASN1Object {
    * @brief Constructs a NULL by reading from a BufferedReader.
    * @param reader The reader positioned at the NULL TLV.
    */
-  CASN1Null(BufferedReader& reader);
+  explicit CASN1Null(BufferedReader& reader);
 
   /** @brief Constructs a default ASN.1 NULL value. */
   CASN1Null();
 
-  ~CASN1Null();
+  virtual ~CASN1Null() override;
 };

@@ -29,21 +29,21 @@ class CASN1Boolean : public CASN1Object {
    * @brief Constructs a BOOLEAN with the given value.
    * @param val The boolean value (true or false).
    */
-  CASN1Boolean(bool val);
+  explicit CASN1Boolean(bool val);
 
   /**
    * @brief Constructs a BOOLEAN from a generic ASN.1 object.
    * @param obj The ASN.1 object to reinterpret as a BOOLEAN.
    */
-  CASN1Boolean(const CASN1Object&);
+  explicit CASN1Boolean(const CASN1Object&);
 
   /**
    * @brief Constructs a BOOLEAN by reading from a BufferedReader.
    * @param reader The reader positioned at the BOOLEAN TLV.
    */
-  CASN1Boolean(BufferedReader& reader);
+  explicit CASN1Boolean(BufferedReader& reader);
 
-  ~CASN1Boolean();
+  virtual ~CASN1Boolean() override;
 
   /**
    * @brief Returns the decoded boolean value.

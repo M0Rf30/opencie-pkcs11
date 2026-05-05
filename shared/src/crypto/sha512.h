@@ -23,21 +23,6 @@ class CSHA512 {
   bool isInit;      ///< Whether the hash context has been initialized.
   EVP_MD_CTX *ctx;  ///< OpenSSL EVP message digest context.
 
-  /** @brief Initializes the hash context. */
-  void Init();
-
-  /**
-   * @brief Feeds data into the hash computation.
-   * @param data Input data chunk to process.
-   */
-  void Update(ByteArray data);
-
-  /**
-   * @brief Finalizes the hash and returns the digest.
-   * @return ByteDynArray containing the 64-byte SHA-512 digest.
-   */
-  ByteDynArray Final();
-
  public:
   /** @brief Constructs a new CSHA512 instance. */
   CSHA512();
@@ -50,5 +35,5 @@ class CSHA512 {
    * @param data Input data to hash.
    * @return ByteDynArray containing the 64-byte SHA-512 digest.
    */
-  ByteDynArray Digest(ByteArray &data);
+  static ByteDynArray Digest(const ByteArray &data);
 };

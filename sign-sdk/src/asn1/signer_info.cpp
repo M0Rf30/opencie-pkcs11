@@ -68,7 +68,7 @@ CASN1SetOf CSignerInfo::getAuthenticatedAttributes() {
   CASN1Object obj(elementAt(3));
 
   if (obj.getTag() == 0xA0) {  // optional auth attributes present
-    return obj;
+    return CASN1SetOf(obj);
   } else {
     CASN1SetOf empty;
     return empty;
@@ -80,9 +80,9 @@ CASN1SetOf CSignerInfo::getUnauthenticatedAttributes() {
     CASN1Object obj(elementAt(3));
 
     if (obj.getTag() == 0xA0)  // optional auth attributes present
-      return elementAt(6);
+      return CASN1SetOf(elementAt(6));
     else
-      return elementAt(5);
+      return CASN1SetOf(elementAt(5));
   } else {
     return CASN1SetOf();
   }
@@ -93,10 +93,10 @@ CASN1UTCTime CSignerInfo::getSigningTime() {
 
   int size = attrs.size();
   for (int j = 0; j < size; j++) {
-    CASN1Sequence attr = attrs.elementAt(j);
+    CASN1Sequence attr(attrs.elementAt(j));
     CASN1ObjectIdentifier objId(attr.elementAt(0));
     if (objId.equals(CASN1ObjectIdentifier(szSigningTimeOID)))
-      return (CASN1SetOf(attr.elementAt(1))).elementAt(0);
+      return CASN1UTCTime(CASN1SetOf(attr.elementAt(1)).elementAt(0));
   }
 
   throw -1L;
@@ -106,10 +106,10 @@ CASN1OctetString CSignerInfo::getContentHash() {
   CASN1SetOf attrs = getAuthenticatedAttributes();
   int size = attrs.size();
   for (int j = 0; j < size; j++) {
-    CASN1Sequence attr = attrs.elementAt(j);
+    CASN1Sequence attr(attrs.elementAt(j));
     CASN1ObjectIdentifier objId(attr.elementAt(0));
     if (objId.equals(CASN1ObjectIdentifier(szMessageDigestOID)))
-      return (CASN1SetOf(attr.elementAt(1))).elementAt(0);
+      return CASN1OctetString(CASN1SetOf(attr.elementAt(1)).elementAt(0));
   }
 
   throw -1L;
@@ -122,12 +122,12 @@ CTimeStampToken CSignerInfo::getTimeStampToken() {
   // search for timestamp oid
   int nSize = attributes.size();
   for (int i = 0; i < nSize; i++) {
-    CASN1Sequence attribute = attributes.elementAt(i);
-    CASN1ObjectIdentifier oid = attribute.elementAt(0);
+    CASN1Sequence attribute(attributes.elementAt(i));
+    CASN1ObjectIdentifier oid(attribute.elementAt(0));
 
     if (oid.equals(oidTimestampToken)) {
       CASN1SetOf values(attribute.elementAt(1));
-      return values.elementAt(0);
+      return CTimeStampToken(values.elementAt(0));
     }
   }
 
@@ -135,7 +135,7 @@ CTimeStampToken CSignerInfo::getTimeStampToken() {
 }
 
 bool CSignerInfo::hasTimeStampToken() {
-  CASN1SetOf tst = getTimeStampToken();
+  CTimeStampToken tst = getTimeStampToken();
   return tst.size() > 0;
 }
 
@@ -147,8 +147,8 @@ CASN1SetOf CSignerInfo::getCountersignatures() {
   // search for countersignature oid
   int nSize = attributes.size();
   for (int i = 0; i < nSize; i++) {
-    CASN1Sequence attribute = attributes.elementAt(i);
-    CASN1ObjectIdentifier oid1 = attribute.elementAt(0);
+    CASN1Sequence attribute(attributes.elementAt(i));
+    CASN1ObjectIdentifier oid1(attribute.elementAt(0));
 
     if (oid.equals(oid1)) {
       CASN1SetOf set(attribute.elementAt(1));
@@ -167,8 +167,8 @@ void CSignerInfo::setCountersignatures(int index,
   // search for countersignature oid
   int nSize = attributes.size();
   for (int i = 0; i < nSize; i++) {
-    CASN1Sequence attribute = attributes.elementAt(i);
-    CASN1ObjectIdentifier oid1 = attribute.elementAt(0);
+    CASN1Sequence attribute(attributes.elementAt(i));
+    CASN1ObjectIdentifier oid1(attribute.elementAt(0));
 
     if (oid.equals(oid1)) {
       if (counter == index) {
@@ -248,7 +248,7 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
 
   int bitmask = 0;
 
-  // verifica il certificato
+  // verify the certificate
   if (cert.isValid(szDateTime)) {
     bitmask |= VERIFIED_CERT_VALIDITY;
   }
@@ -298,7 +298,7 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
     }
   }
 
-  // verifica la cert chain
+  // verify the certificate chain
   //	CName issuerName(cert.getIssuer());
   //	ByteDynArray issuer;
   //	issuerName.getNameAsString(issuer);//getField(OID_COMMON_NAME);
@@ -343,7 +343,7 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
     bitmask |= VERIFIED_CERT_CHAIN;
   }
 
-  // verifica la firma
+  // verify the signature
 
   // OpenSSL
   ByteDynArray baCert;
@@ -364,23 +364,24 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
     BYTE decrypted[MAX_RSA_MODULUS_LEN];
     unsigned int len = MAX_RSA_MODULUS_LEN;
 
-    const BYTE* encrypted = pEncDigest->data();
-    const int encrypted_len = static_cast<int>(pEncDigest->size());
-
-    EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new(evp_pubkey, nullptr);
-    if (pctx && EVP_PKEY_verify_recover_init(pctx) > 0 &&
-        EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PADDING) > 0) {
-      size_t outlen = MAX_RSA_MODULUS_LEN;
-      if (EVP_PKEY_verify_recover(pctx, decrypted, &outlen, encrypted,
-                                  encrypted_len) > 0) {
-        len = static_cast<unsigned int>(outlen);
+    {
+      EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new(evp_pubkey, nullptr);
+      if (pctx && EVP_PKEY_verify_recover_init(pctx) > 0 &&
+          EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PADDING) > 0) {
+        const BYTE* encrypted = pEncDigest->data();
+        const int encrypted_len = static_cast<int>(pEncDigest->size());
+        size_t outlen = MAX_RSA_MODULUS_LEN;
+        if (EVP_PKEY_verify_recover(pctx, decrypted, &outlen, encrypted,
+                                    encrypted_len) > 0) {
+          len = static_cast<unsigned int>(outlen);
+        } else {
+          len = 0;
+        }
       } else {
         len = 0;
       }
-    } else {
-      len = 0;
+      EVP_PKEY_CTX_free(pctx);
     }
-    EVP_PKEY_CTX_free(pctx);
 
     EVP_PKEY_free(evp_pubkey);
     X509_free(x509);
@@ -388,180 +389,182 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
     if (len) {
       LOG_DBG((0, "CSignerInfo::verifySignature", "RSAPublicDecrypt OK"));
 
-      char szAux[100];
+      {
+        ByteDynArray dec(ByteArray(decrypted, len));
+        BufferedReader reader(dec);
+        CDigestInfo digestInfo(reader);
+        CASN1OctetString digest = digestInfo.getDigest();
+        const ByteDynArray* pDigestValue = digest.getValue();
 
-      ByteDynArray dec(ByteArray(decrypted, len));
-      BufferedReader reader(dec);
-      CDigestInfo digestInfo(reader);
-      CASN1OctetString digest = digestInfo.getDigest();
-      ByteDynArray* pDigestValue = const_cast<ByteDynArray*>(digest.getValue());
+        // content
+        ByteDynArray content2;
+        CASN1OctetString octetString(source);
 
-      // content
-      ByteDynArray content;
-      CASN1OctetString octetString(source);
-
-      if (octetString.getTag() == 0x24) {  // contructed octet string
-        CASN1Sequence contentArray(octetString);
-        int size = contentArray.size();
-        for (int i = 0; i < size; i++) {
-          content.append(ByteArray(contentArray.elementAt(i).getValue()->data(),
-                                   contentArray.elementAt(i).getLength()));
-        }
-      } else {
-        content.append(
-            ByteArray(octetString.getValue()->data(), octetString.getLength()));
-      }
-
-      BYTE* buff;
-      int bufflen = 0;
-
-      ByteDynArray messageDigest;
-
-      // estra i signedattributes
-      ByteDynArray signedAttr;
-      CASN1SetOf authAttr(signerInfo.getAuthenticatedAttributes());
-      int authAttrSize = authAttr.size();
-
-      LOG_DBG(
-          (0, "CSignerInfo::verifySignature", "Attrsize: %d", authAttrSize));
-
-      if (authAttrSize > 0) {
-        CASN1ObjectIdentifier oid(szMessageDigestOID);
-        CASN1ObjectIdentifier oid1(szContentTypeOID);
-        CASN1ObjectIdentifier oid2(szIdAASigningCertificateV2OID);
-        for (int i = 0; i < authAttrSize; i++) {
-          CASN1Sequence attr(authAttr.elementAt(i));
-
-          if (oid.equals(attr.elementAt(0))) {
-            bitmask |= VERIFIED_SIGNED_ATTRIBUTE_MD;
-            CASN1SetOf values(attr.elementAt(1));
-            CASN1OctetString val(values.elementAt(0));
-            const ByteDynArray* pval = val.getValue();
-            messageDigest.append(*pval);
-          } else if (oid1.equals(attr.elementAt(0))) {
-            bitmask |= VERIFIED_SIGNED_ATTRIBUTE_CT;
-          } else if (oid2.equals(attr.elementAt(0))) {
-            bitmask |= VERIFIED_SIGNED_ATTRIBUTE_SC;
-          }
-        }
-
-        authAttr.toByteArray(signedAttr);
-        buff = const_cast<BYTE*>(signedAttr.data());
-        bufflen = signedAttr.size();
-      } else {
-        // se non ci sono signedattributes l'hash va fatto sul content
-        buff = const_cast<BYTE*>(content.data());
-        bufflen = content.size();
-      }
-
-      CAlgorithmIdentifier digestAlgo(digestInfo.getDigestAlgorithm());
-      CAlgorithmIdentifier sha256Algo(szSHA256OID);
-      CAlgorithmIdentifier sha1Algo(szSHA1OID);
-      if (digestAlgo.elementAt(0) == sha256Algo.elementAt(0)) {
-        LOG_DBG((0, "CSignerInfo::verifySignature", "SHA256 OK"));
-
-        bitmask |= VERIFIED_SHA256;
-
-        BYTE hash[32];
-        BYTE hash2[32];
-
-        EVP_MD_CTX* sha256_ctx = EVP_MD_CTX_new();
-        EVP_DigestInit(sha256_ctx, EVP_sha256());
-        EVP_DigestUpdate(sha256_ctx, buff, bufflen);
-        EVP_DigestFinal(sha256_ctx, hash, nullptr);
-        EVP_MD_CTX_free(sha256_ctx);
-
-        EVP_MD_CTX* sha256_1_ctx = EVP_MD_CTX_new();
-        EVP_DigestInit(sha256_1_ctx, EVP_sha256());
-        EVP_DigestUpdate(sha256_1_ctx, content.data(), content.size());
-        EVP_DigestFinal(sha256_1_ctx, hash2, nullptr);
-        EVP_MD_CTX_free(sha256_1_ctx);
-
-        ByteDynArray bahash(ByteArray(hash, 32));
-        LOG_DBG((0, "CSignerInfo::verifySignature", "DigestValue: %s, %s",
-                 dumpHexData(*pDigestValue).c_str(),
-                 dumpHexData(bahash).c_str()));
-
-        if (CRYPTO_memcmp(hash, pDigestValue->data(), 32) == 0) {
-          LOG_DBG((0, "CSignerInfo::verifySignature", "SHA256 Len OK"));
-
-          // verifica l'hash del content
-          if (messageDigest.size() > 0) {
-            if (CRYPTO_memcmp(hash2, messageDigest.data(), 32) == 0) {
-              bitmask |= VERIFIED_SIGNATURE;
-              LOG_DBG(
-                  (0, "CSignerInfo::verifySignature", "VERIFIED: %x", bitmask));
-            } else {
-              LOG_DBG((0, "CSignerInfo::verifySignature", "Not verified"));
-            }
-          } else {
-            if (CRYPTO_memcmp(hash2, hash, 32) == 0) {
-              bitmask |= VERIFIED_SIGNATURE;
-              LOG_DBG((0, "CSignerInfo::verifySignature", "VERIFIED 2: %x",
-                       bitmask));
-            } else {
-              LOG_DBG((0, "CSignerInfo::verifySignature", "Not verified 2"));
-            }
+        if (octetString.getTag() == 0x24) {  // contructed octet string
+          CASN1Sequence contentArray(octetString);
+          int size = contentArray.size();
+          for (int i = 0; i < size; i++) {
+            content2.append(
+                ByteArray(contentArray.elementAt(i).getValue()->data(),
+                          contentArray.elementAt(i).getLength()));
           }
         } else {
-          LOG_DBG((0, "CSignerInfo::verifySignature", "Not verified 3"));
+          content2.append(ByteArray(octetString.getValue()->data(),
+                                    octetString.getLength()));
         }
-      } else if (digestAlgo.elementAt(0) ==
-                 sha1Algo.elementAt(
-                     0)) {  // if(digestAlgo == CAlgorithmIdentifier(szSHA1OID))
-        LOG_DBG((0, "CSignerInfo::verifySignature", "SHA1"));
-        unsigned char hash[SHA_DIGEST_LENGTH];
-        EVP_MD_CTX* sha1_ctx = nullptr;
 
-        // calcola l'hash SHA1
-        sha1_ctx = EVP_MD_CTX_new();
-        EVP_DigestInit(sha1_ctx, EVP_sha1());
-        EVP_DigestUpdate(sha1_ctx, buff, bufflen);
-        EVP_DigestFinal(sha1_ctx, hash, nullptr);
-        EVP_MD_CTX_free(sha1_ctx);
+        BYTE* buff;
+        int bufflen = 0;
 
-        // Reinterpret the hash as five unsigned 32-bit words.
-        unsigned* word = reinterpret_cast<unsigned*>(hash);
+        ByteDynArray messageDigest;
 
-        snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
-                 __builtin_bswap32(word[0]), __builtin_bswap32(word[1]),
-                 __builtin_bswap32(word[2]), __builtin_bswap32(word[3]),
-                 __builtin_bswap32(word[4]));
+        // estra i signedattributes
+        ByteDynArray signedAttr;
+        CASN1SetOf authAttr(signerInfo.getAuthenticatedAttributes());
+        int authAttrSize = authAttr.size();
 
-        ByteDynArray hashaux(szAux);
+        LOG_DBG(
+            (0, "CSignerInfo::verifySignature", "Attrsize: %d", authAttrSize));
 
-        sha1_ctx = EVP_MD_CTX_new();
-        EVP_DigestInit(sha1_ctx, EVP_sha1());
-        EVP_DigestUpdate(sha1_ctx, content.data(), content.size());
-        EVP_DigestFinal(sha1_ctx, hash, nullptr);
-        EVP_MD_CTX_free(sha1_ctx);
+        if (authAttrSize > 0) {
+          CASN1ObjectIdentifier oid(szMessageDigestOID);
+          CASN1ObjectIdentifier oid1(szContentTypeOID);
+          CASN1ObjectIdentifier oid2(szIdAASigningCertificateV2OID);
+          for (int i = 0; i < authAttrSize; i++) {
+            CASN1Sequence attr(authAttr.elementAt(i));
 
-        snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
-                 __builtin_bswap32(word[0]), __builtin_bswap32(word[1]),
-                 __builtin_bswap32(word[2]), __builtin_bswap32(word[3]),
-                 __builtin_bswap32(word[4]));
+            if (oid.equals(CASN1ObjectIdentifier(attr.elementAt(0)))) {
+              bitmask |= VERIFIED_SIGNED_ATTRIBUTE_MD;
+              CASN1SetOf values(attr.elementAt(1));
+              CASN1OctetString val(values.elementAt(0));
+              const ByteDynArray* pval = val.getValue();
+              messageDigest.append(*pval);
+            } else if (oid1.equals(CASN1ObjectIdentifier(attr.elementAt(0)))) {
+              bitmask |= VERIFIED_SIGNED_ATTRIBUTE_CT;
+            } else if (oid2.equals(CASN1ObjectIdentifier(attr.elementAt(0)))) {
+              bitmask |= VERIFIED_SIGNED_ATTRIBUTE_SC;
+            }
+          }
 
-        ByteDynArray contentHash(szAux);
+          authAttr.toByteArray(signedAttr);
+          buff = const_cast<BYTE*>(signedAttr.data());
+          bufflen = signedAttr.size();
+        } else {
+          // se non ci sono signedattributes l'hash va fatto sul content
+          buff = const_cast<BYTE*>(content2.data());
+          bufflen = content2.size();
+        }
 
-        if (CRYPTO_memcmp(hashaux.data(), pDigestValue->data(),
-                          hashaux.size()) == 0) {
-          LOG_DBG((0, "CSignerInfo::verifySignature", "length 1"));
+        CAlgorithmIdentifier digestAlgo(digestInfo.getDigestAlgorithm());
+        CAlgorithmIdentifier sha256Algo(szSHA256OID);
+        CAlgorithmIdentifier sha1Algo(szSHA1OID);
+        if (digestAlgo.elementAt(0) == sha256Algo.elementAt(0)) {
+          LOG_DBG((0, "CSignerInfo::verifySignature", "SHA256 OK"));
 
-          // verifica l'hash del content
-          if (messageDigest.size() > 0) {
-            LOG_DBG((0, "CSignerInfo::verifySignature", "length 2"));
-            if (CRYPTO_memcmp(contentHash.data(), messageDigest.data(),
-                              contentHash.size()) == 0) {
-              bitmask |= VERIFIED_SIGNATURE;
+          bitmask |= VERIFIED_SHA256;
+
+          BYTE hash[32];
+          BYTE hash2[32];
+
+          EVP_MD_CTX* sha256_ctx = EVP_MD_CTX_new();
+          EVP_DigestInit(sha256_ctx, EVP_sha256());
+          EVP_DigestUpdate(sha256_ctx, buff, bufflen);
+          EVP_DigestFinal(sha256_ctx, hash, nullptr);
+          EVP_MD_CTX_free(sha256_ctx);
+
+          EVP_MD_CTX* sha256_1_ctx = EVP_MD_CTX_new();
+          EVP_DigestInit(sha256_1_ctx, EVP_sha256());
+          EVP_DigestUpdate(sha256_1_ctx, content2.data(), content2.size());
+          EVP_DigestFinal(sha256_1_ctx, hash2, nullptr);
+          EVP_MD_CTX_free(sha256_1_ctx);
+
+          ByteDynArray bahash(ByteArray(hash, 32));
+          LOG_DBG((0, "CSignerInfo::verifySignature", "DigestValue: %s, %s",
+                   dumpHexData(*pDigestValue).c_str(),
+                   dumpHexData(bahash).c_str()));
+
+          if (CRYPTO_memcmp(hash, pDigestValue->data(), 32) == 0) {
+            LOG_DBG((0, "CSignerInfo::verifySignature", "SHA256 Len OK"));
+
+            // verify the content hash
+            if (messageDigest.size() > 0) {
+              if (CRYPTO_memcmp(hash2, messageDigest.data(), 32) == 0) {
+                bitmask |= VERIFIED_SIGNATURE;
+                LOG_DBG((0, "CSignerInfo::verifySignature", "VERIFIED: %x",
+                         bitmask));
+              } else {
+                LOG_DBG((0, "CSignerInfo::verifySignature", "Not verified"));
+              }
             } else {
-              LOG_DBG((0, "CSignerInfo::verifySignature", "Not verified 2"));
+              if (CRYPTO_memcmp(hash2, hash, 32) == 0) {
+                bitmask |= VERIFIED_SIGNATURE;
+                LOG_DBG((0, "CSignerInfo::verifySignature", "VERIFIED 2: %x",
+                         bitmask));
+              } else {
+                LOG_DBG((0, "CSignerInfo::verifySignature", "Not verified 2"));
+              }
             }
           } else {
-            if (CRYPTO_memcmp(contentHash.data(), hashaux.data(),
-                              contentHash.size()) == 0) {
-              bitmask |= VERIFIED_SIGNATURE;
+            LOG_DBG((0, "CSignerInfo::verifySignature", "Not verified 3"));
+          }
+        } else if (digestAlgo.elementAt(0) ==
+                   sha1Algo.elementAt(0)) {  // if(digestAlgo ==
+                                             // CAlgorithmIdentifier(szSHA1OID))
+          LOG_DBG((0, "CSignerInfo::verifySignature", "SHA1"));
+          char szAux[100];
+          unsigned char hash[SHA_DIGEST_LENGTH];
+          EVP_MD_CTX* sha1_ctx = nullptr;
+
+          // Compute SHA1 hash
+          sha1_ctx = EVP_MD_CTX_new();
+          EVP_DigestInit(sha1_ctx, EVP_sha1());
+          EVP_DigestUpdate(sha1_ctx, buff, bufflen);
+          EVP_DigestFinal(sha1_ctx, hash, nullptr);
+          EVP_MD_CTX_free(sha1_ctx);
+
+          // Reinterpret the hash as five unsigned 32-bit words.
+          unsigned* word = reinterpret_cast<unsigned*>(hash);
+
+          snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
+                   __builtin_bswap32(word[0]), __builtin_bswap32(word[1]),
+                   __builtin_bswap32(word[2]), __builtin_bswap32(word[3]),
+                   __builtin_bswap32(word[4]));
+
+          ByteDynArray hashaux(szAux);
+
+          sha1_ctx = EVP_MD_CTX_new();
+          EVP_DigestInit(sha1_ctx, EVP_sha1());
+          EVP_DigestUpdate(sha1_ctx, content2.data(), content2.size());
+          EVP_DigestFinal(sha1_ctx, hash, nullptr);
+          EVP_MD_CTX_free(sha1_ctx);
+
+          snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
+                   __builtin_bswap32(word[0]), __builtin_bswap32(word[1]),
+                   __builtin_bswap32(word[2]), __builtin_bswap32(word[3]),
+                   __builtin_bswap32(word[4]));
+
+          ByteDynArray contentHash(szAux);
+
+          if (CRYPTO_memcmp(hashaux.data(), pDigestValue->data(),
+                            hashaux.size()) == 0) {
+            LOG_DBG((0, "CSignerInfo::verifySignature", "length 1"));
+
+            // verify the content hash
+            if (messageDigest.size() > 0) {
+              LOG_DBG((0, "CSignerInfo::verifySignature", "length 2"));
+              if (CRYPTO_memcmp(contentHash.data(), messageDigest.data(),
+                                contentHash.size()) == 0) {
+                bitmask |= VERIFIED_SIGNATURE;
+              } else {
+                LOG_DBG((0, "CSignerInfo::verifySignature", "Not verified 2"));
+              }
             } else {
-              LOG_DBG((0, "CSignerInfo::verifySignature", "Not verified 3"));
+              if (CRYPTO_memcmp(contentHash.data(), hashaux.data(),
+                                contentHash.size()) == 0) {
+                bitmask |= VERIFIED_SIGNATURE;
+              } else {
+                LOG_DBG((0, "CSignerInfo::verifySignature", "Not verified 3"));
+              }
             }
           }
         }
@@ -583,7 +586,7 @@ CCertificate CSignerInfo::getSignatureCertificate(CSignerInfo& signature,
       signature.getIssuerAndSerialNumber();
 
   for (size_t i = 0; i < certificates.size(); i++) {
-    CCertificate cert = certificates.elementAt(i);
+    CCertificate cert(certificates.elementAt(i));
     CName issuer = cert.getIssuer();
     CASN1Integer serialNumber = cert.getSerialNumber();
 
