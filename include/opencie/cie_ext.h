@@ -226,6 +226,64 @@ CK_RV CK_ENTRY cie_get_certificate(const char* pan, unsigned char** outDer,
                                    unsigned long* outLen);
 
 // ---------------------------------------------------------------------------
+// Timestamp, encrypt, and decrypt functions
+// ---------------------------------------------------------------------------
+
+/**
+ * Request a standalone RFC 3161 timestamp for a file.
+ *
+ * Does not require a CIE card. Computes the SHA-256 digest of @p inFilePath
+ * and sends a TimeStampRequest to @p tsaUrl. The DER-encoded TimeStampToken
+ * is written to @p outTokenPath.
+ *
+ * @param inFilePath        Path to the file to timestamp.
+ * @param tsaUrl            TSA server endpoint URL.
+ * @param tsaUsername       HTTP Basic auth username; may be NULL.
+ * @param tsaPassword       HTTP Basic auth password; may be NULL.
+ * @param outTokenPath      Path where the .tst token is written.
+ * @param progressCallBack  Progress callback; must not be NULL.
+ * @return CKR_OK on success.
+ */
+CK_RV CK_ENTRY cie_timestamp(const char* inFilePath, const char* tsaUrl,
+                             const char* tsaUsername, const char* tsaPassword,
+                             const char* outTokenPath,
+                             PROGRESS_CALLBACK progressCallBack);
+
+/**
+ * Encrypt a file using the CIE card's RSA public key (RSA-OAEP / hybrid).
+ *
+ * Does not require the card to be present; reads the certificate from the
+ * local enrolment cache. For files larger than the RSA key can encrypt
+ * directly, uses AES-256-GCM with an RSA-OAEP-encrypted key.
+ *
+ * @param pan               PAN of the enrolled card.
+ * @param inFilePath        Path to the plaintext input file.
+ * @param outFilePath       Path where the encrypted output is written.
+ * @param progressCallBack  Progress callback; must not be NULL.
+ * @return CKR_OK on success.
+ */
+CK_RV CK_ENTRY cie_encrypt(const char* pan, const char* inFilePath,
+                           const char* outFilePath,
+                           PROGRESS_CALLBACK progressCallBack);
+
+/**
+ * Decrypt a file using the CIE card's RSA private key (RSA-OAEP / hybrid).
+ *
+ * Requires the physical card. Handles both direct RSA-OAEP and hybrid
+ * AES-256-GCM+RSA-OAEP formats produced by cie_encrypt().
+ *
+ * @param inFilePath        Path to the encrypted input file.
+ * @param pin               Card PIN (NUL-terminated).
+ * @param pan               PAN of the enrolled card.
+ * @param outFilePath       Path where the decrypted output is written.
+ * @param progressCallBack  Progress callback; must not be NULL.
+ * @return CKR_OK on success.
+ */
+CK_RV CK_ENTRY cie_decrypt(const char* inFilePath, const char* pin,
+                           const char* pan, const char* outFilePath,
+                           PROGRESS_CALLBACK progressCallBack);
+
+// ---------------------------------------------------------------------------
 // Low-level cryptographic helpers
 // ---------------------------------------------------------------------------
 

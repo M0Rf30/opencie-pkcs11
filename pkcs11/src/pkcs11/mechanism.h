@@ -93,13 +93,13 @@ class CVerify : public CMechanism {
 class CVerifyRSA : public CVerify {
  public:
   CVerifyRSA(CK_MECHANISM_TYPE type, std::shared_ptr<CSession> Session);
-  virtual ~CVerifyRSA();
+  virtual ~CVerifyRSA() override;
 
-  bool VerifySupportMultipart();
-  ByteDynArray VerifyDecryptSignature(ByteArray &Signature);
-  CK_ULONG VerifyLength();
-  ByteDynArray VerifyGetOperationState();
-  void VerifySetOperationState(ByteArray &OperationState);
+  bool VerifySupportMultipart() override;
+  ByteDynArray VerifyDecryptSignature(ByteArray &Signature) override;
+  CK_ULONG VerifyLength() override;
+  ByteDynArray VerifyGetOperationState() override;
+  void VerifySetOperationState(ByteArray &OperationState) override;
 };
 
 /** @brief Abstract base for single-part verification with data recovery. */
@@ -122,12 +122,12 @@ class CVerifyRecover : public CMechanism {
 class CVerifyRecoverRSA : public CVerifyRecover {
  public:
   CVerifyRecoverRSA(CK_MECHANISM_TYPE type, std::shared_ptr<CSession> Session);
-  virtual ~CVerifyRecoverRSA();
+  virtual ~CVerifyRecoverRSA() override;
 
-  ByteDynArray VerifyRecoverDecryptSignature(ByteArray &Signature);
-  CK_ULONG VerifyRecoverLength();
-  virtual ByteDynArray VerifyRecoverGetOperationState();
-  virtual void VerifyRecoverSetOperationState(ByteArray &OperationState);
+  ByteDynArray VerifyRecoverDecryptSignature(ByteArray &Signature) override;
+  CK_ULONG VerifyRecoverLength() override;
+  ByteDynArray VerifyRecoverGetOperationState() override;
+  void VerifyRecoverSetOperationState(ByteArray &OperationState) override;
 };
 
 /**
@@ -159,13 +159,13 @@ class CSign : public CMechanism {
 class CSignRSA : public CSign {
  public:
   CSignRSA(CK_MECHANISM_TYPE type, std::shared_ptr<CSession> Session);
-  virtual ~CSignRSA();
+  virtual ~CSignRSA() override;
 
-  CK_ULONG SignLength();
-  bool SignSupportMultipart();
-  ByteDynArray SignFinal() = 0;
-  virtual ByteDynArray SignGetOperationState();
-  virtual void SignSetOperationState(ByteArray &OperationState);
+  CK_ULONG SignLength() override;
+  bool SignSupportMultipart() override;
+  ByteDynArray SignFinal() override = 0;
+  ByteDynArray SignGetOperationState() override;
+  void SignSetOperationState(ByteArray &OperationState) override;
 };
 
 /** @brief Abstract base for single-part sign-with-recovery mechanisms. */
@@ -188,11 +188,11 @@ class CSignRecover : public CMechanism {
 class CSignRecoverRSA : public CSignRecover {
  public:
   CSignRecoverRSA(CK_MECHANISM_TYPE type, std::shared_ptr<CSession> Session);
-  virtual ~CSignRecoverRSA();
+  virtual ~CSignRecoverRSA() override;
 
-  CK_ULONG SignRecoverLength();
-  virtual ByteDynArray SignRecoverGetOperationState();
-  virtual void SignRecoverSetOperationState(ByteArray &OperationState);
+  CK_ULONG SignRecoverLength() override;
+  ByteDynArray SignRecoverGetOperationState() override;
+  void SignRecoverSetOperationState(ByteArray &OperationState) override;
 };
 
 /*class CEncrypt : public CMechanism
@@ -265,51 +265,51 @@ public:
 class CDigestSHA : public CDigest {
  public:
   CDigestSHA(std::shared_ptr<CSession> Session);
-  virtual ~CDigestSHA();
+  virtual ~CDigestSHA() override;
 
   CSHA1 sha1;
 
-  void DigestInit();
-  void DigestUpdate(ByteArray &Part);
-  void DigestFinal(ByteArray &Digest);
-  CK_ULONG DigestLength();
-  ByteArray DigestInfo();
-  ByteDynArray DigestGetOperationState();
-  void DigestSetOperationState(ByteArray &OperationState);
+  void DigestInit() override;
+  void DigestUpdate(ByteArray &Part) override;
+  void DigestFinal(ByteArray &Digest) override;
+  CK_ULONG DigestLength() override;
+  ByteArray DigestInfo() override;
+  ByteDynArray DigestGetOperationState() override;
+  void DigestSetOperationState(ByteArray &OperationState) override;
 };
 
 /** @brief SHA-256 digest mechanism (CKM_SHA256). */
 class CDigestSHA256 : public CDigest {
  public:
   CDigestSHA256(std::shared_ptr<CSession> Session);
-  virtual ~CDigestSHA256();
+  virtual ~CDigestSHA256() override;
 
   CSHA256 sha256;
 
-  void DigestInit();
-  void DigestUpdate(ByteArray &Part);
-  void DigestFinal(ByteArray &Digest);
-  CK_ULONG DigestLength();
-  ByteArray DigestInfo();
-  ByteDynArray DigestGetOperationState();
-  void DigestSetOperationState(ByteArray &OperationState);
+  void DigestInit() override;
+  void DigestUpdate(ByteArray &Part) override;
+  void DigestFinal(ByteArray &Digest) override;
+  CK_ULONG DigestLength() override;
+  ByteArray DigestInfo() override;
+  ByteDynArray DigestGetOperationState() override;
+  void DigestSetOperationState(ByteArray &OperationState) override;
 };
 
 /** @brief MD5 digest mechanism (CKM_MD5). */
 class CDigestMD5 : public CDigest {
  public:
   CDigestMD5(std::shared_ptr<CSession> Session);
-  virtual ~CDigestMD5();
+  virtual ~CDigestMD5() override;
 
   CMD5 md5;
 
-  void DigestInit();
-  void DigestUpdate(ByteArray &Part);
-  void DigestFinal(ByteArray &Digest);
-  CK_ULONG DigestLength();
-  ByteArray DigestInfo();
-  ByteDynArray DigestGetOperationState();
-  void DigestSetOperationState(ByteArray &OperationState);
+  void DigestInit() override;
+  void DigestUpdate(ByteArray &Part) override;
+  void DigestFinal(ByteArray &Digest) override;
+  CK_ULONG DigestLength() override;
+  ByteArray DigestInfo() override;
+  ByteDynArray DigestGetOperationState() override;
+  void DigestSetOperationState(ByteArray &OperationState) override;
 };
 
 /*class CRSA_X509 : public CSignRSA, public CSignRecoverRSA, public CVerifyRSA,
@@ -365,27 +365,27 @@ class CRSA_PKCS1
       public CVerifyRecoverRSA { /*, public CEncryptRSA, public CDecryptRSA*/
  public:
   CRSA_PKCS1(std::shared_ptr<CSession> Session);
-  virtual ~CRSA_PKCS1();
+  virtual ~CRSA_PKCS1() override;
 
   ByteDynArray baVerifyBuffer;
   ByteDynArray baSignBuffer;
   /*ByteDynArray baEncryptBuffer;
   ByteDynArray baDecryptBuffer;*/
 
-  void VerifyInit(CK_OBJECT_HANDLE PublicKey);
-  void VerifyUpdate(ByteArray &Part);
-  void VerifyFinal(ByteArray &Signature);
+  void VerifyInit(CK_OBJECT_HANDLE PublicKey) override;
+  void VerifyUpdate(ByteArray &Part) override;
+  void VerifyFinal(ByteArray &Signature) override;
 
-  void VerifyRecoverInit(CK_OBJECT_HANDLE PublicKey);
-  ByteDynArray VerifyRecover(ByteArray &Signature);
+  void VerifyRecoverInit(CK_OBJECT_HANDLE PublicKey) override;
+  ByteDynArray VerifyRecover(ByteArray &Signature) override;
 
-  void SignInit(CK_OBJECT_HANDLE PrivateKey);
-  void SignReset();
-  void SignUpdate(ByteArray &Part);
-  ByteDynArray SignFinal();
+  void SignInit(CK_OBJECT_HANDLE PrivateKey) override;
+  void SignReset() override;
+  void SignUpdate(ByteArray &Part) override;
+  ByteDynArray SignFinal() override;
 
-  void SignRecoverInit(CK_OBJECT_HANDLE PrivateKey);
-  ByteDynArray SignRecover(ByteArray &baData);
+  void SignRecoverInit(CK_OBJECT_HANDLE PrivateKey) override;
+  ByteDynArray SignRecover(ByteArray &baData) override;
 
   /*void EncryptInit(CK_OBJECT_HANDLE PublicKey);
   ByteDynArray  EncryptUpdate(ByteArray &Data);
@@ -407,16 +407,16 @@ class CSignRSAwithDigest : public CSignRSA {
  public:
   CSignRSAwithDigest(CK_MECHANISM_TYPE type, std::shared_ptr<CSession> Session,
                      CDigest *Digest);
-  virtual ~CSignRSAwithDigest();
+  virtual ~CSignRSAwithDigest() override;
 
   CDigest *pDigest;
-  bool SignSupportMultipart();
-  void SignInit(CK_OBJECT_HANDLE PrivateKey);
-  void SignReset();
-  void SignUpdate(ByteArray &Part);
-  ByteDynArray SignFinal();
-  ByteDynArray SignGetOperationState();
-  void SignSetOperationState(ByteArray &OperationState);
+  bool SignSupportMultipart() override;
+  void SignInit(CK_OBJECT_HANDLE PrivateKey) override;
+  void SignReset() override;
+  void SignUpdate(ByteArray &Part) override;
+  ByteDynArray SignFinal() override;
+  ByteDynArray SignGetOperationState() override;
+  void SignSetOperationState(ByteArray &OperationState) override;
 };
 
 /** @brief RSA verification with integrated hashing (e.g. CKM_SHA1_RSA_PKCS). */
@@ -424,15 +424,15 @@ class CVerifyRSAwithDigest : public CVerifyRSA {
  public:
   CVerifyRSAwithDigest(CK_MECHANISM_TYPE type,
                        std::shared_ptr<CSession> Session, CDigest *Digest);
-  virtual ~CVerifyRSAwithDigest();
+  virtual ~CVerifyRSAwithDigest() override;
 
   CDigest *pDigest;
-  bool VerifySupportMultipart();
-  void VerifyInit(CK_OBJECT_HANDLE PublicKey);
-  void VerifyUpdate(ByteArray &Part);
-  void VerifyFinal(ByteArray &Signature);
-  ByteDynArray VerifyGetOperationState();
-  void VerifySetOperationState(ByteArray &OperationState);
+  bool VerifySupportMultipart() override;
+  void VerifyInit(CK_OBJECT_HANDLE PublicKey) override;
+  void VerifyUpdate(ByteArray &Part) override;
+  void VerifyFinal(ByteArray &Signature) override;
+  ByteDynArray VerifyGetOperationState() override;
+  void VerifySetOperationState(ByteArray &OperationState) override;
 };
 
 /** @brief CKM_MD5_RSA_PKCS — combined MD5 hash + RSA PKCS#1 v1.5 sign/verify.
@@ -440,7 +440,7 @@ class CVerifyRSAwithDigest : public CVerifyRSA {
 class CRSAwithMD5 : public CSignRSAwithDigest, public CVerifyRSAwithDigest {
  public:
   CRSAwithMD5(std::shared_ptr<CSession> Session);
-  virtual ~CRSAwithMD5();
+  virtual ~CRSAwithMD5() override;
 
   CDigestMD5 md5;
 };
@@ -450,7 +450,7 @@ class CRSAwithMD5 : public CSignRSAwithDigest, public CVerifyRSAwithDigest {
 class CRSAwithSHA1 : public CSignRSAwithDigest, public CVerifyRSAwithDigest {
  public:
   CRSAwithSHA1(std::shared_ptr<CSession> Session);
-  virtual ~CRSAwithSHA1();
+  virtual ~CRSAwithSHA1() override;
 
   CDigestSHA sha1;
 };
@@ -460,7 +460,7 @@ class CRSAwithSHA1 : public CSignRSAwithDigest, public CVerifyRSAwithDigest {
 class CRSAwithSHA256 : public CSignRSAwithDigest, public CVerifyRSAwithDigest {
  public:
   CRSAwithSHA256(std::shared_ptr<CSession> Session);
-  virtual ~CRSAwithSHA256();
+  virtual ~CRSAwithSHA256() override;
 
   CDigestSHA256 sha256;
 };

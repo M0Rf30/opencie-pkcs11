@@ -137,7 +137,52 @@ if (rv == CKR_OK) {
 
 ---
 
-## 7. Use as a PKCS#11 Token
+## 7. Timestamp, Encrypt & Decrypt
+
+### Timestamp a file
+
+```c
+static CK_RV on_progress(int p, const char* msg) {
+    printf("[%d%%] %s\n", p, msg);
+    return CKR_OK;
+}
+
+CK_RV rv = cie_timestamp(
+    "document.pdf",                    // file to timestamp
+    "https://freetsa.org/tsr",         // TSA endpoint
+    NULL, NULL,                        // no HTTP auth
+    "document.pdf.tst",                // output token path
+    on_progress
+);
+```
+
+### Encrypt a file (no card needed)
+
+```c
+// Reads the certificate from the local enrolment cache.
+CK_RV rv = cie_encrypt(
+    "1234567890123456",   // PAN of the enrolled card
+    "secret.txt",         // plaintext input
+    "secret.txt.enc",     // encrypted output
+    on_progress
+);
+```
+
+### Decrypt a file (card required)
+
+```c
+CK_RV rv = cie_decrypt(
+    "secret.txt.enc",     // encrypted input
+    "12345678",           // card PIN
+    "1234567890123456",   // PAN
+    "secret.txt",         // decrypted output
+    on_progress
+);
+```
+
+---
+
+## 8. Use as a PKCS#11 Token
 
 The library implements the full PKCS#11 v2.40 interface. Use it with any PKCS#11-aware application.
 
@@ -167,7 +212,7 @@ module: /usr/lib/libopencie-pkcs11.so
 
 ---
 
-## 8. Android Integration
+## 9. Android Integration
 
 On Android, the PC/SC layer is replaced by an NFC transport bridged via JNI. Before any card operation, pass the NFC tag from your `Activity`:
 

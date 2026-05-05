@@ -1,6 +1,6 @@
 catch2_dep = dependency('catch2-with-main', fallback: ['catch2', 'catch2_with_main_dep'])
 
-test_inc = include_directories('../shared/src/', '../pkcs11/src/')
+test_inc = include_directories('../shared/src/', '../pkcs11/src/', '../include')
 
 test_sources = [
     'test_array.cpp',
@@ -14,6 +14,7 @@ test_sources = [
     'test_util.cpp',
     'test_properties.cpp',
     'test_ini_settings.cpp',
+    'test_cie_ext_api.cpp',
 ]
 
 # Sources needed by tests (no PCSC/hardware deps)

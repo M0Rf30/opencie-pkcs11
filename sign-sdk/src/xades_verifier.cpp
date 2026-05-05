@@ -16,6 +16,7 @@ CXAdESVerifier::CXAdESVerifier(void) : m_pXAdESDoc(nullptr) {
     m_bLibXmlInitialized = true;
     /* Init libxml */
     xmlInitParser();
+    // cppcheck-suppress unknownMacro
     LIBXML_TEST_VERSION
   }
 }

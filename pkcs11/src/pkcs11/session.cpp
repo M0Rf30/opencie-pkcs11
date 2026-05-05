@@ -75,6 +75,11 @@ SessionMap CSession::g_mSessions;
 CSession::CSession() {
   pSlot = nullptr;
   bFindInit = false;
+  flags = 0;
+  hSessionHandle = 0;
+  notify = nullptr;
+  pApplication = nullptr;
+  slotID = 0;
 }
 
 CK_SLOT_ID CSession::GetNewSessionID() {
@@ -520,8 +525,8 @@ void CSession::VerifyRecover(ByteArray &Signature, ByteArray &Data) {
 
   auto mech = std::move(pVerifyRecoverMechanism);
 
-  pVerifyRecoverMechanism->VerifyRecoverLength();
-  ByteDynArray baData = pVerifyRecoverMechanism->VerifyRecover(Signature);
+  mech->VerifyRecoverLength();
+  ByteDynArray baData = mech->VerifyRecover(Signature);
 
   if (!Data.isNull() && Data.size() < baData.size()) {
     pVerifyRecoverMechanism = std::move(mech);

@@ -30,7 +30,8 @@ long CIEVerify::verify(const char* input_file, VERIFY_RESULT* verifyResult,
     }
 
     ret = cie_sign_verify_set(ctx, CIE_SIGN_OPT_INPUTFILE_TYPE,
-                              reinterpret_cast<void*>(CIE_SIGN_FILETYPE_AUTO));
+                              reinterpret_cast<void*>(static_cast<uintptr_t>(
+                                  CIE_SIGN_FILETYPE_AUTO)));
     if (ret != 0) {
       throw ret;
     }
@@ -111,7 +112,8 @@ long CIEVerify::get_file_from_p7m(const char* input_file,
     }
 
     ret = cie_sign_verify_set(ctx, CIE_SIGN_OPT_INPUTFILE_TYPE,
-                              reinterpret_cast<void*>(CIE_SIGN_FILETYPE_AUTO));
+                              reinterpret_cast<void*>(static_cast<uintptr_t>(
+                                  CIE_SIGN_FILETYPE_AUTO)));
     if (ret != 0) {
       throw ret;
     }

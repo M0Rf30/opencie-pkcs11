@@ -24,3 +24,20 @@ duplInheritedMember:sign-sdk/src/asn1/asn1_generic_sequence.cpp
 // Template function: x is BigUnsigned::Blk (unsigned type), so x>=0
 // is always true by definition — this is intentional defensive code.
 knownConditionTrueFalse:sign-sdk/src/big_integer.cpp
+
+// Project-internal macros (init_func, exit_func, logParam, __CATCH) are
+// defined in shared/src/util/defines.h and shared/src/util/definitions.h.
+// cppcheck 2.20+ flags these as unknownMacro when analysing individual TUs
+// without full multi-TU context; they are not unknown in a real build.
+unknownMacro
+
+// CTLVCreate::addValue returns &map[Tag] where map is a class member
+// (tlvCreateMap), not a local variable. cppcheck 2.20 misidentifies it
+// as a dangling pointer to a local.
+returnDanglingLifetime:shared/src/util/tlv.cpp
+
+// init_func macro (from defines.h) expands to a CFuncCallInfo local named
+// 'info', which cppcheck 2.20 misreads as a 'map' shadow and incorrectly
+// concludes that addValue/setValue can be static (they use the member map).
+shadowVariable:shared/src/util/tlv.cpp
+functionStatic:shared/src/util/tlv.cpp

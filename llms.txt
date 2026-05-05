@@ -48,6 +48,11 @@ The public C interface is declared in `include/opencie/cie_ext.h`.
 ### Low-level
 - `make_digest_info(algid, digest, digestLen, out, outLen)` — build PKCS#1 DigestInfo for raw RSA flows
 
+### Timestamp, Encrypt & Decrypt
+- `cie_timestamp(inFilePath, tsaUrl, tsaUsername, tsaPassword, outTokenPath, progress_cb)` — RFC 3161 timestamp via TSA (SHA-256, no card needed)
+- `cie_encrypt(pan, inFilePath, outFilePath, progress_cb)` — encrypt with card's RSA public key (RSA-OAEP / hybrid AES-256-GCM+RSA-OAEP, no card needed)
+- `cie_decrypt(inFilePath, pin, pan, outFilePath, progress_cb)` — decrypt with card's RSA private key (card required)
+
 ## Key Source Paths
 
 - `include/opencie/cie_ext.h` — public C API header

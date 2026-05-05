@@ -31,12 +31,12 @@ CMechanism::CMechanism(CK_MECHANISM_TYPE type,
 CMechanism::~CMechanism() {}
 
 CVerify::CVerify(CK_MECHANISM_TYPE type, std::shared_ptr<CSession> Session)
-    : CMechanism(type, std::move(Session)) {}
+    : CMechanism(type, std::move(Session)), hVerifyKey(0) {}
 CVerify::~CVerify() {}
 
 CVerifyRecover::CVerifyRecover(CK_MECHANISM_TYPE type,
                                std::shared_ptr<CSession> Session)
-    : CMechanism(type, std::move(Session)) {}
+    : CMechanism(type, std::move(Session)), hVerifyRecoverKey(0) {}
 CVerifyRecover::~CVerifyRecover() {}
 
 CDigest::CDigest(CK_MECHANISM_TYPE type, std::shared_ptr<CSession> Session)
@@ -44,12 +44,12 @@ CDigest::CDigest(CK_MECHANISM_TYPE type, std::shared_ptr<CSession> Session)
 CDigest::~CDigest() {}
 
 CSign::CSign(CK_MECHANISM_TYPE type, std::shared_ptr<CSession> Session)
-    : CMechanism(type, std::move(Session)) {}
+    : CMechanism(type, std::move(Session)), hSignKey(0) {}
 CSign::~CSign() {}
 
 CSignRecover::CSignRecover(CK_MECHANISM_TYPE type,
                            std::shared_ptr<CSession> Session)
-    : CMechanism(type, std::move(Session)) {}
+    : CMechanism(type, std::move(Session)), hSignRecoverKey(0) {}
 CSignRecover::~CSignRecover() {}
 
 /* ******************** */

@@ -21,7 +21,7 @@ namespace p11 {
 
 TemplateVector CCardTemplate::g_mCardTemplates;
 
-CCardTemplate::CCardTemplate(void) {}
+CCardTemplate::CCardTemplate(void) { FunctionList = {}; }
 
 CCardTemplate::~CCardTemplate(void) {}
 

@@ -36,6 +36,8 @@ possano utilizzarli senza alcun middleware proprietario.
   12 operazioni non supportate restituiscono `CKR_FUNCTION_NOT_SUPPORTED`)
 - Gestione del PIN: verifica, modifica, sblocco
 - Firma e verifica PDF tramite un SDK integrato (basato su PoDoFo)
+- Cifratura e decifratura di file tramite la chiave RSA della CIE (RSA-OAEP / ibrido AES-256-GCM)
+- Marcatura temporale RFC 3161 autonoma tramite qualsiasi TSA (senza carta)
 - Build portabili con dipendenza minima da glibc per Linux
 - Supporto nativo su Linux, macOS, Windows e Android (trasporto NFC su Android)
 
@@ -96,6 +98,16 @@ CK_RV cie_verify         (const char *in_path, const char *proxy,
 CK_RV cie_get_sign_count (void);
 CK_RV cie_get_verify_info(int index, struct verifyInfo_t *out);
 CK_RV cie_extract_p7m    (const char *in_path, const char *out_path);
+
+// Marcatura temporale / cifratura / decifratura
+CK_RV cie_timestamp      (const char *in_path, const char *tsa_url,
+                           const char *tsa_user, const char *tsa_pass,
+                           const char *out_token, PROGRESS_CALLBACK);
+CK_RV cie_encrypt        (const char *pan, const char *in_path,
+                           const char *out_path, PROGRESS_CALLBACK);
+CK_RV cie_decrypt        (const char *in_path, const char *pin,
+                           const char *pan, const char *out_path,
+                           PROGRESS_CALLBACK);
 
 // Rilevamento lettori (ritorno int)
 int cie_reader_count (void);

@@ -11,25 +11,25 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+
 #include "opencie/cie_ext.h"
 
 int main(void) {
-    printf("Watching for smart-card reader changes. Press Ctrl-C to exit.\n\n");
+  printf("Watching for smart-card reader changes. Press Ctrl-C to exit.\n\n");
 
-    int current = cie_reader_count();
+  int current = cie_reader_count();
 
-    for (;;) {
-        char name[256] = {0};
-        cie_reader_name(name, sizeof(name));
+  for (;;) {
+    char name[256] = {0};
+    cie_reader_name(name, sizeof(name));
 
-        printf("Readers connected: %d", current);
-        if (current > 0 && name[0])
-            printf("  (first: \"%s\")", name);
-        printf("\n");
+    printf("Readers connected: %d", current);
+    if (current > 0 && name[0]) printf("  (first: \"%s\")", name);
+    printf("\n");
 
-        /* Block until the count changes */
-        current = cie_reader_watch(current);
-    }
+    /* Block until the count changes */
+    current = cie_reader_watch(current);
+  }
 
-    return EXIT_SUCCESS;
+  return EXIT_SUCCESS;
 }

@@ -62,6 +62,8 @@ CSlot::CSlot(ISmartCardTransport &transport, const char *szReader)
   // slotMutex.Create(mutexName(szReader));
   pSerialTemplate = nullptr;
   hCard = 0;
+  hSlot = 0;
+  pTemplateData = nullptr;
 }
 
 CSlot::~CSlot() { Final(); }
@@ -597,7 +599,7 @@ void CSlot::Connect() {
         }
         Context.renew();
       } else {
-        if (ris != SCARD_S_SUCCESS) throw windows_error(ris);
+        throw windows_error(ris);
       }
     }
   }

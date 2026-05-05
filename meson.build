@@ -40,6 +40,7 @@ endif
 if host_machine.system() == 'windows'
   pcsclite_dep = cpp.find_library('winscard')
   shlwapi_dep = cpp.find_library('shlwapi')
+  ws2_32_dep = cpp.find_library('ws2_32')
   version_dep = cpp.find_library('version', required: false)
 elif host_machine.system() == 'android'
   # Android uses NFC transport instead of PC/SC
@@ -139,7 +140,7 @@ common_deps = [
     pcsclite_dep,
     thread_dep,
     curl_dep,
-] + (host_machine.system() == 'windows' ? [shlwapi_dep] : [])
+] + (host_machine.system() == 'windows' ? [shlwapi_dep, ws2_32_dep] : [])
 
 # Android-specific dependencies
 if host_machine.system() == 'android'
@@ -218,6 +219,9 @@ if build_sign_sdk
       'pkcs11/src/sign/cie_sign.cpp',
       'pkcs11/src/csp/cie_verify_csp.cpp',
       'pkcs11/src/csp/cie_sign_csp.cpp',
+      'pkcs11/src/csp/cie_timestamp_csp.cpp',
+      'pkcs11/src/csp/cie_encrypt_csp.cpp',
+      'pkcs11/src/csp/cie_decrypt_csp.cpp',
   ]
 endif
 
@@ -349,15 +353,18 @@ endif
 if build_sign_sdk
   pkcs11_link_with = [libcie_sign_sdk, libcie_shared]
   pkcs11_extra_deps = [libxml2_dep, fontconfig_dep, freetype_dep, png_dep, xml2_dep]
+  # cie_timestamp_csp.cpp / cie_encrypt_csp.cpp need tsa_client.h from sign-sdk
+  pkcs11_inc = [inc_so, include_directories('sign-sdk/include', 'sign-sdk/src')]
 else
   pkcs11_link_with = [libcie_shared]
   pkcs11_extra_deps = []
+  pkcs11_inc = [inc_so]
 endif
 
 libopencie_pkcs11 = library(
     'opencie-pkcs11',
     cie_pkcs11_sources,
-    include_directories: inc_so,
+    include_directories: pkcs11_inc,
     link_with: pkcs11_link_with,
     dependencies: common_deps + pkcs11_extra_deps,
     link_args: pkcs11_link_args,

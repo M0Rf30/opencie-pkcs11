@@ -76,6 +76,7 @@ CSyncroLocker::CSyncroLocker(CSyncroMutex &mutex) {
 }
 
 CSyncroLocker::~CSyncroLocker() {
+  // cppcheck-suppress throwInNoexceptFunction
   init_func pMutex->Unlock();
   exit_func
 }

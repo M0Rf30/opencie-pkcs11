@@ -60,6 +60,7 @@ safeConnection::safeConnection(ISmartCardTransport &transport,
                                SCARDHANDLE hCard)
     : transport(transport) {
   this->hCard = hCard;
+  this->hContext = 0;
 }
 
 safeConnection::safeConnection(ISmartCardTransport &transport,

@@ -18,6 +18,8 @@ namespace p11 {
 CP11Object::CP11Object(CK_OBJECT_CLASS objClass, void* TemplateData) {
   ObjClass = objClass;
   pTemplateData = TemplateData;
+  bReadValue = false;
+  pSlot = nullptr;
   addAttribute(CKA_CLASS, ByteArray(reinterpret_cast<BYTE*>(&ObjClass),
                                     sizeof(CK_OBJECT_CLASS)));
 }

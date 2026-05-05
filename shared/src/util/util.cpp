@@ -550,7 +550,7 @@ SYSTEMTIME convertStringToSystemTime(const char *dateTimeString) {
 
   memset(&systime, 0, sizeof(systime));
   // Date string should be "yyyyMMddhhmm"
-  sscanf(dateTimeString, "%04hi%02hi%02hiT%02hi%02hi%02hiZ", &systime.wYear,
+  sscanf(dateTimeString, "%04hu%02hu%02huT%02hu%02hu%02huZ", &systime.wYear,
          &systime.wMonth, &systime.wDay, &systime.wHour, &systime.wMinute,
          &systime.wSecond);
   return systime;
