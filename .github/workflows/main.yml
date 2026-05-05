@@ -41,7 +41,7 @@ jobs:
       - run: pip install meson ninja
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: c-cpp
           build-mode: manual
@@ -52,7 +52,7 @@ jobs:
           meson compile -C builddir-codeql
 
       - name: Analyze
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: /language:c-cpp
 
@@ -68,7 +68,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload Semgrep SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: semgrep.sarif
           category: semgrep
@@ -116,7 +116,7 @@ jobs:
       - name: Install dependencies
         run: >
           sudo apt update;
-          sudo apt install -y clang cmake g++ libcrypto++-dev
+          sudo apt install -y clang clang-tools cmake g++ libcrypto++-dev
           libcurl4-openssl-dev libfontconfig1-dev
           libfreetype6-dev libpcsclite-dev libpng-dev
           libssl-dev libxml2-dev
@@ -240,7 +240,7 @@ jobs:
       - run: pip install meson ninja
 
       - name: Install vcpkg
-        uses: johnwason/vcpkg-action@v7
+        uses: johnwason/vcpkg-action@v8
         with:
           pkgs: >-
             curl
@@ -353,13 +353,13 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y cmake
 
       - name: Set up Android NDK
-        uses: nttld/setup-ndk@v1
+        uses: nttld/setup-ndk@v1.6.0
         id: setup-ndk
         with:
           ndk-version: r27c
 
       - name: Install vcpkg
-        uses: johnwason/vcpkg-action@v7
+        uses: johnwason/vcpkg-action@v8
         with:
           pkgs: >-
             cryptopp
@@ -430,13 +430,13 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y cmake
 
       - name: Set up Android NDK
-        uses: nttld/setup-ndk@v1
+        uses: nttld/setup-ndk@v1.6.0
         id: setup-ndk
         with:
           ndk-version: r27c
 
       - name: Install vcpkg
-        uses: johnwason/vcpkg-action@v7
+        uses: johnwason/vcpkg-action@v8
         with:
           pkgs: >-
             cryptopp
