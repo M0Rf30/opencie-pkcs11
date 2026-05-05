@@ -1,0 +1,76 @@
+# opencie-pkcs11
+
+> A cross-platform C++ library implementing the PKCS#11 interface for the Italian CIE (Carta d'Identità Elettronica / Electronic Identity Card). Exposes the private key and authentication certificate stored on the CIE chip so that standard-compliant applications — browsers, TLS stacks, signing tools — can use them without any card-vendor middleware.
+
+- Version: 1.0.0
+- License: LGPL-3.0-or-later
+- Language: C++17 / C
+- Platforms: Linux (x86_64, aarch64), macOS (arm64), Windows (x86_64), Android (arm64-v8a, x86_64)
+- Output: libopencie-pkcs11.so / .dll / .dylib
+
+## Documentation
+
+- [README](README.md): Overview, features, build instructions, browser integration
+- [Architecture](ARCHITECTURE.md): Module map, data flow, design decisions
+- [API Reference](docs/api.md): Full public C API (cie_ext.h) with parameter docs
+- [Usage Guide](docs/usage.md): Step-by-step integration guide with code examples
+- [Examples](examples/): Standalone C++ programs demonstrating each API function
+- [Contributing](CONTRIBUTING.md): DCO, coding style, PR process
+
+## Public API
+
+The public C interface is declared in `include/opencie/cie_ext.h`.
+
+### Enrolment
+- `cie_enable(pan, pin, attempts, progress_cb, completed_cb)` — enrol a CIE card
+- `cie_is_enabled(pan)` — check enrolment status (returns 1/0)
+- `cie_disable(pan)` — remove enrolment
+
+### PIN Management
+- `cie_change_pin(current, new, attempts, progress_cb)` — change PIN
+- `cie_unblock_pin(puk, new_pin, attempts, progress_cb)` — unblock with PUK
+
+### Certificate
+- `cie_get_certificate(pan, outDer, outLen)` — retrieve DER-encoded X.509 cert (caller must free)
+
+### Signing & Verification
+- `cie_sign(inPath, type, pin, pan, page, x, y, w, h, imageData, imageDataLen, outPath, progress_cb, sign_cb)` — sign PDF or produce P7M
+- `cie_verify(inPath, proxyAddr, proxyPort, usrPass)` — verify signed document
+- `cie_get_sign_count()` — number of signatures from last verify
+- `cie_get_verify_info(index, verifyInfo_t*)` — signer details for n-th signature
+- `cie_extract_p7m(inPath, outPath)` — unwrap .p7m envelope
+
+### Reader Discovery
+- `cie_reader_count()` — number of connected smart-card readers
+- `cie_reader_watch(current_count)` — block until reader count changes
+- `cie_reader_name(buf, buf_len)` — name of the first reader
+
+### Low-level
+- `make_digest_info(algid, digest, digestLen, out, outLen)` — build PKCS#1 DigestInfo for raw RSA flows
+
+## Key Source Paths
+
+- `include/opencie/cie_ext.h` — public C API header
+- `pkcs11/src/` — PKCS#11 module (slot, session, object, mechanism management)
+- `shared/src/crypto/` — AES, DES3, RSA, SHA, MAC, Base64, MD5
+- `shared/src/pcsc/` — APDU, PC/SC transport, card locking, Android NFC
+- `shared/src/csp/` — ATR parsing, extended auth key, IAS protocol
+- `sign-sdk/src/` — PDF signing, XAdES, CMS/PKCS#7, TSA client, ASN.1 codec
+- `tests/` — Catch2 unit tests
+
+## Build
+
+```bash
+# Linux (native)
+meson setup builddir && meson compile -C builddir
+# Output: builddir/libopencie-pkcs11.so
+
+# Portable (container)
+podman build -t libopencie-builder -f Containerfile .
+podman run --rm -v $(pwd)/output:/output libopencie-builder x86_64
+```
+
+## Language Bindings
+
+- Go: https://github.com/M0Rf30/opencie-pkcs11-go
+- Rust: https://github.com/M0Rf30/opencie-pkcs11-rs
