@@ -39,7 +39,9 @@ inline bool config_exists(const std::string& name) {
 // Folder path string
 // char szLogDir[PATH_MAX];
 
+#ifndef __ANDROID__
 static const char* level_strings[] = {"", "[DEBUG]", "[INFO]", "[ERROR]"};
+#endif
 
 Logger::Logger() {
   t64configTime = static_cast<time64_t>(0);
