@@ -1,0 +1,9 @@
+# OpenSSL internal allocations that are intentional (not leaks)
+leak:libcrypto
+leak:libssl
+leak:CRYPTO_malloc
+leak:OPENSSL_init_crypto
+leak:OPENSSL_init_ssl
+leak:EVP_
+leak:RSA_
+leak:BN_

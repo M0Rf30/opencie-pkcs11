@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  security-events: write
 
 jobs:
   lint:
@@ -18,6 +19,59 @@ jobs:
         run: sudo apt update && sudo apt install -y clang-format cppcheck
 
       - uses: pre-commit/action@v3.0.1
+
+  codeql:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: >
+          sudo apt update;
+          sudo apt install -y cmake g++ libcrypto++-dev
+          libcurl4-openssl-dev libfontconfig1-dev
+          libfreetype6-dev libpcsclite-dev libpng-dev
+          libssl-dev libxml2-dev
+          pkg-config python3-pip
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - run: pip install meson ninja
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: c-cpp
+          build-mode: manual
+
+      - name: Build for CodeQL
+        run: |
+          meson setup builddir-codeql -Dtests=false
+          meson compile -C builddir-codeql
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:c-cpp
+
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run Semgrep
+        run: semgrep scan --config p/default --config p/c --sarif --output semgrep.sarif .
+        continue-on-error: true
+
+      - name: Upload Semgrep SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
 
   test:
     runs-on: ubuntu-latest
@@ -40,10 +94,13 @@ jobs:
       - run: pip install meson ninja
 
       - name: Configure
-        run: meson setup builddir-test
+        run: meson setup builddir-test -Db_sanitize=address,undefined -Db_lundef=false
 
       - name: Test
         run: meson test -C builddir-test --print-errorlogs
+        env:
+          ASAN_OPTIONS: halt_on_error=1:detect_leaks=0
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
 
       - uses: actions/upload-artifact@v7
         if: failure()
@@ -59,7 +116,7 @@ jobs:
       - name: Install dependencies
         run: >
           sudo apt update;
-          sudo apt install -y cmake g++ libcrypto++-dev
+          sudo apt install -y clang cmake g++ libcrypto++-dev
           libcurl4-openssl-dev libfontconfig1-dev
           libfreetype6-dev libpcsclite-dev libpng-dev
           libssl-dev libxml2-dev
@@ -76,6 +133,18 @@ jobs:
 
       - name: Build
         run: meson compile -C builddir
+
+      - name: Scan-build (Clang Static Analyzer)
+        run: |
+          meson setup builddir-scan -Dtests=false --wipe 2>/dev/null || meson setup builddir-scan -Dtests=false
+          scan-build --status-bugs -o scan-results meson compile -C builddir-scan
+        continue-on-error: true
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: scan-build-results
+          path: scan-results/
 
       - uses: actions/upload-artifact@v7
         with:
