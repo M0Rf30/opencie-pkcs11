@@ -129,7 +129,7 @@ jobs:
       - run: pip install meson ninja
 
       - name: Configure
-        run: meson setup builddir -Dtests=false
+        run: meson setup builddir -Dtests=false -Dstrip=true
 
       - name: Build
         run: meson compile -C builddir
@@ -206,7 +206,7 @@ jobs:
       - name: Configure
         env:
           PKG_CONFIG_LIBDIR: /usr/lib/aarch64-linux-gnu/pkgconfig
-        run: meson setup builddir-arm64 --cross-file toolchains/cross-aarch64.ini -Dtests=false
+        run: meson setup builddir-arm64 --cross-file toolchains/cross-aarch64.ini -Dtests=false -Dstrip=true
 
       - name: Build
         run: meson compile -C builddir-arm64
@@ -258,7 +258,7 @@ jobs:
       - name: Configure
         env:
           PKG_CONFIG_LIBDIR: ${{ github.workspace }}/vcpkg/installed/x64-mingw-dynamic/lib/pkgconfig
-        run: meson setup builddir-clang-win --cross-file toolchains/cross-clang-mingw.ini -Dtests=false
+        run: meson setup builddir-clang-win --cross-file toolchains/cross-clang-mingw.ini -Dtests=false -Dstrip=true
 
       - name: Build
         env:
@@ -313,7 +313,7 @@ jobs:
       - name: Configure
         run: >
           PKG_CONFIG_PATH="$(brew --prefix openssl)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix curl)/lib/pkgconfig"
-          meson setup builddir-macos -Dtests=false
+          meson setup builddir-macos -Dtests=false -Dstrip=true
 
       - name: Build
         run: meson compile -C builddir-macos
@@ -384,7 +384,7 @@ jobs:
           ANDROID_PLATFORM: android-28
           VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg/installed
           VCPKG_TARGET_TRIPLET: arm64-android
-        run: meson setup builddir-android --cross-file toolchains/cross-android-arm64.ini -Dtests=false
+        run: meson setup builddir-android --cross-file toolchains/cross-android-arm64.ini -Dtests=false -Dstrip=true
 
       - name: Build
         env:
@@ -461,7 +461,7 @@ jobs:
           ANDROID_PLATFORM: android-28
           VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg/installed
           VCPKG_TARGET_TRIPLET: x64-android
-        run: meson setup builddir-android-x86_64 --cross-file toolchains/cross-android-x86_64.ini -Dtests=false
+        run: meson setup builddir-android-x86_64 --cross-file toolchains/cross-android-x86_64.ini -Dtests=false -Dstrip=true
 
       - name: Build
         env:
