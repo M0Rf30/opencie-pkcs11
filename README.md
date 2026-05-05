@@ -74,38 +74,44 @@ All functions return `CK_RV` (PKCS#11 error code) unless otherwise noted.
 
 ```c
 // Enrolment
-CK_RV cie_enable      (const char *pan, const char *pin, int *attempts,
-                       PROGRESS_CALLBACK, COMPLETED_CALLBACK);
-CK_RV cie_is_enabled  (const char *pan);   // 1 = enrolled, 0 = not
-CK_RV cie_disable     (const char *pan);
+CK_RV cie_enable         (const char *szPAN, const char *szPIN, int *attempts,
+                           PROGRESS_CALLBACK, COMPLETED_CALLBACK);
+CK_RV cie_is_enabled     (const char *szPAN);   // 1 = enrolled, 0 = not
+CK_RV cie_disable        (const char *szPAN);
 
 // PIN management
-CK_RV cie_change_pin  (const char *cur_pin, const char *new_pin,
-                       int *attempts, PROGRESS_CALLBACK);
-CK_RV cie_unblock_pin (const char *puk, const char *new_pin,
-                       int *attempts, PROGRESS_CALLBACK);
+CK_RV cie_change_pin     (const char *szCurrentPIN, const char *szNewPIN,
+                           int *attempts, PROGRESS_CALLBACK);
+CK_RV cie_unblock_pin    (const char *szPUK, const char *szNewPIN,
+                           int *attempts, PROGRESS_CALLBACK);
+
+// Certificate retrieval
+// outDer is set to a malloc'd DER buffer; caller must free() it.
+CK_RV cie_get_certificate(const char *pan, unsigned char **outDer,
+                           unsigned long *outLen);
 
 // Sign / verify
-CK_RV cie_sign           (const char *in_path, const char *type,
-                          const char *pin, const char *pan,
-                          int page, float x, float y, float w, float h,
-                          const unsigned char *image, int image_len,
-                          const char *out_path,
-                          PROGRESS_CALLBACK, SIGN_COMPLETED_CALLBACK);
-CK_RV cie_verify         (const char *in_path, const char *proxy,
-                          int proxy_port, const char *user_pass);
+CK_RV cie_sign           (const char *inFilePath, const char *type,
+                           const char *pin, const char *pan,
+                           int page, float x, float y, float w, float h,
+                           const unsigned char *imageData, int imageDataLen,
+                           const char *outFilePath,
+                           PROGRESS_CALLBACK, SIGN_COMPLETED_CALLBACK);
+CK_RV cie_verify         (const char *inFilePath, const char *proxyAddress,
+                           int proxyPort, const char *usrPass);
 CK_RV cie_get_sign_count (void);
-CK_RV cie_get_verify_info(int index, struct verifyInfo_t *out);
-CK_RV cie_extract_p7m    (const char *in_path, const char *out_path);
+CK_RV cie_get_verify_info(int index, struct verifyInfo_t *vInfos);
+CK_RV cie_extract_p7m    (const char *inFilePath, const char *outFilePath);
 
 // Reader discovery (int return)
-int cie_reader_count (void);
-int cie_reader_watch (int current_count);
-int cie_reader_name  (char *buf, int buf_len);
+int   cie_reader_count   (void);
+int   cie_reader_watch   (int current_count);
+int   cie_reader_name    (char *buf, int buf_len);
 
 // Low-level helper for raw RSA flows (1 = ok, 0 = buffer too small)
-int make_digest_info (int algid, const unsigned char *digest, size_t digest_len,
-                      unsigned char *out, size_t *out_len);
+int   make_digest_info   (int algid, const unsigned char *pbtDigest,
+                           size_t btDigestLen, unsigned char *pbtDigestInfo,
+                           size_t *pbtDigestInfoLen);
 ```
 
 On Android, three additional symbols bridge the JNI NFC transport:

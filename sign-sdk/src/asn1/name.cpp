@@ -19,8 +19,8 @@ std::string CName::getField(const char* fieldOID) {
   std::string strname = "";
 
   for (size_t i = 0; i < size(); i++) {
-    CASN1SetOf element = elementAt(i);
-    CASN1Sequence value = element.elementAt(0);
+    CASN1SetOf element(elementAt(i));
+    CASN1Sequence value(element.elementAt(0));
 
     if (value.elementAt(0) == CASN1ObjectIdentifier(fieldOID)) {
       CASN1Object name(value.elementAt(1));
@@ -45,12 +45,12 @@ void CName::getNameAsString(ByteDynArray& sname) {
   {
     // LOG_DBG((0, "CName::getNameAsString", "i: %d", i));
 
-    CASN1SetOf element = elementAt(i);
+    CASN1SetOf element(elementAt(i));
 
-    CASN1Sequence value = element.elementAt(0);
+    CASN1Sequence value(element.elementAt(0));
     ByteDynArray oid;
     ByteDynArray OID;
-    CASN1ObjectIdentifier fieldOID = value.elementAt(0);
+    CASN1ObjectIdentifier fieldOID(value.elementAt(0));
     fieldOID.ToOidString(OID);
 
     // LOG_DBG((0, "CName::getNameAsString", "OID: %s", OID.data()));

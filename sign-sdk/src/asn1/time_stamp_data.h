@@ -68,11 +68,11 @@ TimeStampAndCRL ::= SEQUENCE {
 
 class CTimeStampData : public CContentInfo {
  public:
-  CTimeStampData(BufferedReader& reader);
+  explicit CTimeStampData(BufferedReader& reader);
 
-  CTimeStampData(const CASN1Object& timeStampData);
+  explicit CTimeStampData(const CASN1Object& timeStampData);
 
-  CTimeStampData(ByteDynArray& content, CTimeStampToken& tst);
+  explicit CTimeStampData(const ByteDynArray& content, CTimeStampToken& tst);
 
   virtual ~CTimeStampData();
 

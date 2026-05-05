@@ -18,6 +18,4 @@ CASN1ObjectIdentifier CAlgorithmIdentifier::getOID() {
   return CASN1ObjectIdentifier(elementAt(0));
 }
 
-CASN1Object CAlgorithmIdentifier::getParameters() {
-  return elementAt(1);
-}
+CASN1Object CAlgorithmIdentifier::getParameters() { return elementAt(1); }

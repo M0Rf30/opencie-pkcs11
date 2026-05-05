@@ -13,7 +13,9 @@ CSubjectPublicKeyInfo::CSubjectPublicKeyInfo(const CASN1Object& subPubKey)
 CSubjectPublicKeyInfo::~CSubjectPublicKeyInfo() {}
 
 CAlgorithmIdentifier CSubjectPublicKeyInfo::getAlgorithmIdentifier() {
-  return elementAt(0);
+  return CAlgorithmIdentifier(elementAt(0));
 }
 
-CASN1BitString CSubjectPublicKeyInfo::getPublicKey() { return elementAt(1); }
+CASN1BitString CSubjectPublicKeyInfo::getPublicKey() {
+  return CASN1BitString(elementAt(1));
+}

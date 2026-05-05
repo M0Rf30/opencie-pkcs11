@@ -65,7 +65,7 @@ inline void printf_fallback_log(int level, const char* /* module */,
 
   // Get current timestamp
   time_t rawtime;
-  struct tm* timeinfo;
+  const struct tm* timeinfo;
   char timestamp[32];
   time(&rawtime);
   timeinfo = localtime(&rawtime);

@@ -30,25 +30,25 @@ class CASN1GenericSequence : public CASN1Object {
    * @brief Constructs a generic sequence with a specific tag.
    * @param btTag The ASN.1 tag byte (e.g., 0x30 for SEQUENCE, 0x31 for SET).
    */
-  CASN1GenericSequence(BYTE btTag);
+  explicit CASN1GenericSequence(BYTE btTag);
 
   /**
    * @brief Constructs a generic sequence by reading from a BufferedReader.
    * @param reader The reader positioned at the constructed TLV.
    */
-  CASN1GenericSequence(BufferedReader& reader);
+  explicit CASN1GenericSequence(BufferedReader& reader);
 
   /**
    * @brief Constructs a generic sequence by decoding a DER byte array.
    * @param content DER-encoded bytes.
    */
-  CASN1GenericSequence(const ByteDynArray& content);
+  explicit CASN1GenericSequence(const ByteDynArray& content);
 
   /**
    * @brief Constructs a generic sequence from a generic ASN.1 object.
    * @param obj The ASN.1 object to reinterpret as a constructed type.
    */
-  CASN1GenericSequence(const CASN1Object& obj);
+  explicit CASN1GenericSequence(const CASN1Object& obj);
 
   /**
    * @brief Copy constructor.
@@ -63,7 +63,7 @@ class CASN1GenericSequence : public CASN1Object {
    */
   CASN1GenericSequence(const BYTE* value, long len);
 
-  virtual ~CASN1GenericSequence();
+  virtual ~CASN1GenericSequence() override;
 
   /**
    * @brief Assignment operator.
@@ -143,9 +143,10 @@ class CASN1GenericSequence : public CASN1Object {
   unsigned int size() const;
 
   /**
-   * @brief Decodes elements from a DER byte array into this sequence.
+   * @brief Initializes the sequence from a DER-encoded byte array.
    * @param content DER-encoded bytes.
    */
+  // cppcheck-suppress duplInheritedMember
   void fromByteArray(const ByteDynArray& content);
 
  protected:

@@ -28,20 +28,20 @@ class CTimeStampResponse : public CASN1Sequence {
    * @brief Parses a TimeStampResp from a DER-encoded stream.
    * @param reader Buffered reader positioned at the SEQUENCE.
    */
-  CTimeStampResponse(BufferedReader& reader);
+  explicit CTimeStampResponse(BufferedReader& reader);
 
   /**
    * @brief Constructs from an already-parsed ASN.1 object.
    * @param timeStampresponse Generic ASN.1 object containing the encoding.
    */
-  CTimeStampResponse(const CASN1Object& timeStampresponse);
+  explicit CTimeStampResponse(const CASN1Object& timeStampresponse);
 
   /**
    * @brief Constructs from a raw DER byte buffer.
    * @param content Pointer to the DER-encoded response bytes.
    * @param length  Length of the buffer in bytes.
    */
-  CTimeStampResponse(const BYTE* content, int length);
+  explicit CTimeStampResponse(const BYTE* content, int length);
 
   virtual ~CTimeStampResponse();
 

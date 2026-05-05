@@ -3,7 +3,7 @@
 
 #include <openssl/evp.h>
 
-CSHA1::CSHA1() : isInit(false) {}
+CSHA1::CSHA1() : isInit(false), ctx(nullptr) {}
 
 CSHA1::~CSHA1() {}
 
@@ -13,11 +13,11 @@ void CSHA1::Init() {
   isInit = true;
 }
 void CSHA1::Update(ByteArray data) {
-  if (!isInit) throw logged_error("Hash non inizializzato");
+  if (!isInit) throw logged_error("Hash not initialized");
   EVP_DigestUpdate(ctx, data.data(), data.size());
 }
 ByteDynArray CSHA1::Final() {
-  if (!isInit) throw logged_error("Hash non inizializzato");
+  if (!isInit) throw logged_error("Hash not initialized");
   ByteDynArray resp(SHA_DIGEST_LENGTH);
   EVP_DigestFinal_ex(ctx, resp.data(), nullptr);
   isInit = false;

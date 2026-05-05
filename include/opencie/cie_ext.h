@@ -47,15 +47,14 @@ typedef unsigned long CK_RV;
 // ---------------------------------------------------------------------------
 
 /** Progress callback: called repeatedly during long operations. */
-typedef CK_RV(CK_ENTRY* PROGRESS_CALLBACK)(int progress, const char* szMessage);
+typedef CK_RV (*PROGRESS_CALLBACK)(int progress, const char* szMessage);
 
 /** Completion callback: called once when enrolment (cie_enable) finishes. */
-typedef CK_RV(CK_ENTRY* COMPLETED_CALLBACK)(const char* szPan,
-                                            const char* szName,
-                                            const char* ef_seriale);
+typedef CK_RV (*COMPLETED_CALLBACK)(const char* szPan, const char* szName,
+                                    const char* ef_seriale);
 
 /** Sign completion callback: called once when cie_sign finishes. */
-typedef CK_RV(CK_ENTRY* SIGN_COMPLETED_CALLBACK)(int ret);
+typedef CK_RV (*SIGN_COMPLETED_CALLBACK)(int ret);
 
 // ---------------------------------------------------------------------------
 // verifyInfo_t — returned by cie_get_verify_info
@@ -223,9 +222,8 @@ CK_RV CK_ENTRY cie_extract_p7m(const char* inFilePath, const char* outFilePath);
  * @return CKR_OK on success, CKR_ARGUMENTS_BAD / CKR_DEVICE_ERROR /
  *         CKR_HOST_MEMORY / CKR_FUNCTION_FAILED otherwise.
  */
-CK_RV CK_ENTRY cie_get_certificate(const char* pan,
-                                    unsigned char** outDer,
-                                    unsigned long* outLen);
+CK_RV CK_ENTRY cie_get_certificate(const char* pan, unsigned char** outDer,
+                                   unsigned long* outLen);
 
 // ---------------------------------------------------------------------------
 // Low-level cryptographic helpers

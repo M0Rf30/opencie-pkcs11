@@ -71,8 +71,8 @@ class CSignatureGeneratorBase {
  */
 class CSignatureGenerator : public CSignatureGeneratorBase {
  public:
-  CSignatureGenerator(CBaseSigner* pSigner, bool bRemote = false);
-  virtual ~CSignatureGenerator(void);
+  explicit CSignatureGenerator(CBaseSigner* pSigner, bool bRemote = false);
+  virtual ~CSignatureGenerator(void) override;
 
   /** Provide existing PKCS#7 data to add a new signature to. */
   void SetPKCS7Data(const ByteArray& pkcs7Data);
@@ -88,7 +88,7 @@ class CSignatureGenerator : public CSignatureGeneratorBase {
 
   /** Generate the signed data. */
   virtual long Generate(ByteDynArray& pkcs7SignedData, BOOL bDetached = FALSE,
-                        BOOL bVerifyRevocation = FALSE);
+                        BOOL bVerifyRevocation = FALSE) override;
 
  private:
   bool m_bCAdES;

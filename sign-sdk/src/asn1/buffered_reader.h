@@ -33,8 +33,8 @@ class BufferedReader {
   void setPosition(unsigned int index);
 
   // Constructors - maintain compatibility with existing code
-  BufferedReader(const ByteDynArray& buffer);
-  BufferedReader(const BYTE* pbtBuffer, int len);
+  explicit BufferedReader(const ByteDynArray& buffer);
+  explicit BufferedReader(const BYTE* pbtBuffer, int len);
 
   // Modern C++ destructor (RAII - no manual cleanup needed)
   ~BufferedReader() = default;

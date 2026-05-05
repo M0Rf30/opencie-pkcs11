@@ -1,0 +1,26 @@
+// Inline suppressions that cppcheck 2.x cannot match due to multi-TU
+// template analysis or method-vs-definition location mismatch.
+
+// Linux stub implementations of Windows-only mutex primitives are
+// intentionally empty no-ops; they cannot be made static because they
+// must satisfy the non-static interface declared in the header.
+functionStatic:shared/src/util/syncro_mutex.cpp
+
+// std::thread callback: signature must be by value so the string is
+// moved into the detached thread; changing to const-ref would be unsafe.
+passedByValueCallback:pkcs11/src/csp/cie_enable.cpp
+
+// Copy constructors cannot be explicit.
+noExplicitConstructor:sign-sdk/include/numberlike_array.h
+noExplicitConstructor:sign-sdk/src/asn1/asn1_object.h
+// Two-argument constructor (CASN1Object + tag byte) — not a conversion ctor.
+noExplicitConstructor:sign-sdk/src/asn1/asn1_optional_field.h
+
+// CASN1GenericSequence intentionally overrides fromByteArray() from
+// CASN1Object with a different (sequence-aware) implementation.
+duplInheritedMember:sign-sdk/src/asn1/asn1_generic_sequence.h
+duplInheritedMember:sign-sdk/src/asn1/asn1_generic_sequence.cpp
+
+// Template function: x is BigUnsigned::Blk (unsigned type), so x>=0
+// is always true by definition — this is intentional defensive code.
+knownConditionTrueFalse:sign-sdk/src/big_integer.cpp

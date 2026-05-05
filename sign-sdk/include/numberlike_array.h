@@ -28,7 +28,7 @@ class NumberlikeArray {
   Blk *blk;
 
   // Constructs a ``zero'' NumberlikeArray with the given capacity.
-  NumberlikeArray(Index c) : cap(c), len(0) {
+  explicit NumberlikeArray(Index c) : cap(c), len(0) {
     blk = (cap > 0) ? (new Blk[cap]) : nullptr;
   }
 
@@ -50,6 +50,7 @@ class NumberlikeArray {
   void allocateAndCopy(Index c);
 
   // Copy constructor
+  // cppcheck-suppress noExplicitConstructor
   NumberlikeArray(const NumberlikeArray<Blk> &x);
 
   // Assignment operator
@@ -157,4 +158,3 @@ bool NumberlikeArray<Blk>::operator==(const NumberlikeArray<Blk> &x) const {
     return true;
   }
 }
-

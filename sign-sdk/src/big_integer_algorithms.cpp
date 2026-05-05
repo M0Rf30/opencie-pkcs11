@@ -47,17 +47,18 @@ void extendedEuclidean(BigInteger m, BigInteger n, BigInteger &g, BigInteger &r,
 
 BigUnsigned modinv(const BigInteger &x, const BigUnsigned &n) {
   BigInteger g, r, s;
-  extendedEuclidean(x, n, g, r, s);
-  if (g == 1)
+  extendedEuclidean(x, BigInteger(n), g, r, s);
+  if (g == BigInteger(1))
     // r*x + s*n == 1, so r*x === 1 (mod n), so r is the answer.
-    return (r % n).getMagnitude();  // (r % n) will be nonnegative
+    return (r % BigInteger(n)).getMagnitude();  // (r % n) will be nonnegative
   else
     throw "BigInteger modinv: x and n have a common factor";
 }
 
 BigUnsigned modexp(const BigInteger &base, const BigUnsigned &exponent,
                    const BigUnsigned &modulus) {
-  BigUnsigned ans = 1, base2 = (base % modulus).getMagnitude();
+  BigUnsigned ans = BigUnsigned(1),
+              base2 = (base % BigInteger(modulus)).getMagnitude();
   BigUnsigned::Index i = exponent.bitLength();
   // For each bit of the exponent, most to least significant...
   while (i > 0) {

@@ -3,11 +3,11 @@
 
 #include "m7m_parser.h"
 
-#include "crypto/base64.h"
-
 #include <algorithm>
 #include <cstdlib>
-char* find(const char* szContent, int len, char* szSubstr);
+
+#include "crypto/base64.h"
+char* find(const char* szContent, int len, const char* szSubstr);
 
 M7MParser::M7MParser() {}
 
@@ -22,9 +22,11 @@ int M7MParser::Load(const char* m7m, int m7mlen) {
 
   ByteDynArray boundary;
   boundary.append(ByteArray(reinterpret_cast<const BYTE*>("--"), 2));
-  boundary.append(ByteArray(reinterpret_cast<const BYTE*>(begin) + 10, (end - begin - 10)));
+  boundary.append(
+      ByteArray(reinterpret_cast<const BYTE*>(begin) + 10, (end - begin - 10)));
 
-  char* szBoundary = const_cast<char*>(reinterpret_cast<const char*>(boundary.data()));
+  char* szBoundary =
+      const_cast<char*>(reinterpret_cast<const char*>(boundary.data()));
   int boundadyLen = boundary.size();
   szBoundary[boundadyLen] = 0;
 
@@ -112,7 +114,7 @@ int M7MParser::GetTSR(ByteDynArray& tsr) {
   return 0;
 }
 
-char* find(const char* szContent, int len, char* szSubstr) {
+char* find(const char* szContent, int len, const char* szSubstr) {
   int substrlen = strlen(szSubstr);
 
   for (int i = 0; i < len - substrlen; i++) {

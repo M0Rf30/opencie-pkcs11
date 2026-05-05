@@ -38,12 +38,12 @@ CXAdESVerifier::~CXAdESVerifier(void) {
 }
 
 CCertificate* CXAdESVerifier::GetCertificate(int index) {
-  SignatureInfo* pSignatureInfo = m_pXAdESDoc->ppSignatures[index];
+  const SignatureInfo* pSignatureInfo = m_pXAdESDoc->ppSignatures[index];
   return pSignatureInfo->pX509Cert;
 }
 
 CASN1ObjectIdentifier CXAdESVerifier::GetDigestAlgorithm(int index) {
-  SignatureInfo* pSignatureInfo = m_pXAdESDoc->ppSignatures[index];
+  const SignatureInfo* pSignatureInfo = m_pXAdESDoc->ppSignatures[index];
 
   switch (pSignatureInfo->nDigestAlgo) {
     case CIE_SIGN_ALGO_SHA256:
@@ -65,7 +65,7 @@ int CXAdESVerifier::verifySignature(int index, const char* szDateTime,
 
   SignatureInfo* pSignatureInfo = m_pXAdESDoc->ppSignatures[index];
 
-  // verifica il certificato
+  // Verify the certificate
   if (pSignatureInfo->pX509Cert->isValid(szDateTime)) {
     bitmask |= VERIFIED_CERT_VALIDITY;
   }
@@ -257,7 +257,6 @@ void CXAdESVerifier::parseSignatureNode(xmlXPathContextPtr xpathCtx,
   pXAdESDoc->ppSignatures = new SignatureInfo*;
   *pXAdESDoc->ppSignatures = new SignatureInfo[pXAdESDoc->nSignatures];
 
-  xmlChar* path;
   xmlXPathObjectPtr xpathObj;
   xmlNodePtr signatureMethodNode;
   xmlNodePtr curNode;
@@ -271,13 +270,13 @@ void CXAdESVerifier::parseSignatureNode(xmlXPathContextPtr xpathCtx,
 
     curNode = signatureNodes->nodeTab[i];
 
-    xmlChar* id = xmlGetProp(curNode, BAD_CAST "Id");
+    const xmlChar* id = xmlGetProp(curNode, BAD_CAST "Id");
 
     // Canonicalization method
     snprintf(szPath, sizeof(szPath),
              "//ds:Signature[@Id='%s']/ds:SignedInfo/ds:CanonicalizationMethod",
              id);
-    path = BAD_CAST szPath;
+    xmlChar* path = BAD_CAST szPath;
 
     // Evaluate xpath expression
     xpathObj = xmlXPathEvalExpression(path, xpathCtx);

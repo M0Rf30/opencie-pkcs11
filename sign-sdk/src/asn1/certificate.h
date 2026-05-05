@@ -34,22 +34,22 @@ class CCertificate : public CASN1Sequence {
    * @brief Parses a certificate from a DER-encoded stream.
    * @param reader Buffered reader positioned at the Certificate SEQUENCE.
    */
-  CCertificate(BufferedReader& reader);
+  explicit CCertificate(BufferedReader& reader);
 
   /**
    * @brief Constructs a certificate from a raw DER byte buffer.
    * @param value Pointer to the DER-encoded certificate bytes.
    * @param len   Length of the buffer in bytes.
    */
-  CCertificate(const BYTE* value, long len);
+  explicit CCertificate(const BYTE* value, long len);
 
   /**
    * @brief Constructs a certificate from an already-parsed ASN.1 object.
    * @param cert Generic ASN.1 object containing certificate encoding.
    */
-  CCertificate(const CASN1Object& cert);
+  explicit CCertificate(const CASN1Object& cert);
 
-  virtual ~CCertificate();
+  virtual ~CCertificate() override;
 
   /** @brief Returns the TBSCertificate (to-be-signed) portion. */
   CCertificateInfo getCertificateInfo();

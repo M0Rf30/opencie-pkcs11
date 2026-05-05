@@ -22,7 +22,7 @@
  */
 class CASN1Sequence : public CASN1GenericSequence {
  public:
-  ~CASN1Sequence();
+  virtual ~CASN1Sequence() override;
 
   /** @brief Constructs an empty SEQUENCE. */
   CASN1Sequence();
@@ -31,19 +31,19 @@ class CASN1Sequence : public CASN1GenericSequence {
    * @brief Constructs a SEQUENCE by decoding a DER byte array.
    * @param content DER-encoded SEQUENCE bytes.
    */
-  CASN1Sequence(const ByteDynArray& content);
+  explicit CASN1Sequence(const ByteDynArray& content);
 
   /**
    * @brief Constructs a SEQUENCE by reading from a BufferedReader.
    * @param reader The reader positioned at the SEQUENCE TLV.
    */
-  CASN1Sequence(BufferedReader& reader);
+  explicit CASN1Sequence(BufferedReader& reader);
 
   /**
    * @brief Constructs a SEQUENCE from a generic ASN.1 object.
    * @param obj The ASN.1 object to reinterpret as a SEQUENCE.
    */
-  CASN1Sequence(const CASN1Object& obj);
+  explicit CASN1Sequence(const CASN1Object& obj);
 
   /**
    * @brief Constructs a SEQUENCE from a raw byte buffer.

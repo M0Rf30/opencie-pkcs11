@@ -32,7 +32,7 @@ class resetter<std::unique_ptr<T>> {
 
   friend resetter<std::unique_ptr<T>> make_resetter<std::unique_ptr<T>>(
       std::unique_ptr<T> &p) noexcept;
-  resetter(std::unique_ptr<T> &p) noexcept : m_p(&p) {}
+  explicit resetter(std::unique_ptr<T> &p) noexcept : m_p(&p) {}
 
   void reset() noexcept(noexcept(m_p->reset())) {
     if (m_p) m_p->reset();
@@ -243,8 +243,8 @@ ByteDynArray GetTemplateValue(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount,
                               CK_ATTRIBUTE_TYPE type) {
   init_func for (unsigned int i = 0; i < ulCount; i++) {
     if (pTemplate[i].type == type) {
-      return ByteArray(static_cast<uint8_t *>(pTemplate[i].pValue),
-                       pTemplate[i].ulValueLen);
+      return ByteDynArray(ByteArray(static_cast<uint8_t *>(pTemplate[i].pValue),
+                                    pTemplate[i].ulValueLen));
     }
   }
   throw p11_error(CKR_ATTRIBUTE_TYPE_INVALID);
@@ -307,7 +307,7 @@ void CSession::DestroyObject(CK_OBJECT_HANDLE hObject) {
 
 bool CSession::ExistsRO() {
   init_func for (SessionMap::const_iterator it = g_mSessions.begin();
-                 it != g_mSessions.end(); it++) {
+                 it != g_mSessions.end(); ++it) {
     if (it->second->pSlot == pSlot &&
         (it->second->flags & CKF_RW_SESSION) == 0) {
       return true;
@@ -320,7 +320,7 @@ bool CSession::ExistsRO() {
 bool CSession::ExistsSO_RW() {
   init_func if (pSlot->User != CKU_SO) return false;
   for (SessionMap::const_iterator it = g_mSessions.begin();
-       it != g_mSessions.end(); it++) {
+       it != g_mSessions.end(); ++it) {
     if (it->second->pSlot == pSlot && (it->second->flags & CKF_RW_SESSION) != 0)
       return true;
   }

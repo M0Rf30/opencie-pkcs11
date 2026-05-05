@@ -54,7 +54,7 @@ class CDES3 : public CipherBase {
   CDES3(const ByteArray &key, const ByteArray &iv);
 
   /** @brief Destructor. */
-  ~CDES3(void);
+  ~CDES3(void) override;
 
   /**
    * @brief Set (or reset) the 3DES key and initialization vector.

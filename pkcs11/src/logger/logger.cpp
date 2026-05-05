@@ -38,7 +38,6 @@ inline bool config_exists(const std::string& name) {
 static const char* level_strings[] = {"", "[DEBUG]", "[INFO]", "[ERROR]"};
 
 Logger::Logger() {
-  std::string sConfig;
   t64configTime = static_cast<time64_t>(0);
 
 #ifdef __ANDROID__
@@ -79,7 +78,7 @@ Logger::Logger() {
 
   path.append("/.CIEPKI/");
 
-  struct stat st{};
+  struct stat st {};
 
   if (stat(path.c_str(), &st) == -1) {
     mkdir(path.c_str(), 0700);
@@ -148,8 +147,8 @@ Logger& Logger::getInstance() noexcept {
   return instance;
 }
 
-void Logger::writeConfigFile(std::string& filePath,
-                             std::string& sConfig) noexcept {
+void Logger::writeConfigFile(const std::string& filePath,
+                             const std::string& sConfig) noexcept {
   m_ConfigFile.open(filePath, std::ios::out);
   m_ConfigFile << sConfig;
   m_ConfigFile.close();
@@ -214,7 +213,7 @@ int Logger::getLogConfig() noexcept {
   path.append("/.CIEPKI/");
 
   // check if folder exist
-  struct stat st{};
+  struct stat st {};
 
   if (stat(path.c_str(), &st) == -1) {
     mkdir(path.c_str(), 0700);
@@ -259,12 +258,12 @@ int Logger::getLogConfig() noexcept {
   return m_LogLevel;
 }
 
-void Logger::logIntoFile(std::string& data) {
+void Logger::logIntoFile(const std::string& data) {
   std::lock_guard<std::mutex> guard(m_Mutex);
   m_File << getCurrentTime() << "  " << data << '\n';
 }
 
-void Logger::logOnConsole(std::string& data) {
+void Logger::logOnConsole(const std::string& data) {
   std::cout << getCurrentTime() << "  " << data << '\n';
 }
 
@@ -338,73 +337,73 @@ void Logger::log_log(std::ostream& /*out*/, LogLevel level,
 
 // Interface for Debug Log
 void Logger::debug(const char* fmt, ...) noexcept {
-  char buffer[8192];
+  char logBuffer[8192];
   va_list args;
   va_start(args, fmt);
 
-  vsnprintf(buffer, sizeof(buffer), fmt, args);
+  vsnprintf(logBuffer, sizeof(logBuffer), fmt, args);
   va_end(args);
 
   switch (m_LogType) {
     case FILE_LOG:
-      log_log(m_File, LOG_LEVEL_DEBUG, buffer);
+      log_log(m_File, LOG_LEVEL_DEBUG, logBuffer);
       break;
     case CONSOLE:
-      log_log(std::cout, LOG_LEVEL_DEBUG, buffer);
+      log_log(std::cout, LOG_LEVEL_DEBUG, logBuffer);
     default:
       break;
   }
 }
 
-void Logger::debug(std::string& text) noexcept { debug(text.data()); }
+void Logger::debug(const std::string& text) noexcept { debug(text.data()); }
 
-void Logger::debug(std::ostringstream& stream) noexcept {
+void Logger::debug(const std::ostringstream& stream) noexcept {
   std::string text = stream.str();
   debug(text.data());
 }
 
 // Interface for Info Log
 void Logger::info(const char* fmt, ...) noexcept {
-  char buffer[1024];
+  char logBuffer[1024];
   va_list args;
   va_start(args, fmt);
 
-  vsnprintf(buffer, sizeof(buffer), fmt, args);
+  vsnprintf(logBuffer, sizeof(logBuffer), fmt, args);
   va_end(args);
 
   switch (m_LogType) {
     case FILE_LOG:
-      log_log(m_File, LOG_LEVEL_INFO, buffer);
+      log_log(m_File, LOG_LEVEL_INFO, logBuffer);
       break;
     case CONSOLE:
-      log_log(std::cout, LOG_LEVEL_INFO, buffer);
+      log_log(std::cout, LOG_LEVEL_INFO, logBuffer);
     default:
       break;
   }
 }
 
-void Logger::info(std::string& text) noexcept { info(text.data()); }
+void Logger::info(const std::string& text) noexcept { info(text.data()); }
 
-void Logger::info(std::ostringstream& stream) noexcept {
+void Logger::info(const std::ostringstream& stream) noexcept {
   std::string text = stream.str();
   info(text.data());
 }
 
 // Interface for Error Log
 int Logger::error(const char* fmt, ...) noexcept {
-  char buffer[1024];
+  char logBuffer[1024];
   va_list args;
   va_start(args, fmt);
 
-  vsnprintf(buffer, sizeof(buffer), fmt, args);
+  vsnprintf(logBuffer, sizeof(logBuffer), fmt, args);
   va_end(args);
 
   switch (m_LogType) {
     case FILE_LOG:
-      log_log(m_File, LOG_LEVEL_ERROR, buffer);
+      log_log(m_File, LOG_LEVEL_ERROR, logBuffer);
       break;
     case CONSOLE:
-      log_log(std::cout, LOG_LEVEL_ERROR, buffer);
+      log_log(std::cout, LOG_LEVEL_ERROR, logBuffer);
     default:
       break;
   }
@@ -412,15 +411,17 @@ int Logger::error(const char* fmt, ...) noexcept {
   return -1;
 }
 
-int Logger::error(std::string& text) noexcept { return error(text.data()); }
+int Logger::error(const std::string& text) noexcept {
+  return error(text.data());
+}
 
-int Logger::error(std::ostringstream& stream) noexcept {
+int Logger::error(const std::ostringstream& stream) noexcept {
   std::string text = stream.str();
   return error(text.data());
 }
 
 // Interface for Buffer Log
-void Logger::buffer(uint8_t* buff, size_t buff_size) noexcept {
+void Logger::buffer(const uint8_t* buff, size_t buff_size) noexcept {
   if (m_LogLevel == LOG_LEVEL_DEBUG) {
     switch (m_LogType) {
       case FILE_LOG:
@@ -434,8 +435,8 @@ void Logger::buffer(uint8_t* buff, size_t buff_size) noexcept {
   }
 }
 
-void Logger::print_bytes(std::ostream& /*out*/, uint8_t* data, size_t dataLen,
-                         bool /*format*/) {
+void Logger::print_bytes(std::ostream& /*out*/, const uint8_t* data,
+                         size_t dataLen, bool /*format*/) {
   size_t index = 0;
 
   std::lock_guard<std::mutex> guard(m_Mutex);
@@ -446,16 +447,16 @@ void Logger::print_bytes(std::ostream& /*out*/, uint8_t* data, size_t dataLen,
 
   m_File << "0x" << std::hex << std::setw(8) << index << "\t";
 
-  for (size_t index = 0; index < dataLen; index++) {
-    if (index) {
-      if ((index % 16) == 0) {
-        m_File << "\n0x" << std::hex << std::setw(8) << index << "\t";
-      } else if ((index % 8) == 0) {
+  for (size_t idx = 0; idx < dataLen; idx++) {
+    if (idx) {
+      if ((idx % 16) == 0) {
+        m_File << "\n0x" << std::hex << std::setw(8) << idx << "\t";
+      } else if ((idx % 8) == 0) {
         m_File << " -  ";
       }
     }
 
-    m_File << std::hex << std::setw(2) << static_cast<int>(data[index]) << " ";
+    m_File << std::hex << std::setw(2) << static_cast<int>(data[idx]) << " ";
   }
   m_File << '\n' << '\n';
 

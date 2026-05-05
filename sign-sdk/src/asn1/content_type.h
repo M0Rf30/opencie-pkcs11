@@ -42,31 +42,31 @@ class CContentType : public CASN1ObjectIdentifier {
    * @brief Constructs a ContentType by decoding from a BufferedReader.
    * @param reader The reader positioned at the TLV-encoded OID.
    */
-  CContentType(BufferedReader& reader);
+  explicit CContentType(BufferedReader& reader);
 
   /**
    * @brief Constructs a ContentType from a generic ASN.1 object.
    * @param contentType The ASN.1 object to interpret as a ContentType.
    */
-  CContentType(const CASN1Object& contentType);
+  explicit CContentType(const CASN1Object& contentType);
 
   /**
    * @brief Constructs a ContentType from a dotted OID string (mutable).
    * @param lpszOId Null-terminated dotted OID string.
    */
-  CContentType(char* lpszOId);
+  explicit CContentType(char* lpszOId);
 
   /**
    * @brief Constructs a ContentType from a dotted OID string (const).
    * @param timeStampDataOID Null-terminated dotted OID string.
    */
-  CContentType(const char* timeStampDataOID);
+  explicit CContentType(const char* timeStampDataOID);
 
   /**
    * @brief Constructs a ContentType from an existing OBJECT IDENTIFIER.
    * @param algoId The OBJECT IDENTIFIER to copy.
    */
-  CContentType(const CASN1ObjectIdentifier& algoId);
+  explicit CContentType(const CASN1ObjectIdentifier& algoId);
 
-  virtual ~CContentType();
+  virtual ~CContentType() override;
 };

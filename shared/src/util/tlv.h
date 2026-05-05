@@ -35,7 +35,7 @@ class CTLV {
    * @brief Parse TLV data from a byte array.
    * @param data Byte array containing TLV-encoded data.
    */
-  CTLV(ByteArray &data);
+  explicit CTLV(const ByteArray &data);
 
   /** @brief Destructor. */
   ~CTLV();
@@ -91,7 +91,7 @@ class CTLVCreate {
    * @param Tag TLV tag identifier.
    * @param Value Byte array to assign to the tag.
    */
-  void setValue(uint8_t Tag, ByteArray &Value);
+  void setValue(uint8_t Tag, const ByteArray &Value);
 
   /**
    * @brief Serialize all tag-value pairs into a TLV-encoded buffer.

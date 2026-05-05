@@ -3,17 +3,17 @@
 
 #include "signed_data_generator_ex.h"
 
+#include <memory>
+
 #include "asn1/asn1_object_identifier.h"
 #include "asn1/asn1_octet_string.h"
 #include "asn1/asn1_set_of.h"
 #include "util/definitions.h"
-#include <memory>
 
-SignedDataGeneratorEx::SignedDataGeneratorEx(CSignedDocument& sd) {
-  m_signerInfos = sd.getSignerInfos();
-  m_certificates = sd.getCertificates();
-  m_digestAlgos = sd.getDigestAlgos();
-
+SignedDataGeneratorEx::SignedDataGeneratorEx(CSignedDocument& sd)
+    : m_signerInfos(sd.getSignerInfos()),
+      m_certificates(sd.getCertificates()),
+      m_digestAlgos(sd.getDigestAlgos()) {
   if (!sd.isDetached()) sd.getContent(m_content);
 }
 
@@ -42,20 +42,20 @@ void SignedDataGeneratorEx::addSigners(CSignedDocument& sd) {
 void SignedDataGeneratorEx::addCounterSignature(
     CSignerInfo& signerInfoRef, CSignedDocument& counterSignature) {
   // il signeddocument contiene solo un signerinfo ritornato dal webservice
-  CSignerInfo signerInfoToAdd = counterSignature.getSignerInfos().elementAt(0);
+  CSignerInfo signerInfoToAdd(counterSignature.getSignerInfos().elementAt(0));
 
   int size = m_signerInfos.size();
 
   for (int i = 0; i < size; i++) {
-    CSignerInfo si = m_signerInfos.elementAt(i);
+    CSignerInfo si(m_signerInfos.elementAt(i));
     bool res = addCounterSignature(si, signerInfoRef, signerInfoToAdd);
     if (res) {
       m_signerInfos.setElementAt(si, i);
 
       CASN1SetOf certificates = counterSignature.getCertificates();
-      size = certificates.size();
-      for (int i = 0; i < size; i++) {
-        m_certificates.addElement(certificates.elementAt(i));
+      int certSize = certificates.size();
+      for (int j = 0; j < certSize; j++) {
+        m_certificates.addElement(certificates.elementAt(j));
       }
 
       return;
@@ -67,7 +67,7 @@ void SignedDataGeneratorEx::addCounterSignature(
     CSignerInfo& signerInfoRef, CSignedDocument& counterSignature,
     CTimeStampResponse& tsr) {
   // il signeddocument contiene solo un signerinfo ritornato dal webservice
-  CSignerInfo signerInfoToAdd = counterSignature.getSignerInfos().elementAt(0);
+  CSignerInfo signerInfoToAdd(counterSignature.getSignerInfos().elementAt(0));
 
   CTimeStampToken tst(tsr.getTimeStampToken());
   signerInfoToAdd.setTimeStampToken(tst);
@@ -75,15 +75,15 @@ void SignedDataGeneratorEx::addCounterSignature(
   int size = m_signerInfos.size();
 
   for (int i = 0; i < size; i++) {
-    CSignerInfo si = m_signerInfos.elementAt(i);
+    CSignerInfo si(m_signerInfos.elementAt(i));
     bool res = addCounterSignature(si, signerInfoRef, signerInfoToAdd);
     if (res) {
       m_signerInfos.setElementAt(si, i);
 
       CASN1SetOf certificates = counterSignature.getCertificates();
-      size = certificates.size();
-      for (int i = 0; i < size; i++) {
-        m_certificates.addElement(certificates.elementAt(i));
+      int certSize = certificates.size();
+      for (int j = 0; j < certSize; j++) {
+        m_certificates.addElement(certificates.elementAt(j));
       }
 
       return;
@@ -104,7 +104,7 @@ bool SignedDataGeneratorEx::addCounterSignature(CSignerInfo& signerInfo,
   int size = countersignatures.size();
 
   for (int i = 0; i < size; i++) {
-    CSignerInfo si = countersignatures.elementAt(i);
+    CSignerInfo si(countersignatures.elementAt(i));
     if (addCounterSignature(si, signerInfoRef, counterSignature)) {
       signerInfo.setCountersignatures(i, si);
       return true;
@@ -116,7 +116,7 @@ bool SignedDataGeneratorEx::addCounterSignature(CSignerInfo& signerInfo,
 
 void SignedDataGeneratorEx::setTimestamp(CTimeStampResponse& tsr,
                                          int signerInfoIndex) {
-  CSignerInfo si = m_signerInfos.elementAt(signerInfoIndex);
+  CSignerInfo si(m_signerInfos.elementAt(signerInfoIndex));
   CTimeStampToken tst = tsr.getTimeStampToken();
   si.setTimeStampToken(tst);
   m_signerInfos.setElementAt(si, signerInfoIndex);
@@ -124,22 +124,23 @@ void SignedDataGeneratorEx::setTimestamp(CTimeStampResponse& tsr,
 
 void SignedDataGeneratorEx::toByteArray(ByteDynArray& pkcs7SignedData) {
   const char* dataOID = szDataOID;
-  // Crea signedData
+  // Create signedData
   std::unique_ptr<CSignedData> pSignedData;
   if (m_content.size() == 0) {
     CContentType contentType(dataOID);
-    pSignedData = std::make_unique<CSignedData>(m_digestAlgos, CContentInfo(contentType),
-                                  m_signerInfos, m_certificates);
+    pSignedData =
+        std::make_unique<CSignedData>(m_digestAlgos, CContentInfo(contentType),
+                                      m_signerInfos, m_certificates);
   } else {
-    // Crea signedData
-    pSignedData = std::make_unique<CSignedData>(m_digestAlgos,
-                                  CContentInfo(CASN1ObjectIdentifier(szDataOID),
-                                               CASN1OctetString(m_content)),
-                                  m_signerInfos, m_certificates);
+    // Create signedData
+    pSignedData = std::make_unique<CSignedData>(
+        m_digestAlgos,
+        CContentInfo(CContentType(szDataOID), CASN1OctetString(m_content)),
+        m_signerInfos, m_certificates);
   }
 
-  // Infine crea ContentInfo
-  CContentInfo contentInfo(szSignedDataOID, *pSignedData);
+  // Finally create ContentInfo
+  CContentInfo contentInfo(CContentType(szSignedDataOID), *pSignedData);
 
   contentInfo.toByteArray(pkcs7SignedData);
 }

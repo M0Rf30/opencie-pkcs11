@@ -387,7 +387,7 @@ ByteDynArray CRSA_PKCS1::VerifyRecover(ByteArray &Signature) {
   auto Data = baPlainSignature.mid(dwPadLen);
   if (Data.size() > ulVerifyRecoverLength - 11)
     throw p11_error(CKR_DATA_LEN_RANGE);
-  return Data;
+  return ByteDynArray(Data);
 }
 
 void CRSA_PKCS1::SignInit(CK_OBJECT_HANDLE PrivateKey) {
@@ -424,7 +424,7 @@ ByteDynArray CRSA_PKCS1::SignRecover(ByteArray &Data) {
   // at most k-11 bytes (PKCS#11 specs)
   if (Data.size() > ulSignatureLength - 11) throw p11_error(CKR_DATA_LEN_RANGE);
 
-  return Data;
+  return ByteDynArray(Data);
 }
 
 /* ************************ */
@@ -456,9 +456,9 @@ ByteDynArray CSignRSAwithDigest::SignFinal() {
   ByteDynArray SignBuffer(ulDigestLength);
   pDigest->DigestFinal(SignBuffer);
 
-  ByteDynArray baDigestInfo = pDigest->DigestInfo();
+  ByteDynArray baDigestInfo(pDigest->DigestInfo());
 
-  return baDigestInfo.append(SignBuffer);
+  return ByteDynArray(baDigestInfo.append(SignBuffer));
 }
 
 ByteDynArray CSignRSAwithDigest::SignGetOperationState() {

@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #include "rsa_public_key.h"
 
-CRSAPublicKey::CRSAPublicKey(BufferedReader& reader)
-    : CASN1Sequence(reader) {}
+CRSAPublicKey::CRSAPublicKey(BufferedReader& reader) : CASN1Sequence(reader) {}
 
 CRSAPublicKey::CRSAPublicKey(const CASN1Object& obj) : CASN1Sequence(obj) {}
 

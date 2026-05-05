@@ -15,6 +15,7 @@
 #include <cryptopp/filters.h>
 #include <cryptopp/modes.h>
 #include <cryptopp/sha.h>
+#include <openssl/crypto.h>
 
 #include <string>
 
@@ -30,7 +31,7 @@
  * @param ciphertext Output string receiving the encrypted data.
  * @return 0 on success.
  */
-int encrypt(std::string& message, std::string& ciphertext) {
+int encrypt(const std::string& message, std::string& ciphertext) {
   CryptoPP::byte key[CryptoPP::AES::DEFAULT_KEYLENGTH],
       iv[CryptoPP::AES::BLOCKSIZE];
   memset(key, 0x00, CryptoPP::AES::DEFAULT_KEYLENGTH);
@@ -39,8 +40,9 @@ int encrypt(std::string& message, std::string& ciphertext) {
   std::string enckey = ENCRYPTION_KEY;
 
   CryptoPP::byte digest[CryptoPP::SHA1::DIGESTSIZE];
-  CryptoPP::SHA1().CalculateDigest(digest, (CryptoPP::byte*)enckey.c_str(),
-                                   enckey.length());
+  CryptoPP::SHA1().CalculateDigest(
+      digest, reinterpret_cast<const CryptoPP::byte*>(enckey.c_str()),
+      enckey.length());
   memcpy(key, digest, CryptoPP::AES::DEFAULT_KEYLENGTH);
   //
   // Create Cipher Text
@@ -56,6 +58,8 @@ int encrypt(std::string& message, std::string& ciphertext) {
                    message.length() + 1);
   stfEncryptor.MessageEnd();
 
+  OPENSSL_cleanse(key, sizeof(key));
+  OPENSSL_cleanse(digest, sizeof(digest));
   return 0;
 };
 
@@ -69,7 +73,7 @@ int encrypt(std::string& message, std::string& ciphertext) {
  * @param message Output string receiving the decrypted plaintext.
  * @return 0 on success.
  */
-int decrypt(std::string& ciphertext, std::string& message) {
+int decrypt(const std::string& ciphertext, std::string& message) {
   CryptoPP::byte key[CryptoPP::AES::DEFAULT_KEYLENGTH],
       iv[CryptoPP::AES::BLOCKSIZE];
   memset(key, 0x00, CryptoPP::AES::DEFAULT_KEYLENGTH);
@@ -78,8 +82,9 @@ int decrypt(std::string& ciphertext, std::string& message) {
   std::string enckey = ENCRYPTION_KEY;
 
   CryptoPP::byte digest[CryptoPP::SHA1::DIGESTSIZE];
-  CryptoPP::SHA1().CalculateDigest(digest, (CryptoPP::byte*)enckey.c_str(),
-                                   enckey.length());
+  CryptoPP::SHA1().CalculateDigest(
+      digest, reinterpret_cast<const CryptoPP::byte*>(enckey.c_str()),
+      enckey.length());
   memcpy(key, digest, CryptoPP::AES::DEFAULT_KEYLENGTH);
 
   // Decrypt
@@ -94,5 +99,7 @@ int decrypt(std::string& ciphertext, std::string& message) {
                    ciphertext.size());
   stfDecryptor.MessageEnd();
 
+  OPENSSL_cleanse(key, sizeof(key));
+  OPENSSL_cleanse(digest, sizeof(digest));
   return 0;
 };

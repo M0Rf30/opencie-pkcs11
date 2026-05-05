@@ -38,8 +38,8 @@ using namespace CieIDLogger;
 extern CLog Log;
 
 // P11 initialized flag
-std::atomic<bool> bP11Initialized{false};
-std::atomic<bool> bP11Terminate{false};
+std::atomic<bool> bP11Initialized {false};
+std::atomic<bool> bP11Terminate {false};
 
 static SmartCardTransportPtr g_transport;
 using namespace p11;
@@ -118,7 +118,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
 __attribute__((constructor)) void DllMainAttach() {
   const char *homedir = getenv("HOME");
   if (homedir == nullptr) {
-    struct passwd *pw = getpwuid(getuid());
+    const struct passwd *pw = getpwuid(getuid());
     if (pw != nullptr) homedir = pw->pw_dir;
   }
   if (homedir == nullptr) homedir = "/tmp";
@@ -216,7 +216,7 @@ void WriteMechanism(CK_MECHANISM_PTR pMechanism) {
 }
 
 // CheckMechanismParam function
-bool CheckMechanismParam(CK_MECHANISM *pParam) {
+bool CheckMechanismParam(const CK_MECHANISM *pParam) {
   init_func
       // all mechanisms have no parameters
       if (pParam->pParameter == nullptr && pParam->ulParameterLen == 0) {
@@ -245,7 +245,6 @@ CK_RV CK_ENTRY C_GetSlotList(CK_BBOOL tokenPresent, CK_SLOT_ID_PTR pSlotList,
         if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
 
     bool bOver = false;
-    std::vector<CK_SLOT_ID> slotsRet;
     unsigned int iCnt;
     if (tokenPresent) {
       // only readers with card inserted
@@ -772,7 +771,7 @@ CK_RV CK_ENTRY C_DigestFinal(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pDigest,
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
-    ByteDynArray Digest = ByteArray(pDigest, *pulDigestLen);
+    ByteDynArray Digest(ByteArray(pDigest, *pulDigestLen));
     pSession->DigestFinal(Digest);
     *pulDigestLen = static_cast<CK_ULONG>(Digest.size());
 
@@ -1600,7 +1599,7 @@ CK_RV CK_ENTRY C_SetOperationState(CK_SESSION_HANDLE hSession,
 #define unsupported                                    \
   {                                                    \
     return pkcs11_guard(__FUNCTION__, [&]() -> CK_RV { \
-      LOG_ERROR("%s", "Funzione non supportata!!");    \
+      LOG_ERROR("%s", "Function not supported!!");     \
       throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);     \
     });                                                \
   }

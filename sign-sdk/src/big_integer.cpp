@@ -118,6 +118,7 @@ X BigInteger::convertToSignedPrimitive() const {
     Blk b = mag.getBlock(0);
     if (sign == positive) {
       X x = X(b);
+      // cppcheck-suppress knownConditionTrueFalse
       if (x >= 0 && Blk(x) == b) return x;
     } else {
       X x = -X(b);
@@ -203,7 +204,7 @@ void BigInteger::add(const BigInteger &a, const BigInteger &b) {
     switch (a.mag.compareTo(b.mag)) {
       case equal:
         // If their magnitudes are the same, copy zero.
-        mag = 0;
+        mag = BigUnsigned(0);
         sign = zero;
         break;
       // Otherwise, take the sign of the greater, and subtract
@@ -241,7 +242,7 @@ void BigInteger::subtract(const BigInteger &a, const BigInteger &b) {
     switch (a.mag.compareTo(b.mag)) {
       // If their magnitudes are the same, copy zero.
       case equal:
-        mag = 0;
+        mag = BigUnsigned(0);
         sign = zero;
         break;
       // If a's magnitude is greater, take a.sign and
@@ -265,7 +266,7 @@ void BigInteger::multiply(const BigInteger &a, const BigInteger &b) {
   // If one object is zero, copy zero and return.
   if (a.sign == zero || b.sign == zero) {
     sign = zero;
-    mag = 0;
+    mag = BigUnsigned(0);
     return;
   }
   // If the signs of the arguments are the same, the result
@@ -310,13 +311,13 @@ void BigInteger::divideWithRemainder(const BigInteger &b, BigInteger &q) {
 
   // Division by zero gives quotient 0 and remainder *this
   if (b.sign == zero) {
-    q.mag = 0;
+    q.mag = BigUnsigned(0);
     q.sign = zero;
     return;
   }
   // 0 / b gives quotient 0 and remainder 0
   if (sign == zero) {
-    q.mag = 0;
+    q.mag = BigUnsigned(0);
     q.sign = zero;
     return;
   }
@@ -331,7 +332,7 @@ void BigInteger::divideWithRemainder(const BigInteger &b, BigInteger &q) {
     // No: harder case.  Quotient is negative.
     q.sign = negative;
     // Decrease the magnitude of the dividend by one.
-    mag--;
+    --mag;
     /*
      * We tinker with the dividend before and with the
      * quotient and remainder after so that the result
@@ -360,10 +361,10 @@ void BigInteger::divideWithRemainder(const BigInteger &b, BigInteger &q) {
   if (sign != b.sign) {
     // More for the harder case (as described):
     // Increase the magnitude of the quotient by one.
-    q.mag++;
+    ++q.mag;
     // Modify the remainder.
     mag.subtract(b.mag, mag);
-    mag--;
+    --mag;
   }
 
   // Sign of the remainder is always the sign of the divisor b.
@@ -390,10 +391,10 @@ void BigInteger::negate(const BigInteger &a) {
 // Prefix increment
 void BigInteger::operator++() {
   if (sign == negative) {
-    mag--;
-    if (mag == 0) sign = zero;
+    --mag;
+    if (mag == BigUnsigned(0)) sign = zero;
   } else {
-    mag++;
+    ++mag;
     sign = positive;  // if not already
   }
 }
@@ -404,10 +405,10 @@ void BigInteger::operator++(int) { operator++(); }
 // Prefix decrement
 void BigInteger::operator--() {
   if (sign == positive) {
-    mag--;
-    if (mag == 0) sign = zero;
+    --mag;
+    if (mag == BigUnsigned(0)) sign = zero;
   } else {
-    mag++;
+    ++mag;
     sign = negative;
   }
 }

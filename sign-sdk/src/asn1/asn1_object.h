@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <string>
+
 #include "buffered_reader.h"
 #include "util/array.h"
 #include "util/definitions.h"
@@ -31,6 +33,7 @@ class CASN1Object {
    * @brief Copy constructor.
    * @param obj The object to copy.
    */
+  // cppcheck-suppress noExplicitConstructor
   CASN1Object(const CASN1Object& obj);
 
   /**
@@ -38,24 +41,25 @@ class CASN1Object {
    * @param btTag ASN.1 tag byte.
    * @param value DER-encoded value octets.
    */
-  CASN1Object(BYTE btTag, const ByteDynArray& value);
+  explicit CASN1Object(BYTE btTag, const ByteDynArray& value);
 
   /**
    * @brief Constructs an ASN.1 object with the given tag and no value.
    * @param btTag ASN.1 tag byte.
    */
-  CASN1Object(BYTE btTag);
+  explicit CASN1Object(BYTE btTag);
 
   /**
    * @brief Constructs an ASN.1 object by reading TLV from a BufferedReader.
    * @param reader The reader positioned at the start of a TLV.
    */
-  CASN1Object(BufferedReader& reader);
+  explicit CASN1Object(BufferedReader& reader);
 
   /**
    * @brief Constructs an ASN.1 object by decoding a DER byte array.
    * @param content DER-encoded TLV bytes.
    */
+  // cppcheck-suppress noExplicitConstructor
   CASN1Object(const ByteDynArray& content);
 
   /**
@@ -205,4 +209,5 @@ class CASN1Object {
   bool m_indefiniteLen;  ///< True if BER indefinite-length encoding is used.
   BYTE m_btLenRead;      ///< Number of bytes consumed by the length field.
   ByteDynArray m_der;    ///< Cached DER encoding of this object.
+  std::string m_hexStr;  ///< Cached hex string returned by toHexString().
 };

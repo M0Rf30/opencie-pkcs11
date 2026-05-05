@@ -16,9 +16,13 @@ CTimeStampResponse::CTimeStampResponse(const BYTE* content, int length)
 
 CTimeStampResponse::~CTimeStampResponse() {}
 
-CTimeStampToken CTimeStampResponse::getTimeStampToken() { return elementAt(1); }
+CTimeStampToken CTimeStampResponse::getTimeStampToken() {
+  return CTimeStampToken(elementAt(1));
+}
 
-CPKIStatusInfo CTimeStampResponse::getPKIStatusInfo() { return elementAt(0); }
+CPKIStatusInfo CTimeStampResponse::getPKIStatusInfo() {
+  return CPKIStatusInfo(elementAt(0));
+}
 
 int CTimeStampResponse::verify() { return verify(nullptr); }
 

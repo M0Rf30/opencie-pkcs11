@@ -12,7 +12,7 @@ void make_digest_info(int algid, unsigned char* pbtDigest, size_t btDigestLen,
                       unsigned char* pbtDigestInfo, size_t* pbtDigestInfoLen);
 }
 
-CCIESigner::CCIESigner(IAS* pIAS) : m_pIAS(pIAS) {}
+CCIESigner::CCIESigner(IAS* pIAS) : m_pIAS(pIAS), m_szPIN("") {}
 
 CCIESigner::~CCIESigner(void) = default;
 
@@ -76,11 +76,10 @@ long CCIESigner::Sign(ByteDynArray& data, ByteDynArray& /*id*/, int algo,
                       ByteDynArray& signature) {
   LOG_DBG((0, "--> CCIESigner::Sign", "algo: %d", algo));
 
-  // DigestInfo
-  unsigned char digestinfo[256];
-  size_t digestinfolen = 256;
-
   try {
+    // DigestInfo
+    unsigned char digestinfo[256];
+    size_t digestinfolen = 256;
     // TODO digest info
     switch (algo) {
       case CKM_SHA256_RSA_PKCS:

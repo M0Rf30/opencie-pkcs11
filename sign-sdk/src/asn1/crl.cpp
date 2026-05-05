@@ -6,7 +6,6 @@
 #include "asn1/asn1_utc_time.h"
 #include "asn1_octet_string.h"
 
-
 CCrl::CCrl(BufferedReader& reader) : CASN1Sequence(reader) {}
 
 CCrl::CCrl(const CASN1Object& contentInfo) : CASN1Sequence(contentInfo) {}
@@ -18,7 +17,7 @@ bool CCrl::isRevoked(const CASN1Integer& serialNumber, const char* szDateTime,
   CASN1Sequence tbsCertList(elementAt(0));
 
   if (pRevocationInfo) {
-    CASN1UTCTime thisUpdate = tbsCertList.elementAt(3);
+    CASN1UTCTime thisUpdate = CASN1UTCTime(tbsCertList.elementAt(3));
     thisUpdate.getUTCTime(pRevocationInfo->szThisUpdate);
   }
 
@@ -26,7 +25,8 @@ bool CCrl::isRevoked(const CASN1Integer& serialNumber, const char* szDateTime,
   int count = revokedCertificates.size();
   if (count > 0) {
     for (int i = 0; i < count; i++) {
-      CASN1Sequence revokedCertificate = revokedCertificates.elementAt(i);
+      CASN1Sequence revokedCertificate =
+          CASN1Sequence(revokedCertificates.elementAt(i));
 
       CASN1Integer sn(revokedCertificate.elementAt(0));
 
@@ -36,10 +36,12 @@ bool CCrl::isRevoked(const CASN1Integer& serialNumber, const char* szDateTime,
         BYTE* btRevocationDate;
 
         if (revocationDate.getValue()->size() > 13) {
-          btRevocationDate = const_cast<BYTE*>(revocationDate.getValue()->data()) +
-                             revocationDate.getValue()->size() - 13;
+          btRevocationDate =
+              const_cast<BYTE*>(revocationDate.getValue()->data()) +
+              revocationDate.getValue()->size() - 13;
         } else {
-          btRevocationDate = const_cast<BYTE*>(revocationDate.getValue()->data());
+          btRevocationDate =
+              const_cast<BYTE*>(revocationDate.getValue()->data());
         }
 
         if (pRevocationInfo) {
@@ -66,7 +68,7 @@ bool CCrl::isRevoked(const CASN1Integer& serialNumber, const char* szDateTime,
           const ByteDynArray* pVal = reasonCode.getValue();
 
           BYTE reason = pVal->data()[2];  // reasonCode.getTag() & 0x0F;
-          if (reason == 6)                      // Certificate HOLD
+          if (reason == 6)                // Certificate HOLD
             *pReason = REVOCATION_STATUS_SUSPENDED;
           else
             *pReason = REVOCATION_STATUS_REVOKED;

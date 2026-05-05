@@ -31,7 +31,7 @@ class CBase64 {
    * @param encodedData Output string receiving the Base64-encoded result.
    * @return Reference to the encoded output string.
    */
-  std::string &Encode(ByteArray &data, std::string &encodedData);
+  static std::string &Encode(const ByteArray &data, std::string &encodedData);
 
   /**
    * @brief Decodes a Base64 string to binary data.
@@ -39,5 +39,5 @@ class CBase64 {
    * @param data Output byte array receiving the decoded binary data.
    * @return Reference to the decoded output byte array.
    */
-  ByteDynArray &Decode(const char *encodedData, ByteDynArray &data);
+  static ByteDynArray &Decode(const char *encodedData, ByteDynArray &data);
 };

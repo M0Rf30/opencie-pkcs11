@@ -50,12 +50,12 @@ class BigUnsigned : protected NumberlikeArray<unsigned long> {
   ~BigUnsigned() {}
 
   // Constructors from primitive integer types
-  BigUnsigned(unsigned long x);
-  BigUnsigned(long x);
-  BigUnsigned(unsigned int x);
-  BigUnsigned(int x);
-  BigUnsigned(unsigned short x);
-  BigUnsigned(short x);
+  explicit BigUnsigned(unsigned long x);
+  explicit BigUnsigned(long x);
+  explicit BigUnsigned(unsigned int x);
+  explicit BigUnsigned(int x);
+  explicit BigUnsigned(unsigned short x);
+  explicit BigUnsigned(short x);
 
  protected:
   // Helpers
@@ -405,4 +405,3 @@ X BigUnsigned::convertToSignedPrimitive() const {
     throw "BigUnsigned::to(Primitive): "
 			"Value is too big to fit in the requested type";
 }
-

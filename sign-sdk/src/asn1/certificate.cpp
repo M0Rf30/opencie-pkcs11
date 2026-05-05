@@ -31,7 +31,7 @@ char g_szResolveList[4096] = {0};
 
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb,
                             void* userp);
-long HTTPRequest(ByteDynArray& data, const char* szUrl,
+long HTTPRequest(const ByteDynArray& data, const char* szUrl,
                  const char* szContentType, ByteDynArray& response);
 
 extern char g_szVerifyProxy[MAX_PATH];
@@ -92,10 +92,12 @@ CCertificate::CCertificate(const CASN1Object& cert) : CASN1Sequence(cert) {}
 
 CCertificate::~CCertificate() {}
 
-CCertificateInfo CCertificate::getCertificateInfo() { return elementAt(0); }
+CCertificateInfo CCertificate::getCertificateInfo() {
+  return CCertificateInfo(elementAt(0));
+}
 
 CAlgorithmIdentifier CCertificate::getAlgorithmIdentifier() {
-  return elementAt(1);
+  return CAlgorithmIdentifier(elementAt(1));
 }
 
 CName CCertificate::getIssuer() { return getCertificateInfo().getIssuer(); }
@@ -148,10 +150,12 @@ bool CCertificate::isNonRepudiation() {
 
   const BYTE* pKeyUsageFlags = val.getValue()->data();
   BYTE unusedbits = pKeyUsageFlags[0];
-  BYTE flags = pKeyUsageFlags[1];
-  if (unusedbits < 7) {
-    if ((flags & 0x40) == 0x40)  // non repudiation and digital signature
-      return true;
+  {
+    BYTE flags = pKeyUsageFlags[1];
+    if (unusedbits < 7) {
+      if ((flags & 0x40) == 0x40)  // non repudiation and digital signature
+        return true;
+    }
   }
 
   return false;
@@ -226,12 +230,12 @@ bool CCertificate::isValid(const char* szDateTime) {
 
 CASN1Sequence CCertificate::getExtension(const CASN1ObjectIdentifier& oid) {
   CASN1Sequence certExtensions = getExtensions();
-  CASN1Sequence extensions = certExtensions.elementAt(0);
+  CASN1Sequence extensions(certExtensions.elementAt(0));
   CASN1Sequence requestedExtension;
   int count = extensions.size();
   for (int i = 0; i < count; i++) {
-    CASN1Sequence extension = extensions.elementAt(i);
-    CASN1ObjectIdentifier extoid = extension.elementAt(0);
+    CASN1Sequence extension(extensions.elementAt(i));
+    CASN1ObjectIdentifier extoid(extension.elementAt(0));
     if (extoid.equals(oid)) {
       return extension;
     }
@@ -241,7 +245,8 @@ CASN1Sequence CCertificate::getExtension(const CASN1ObjectIdentifier& oid) {
 }
 
 CASN1Sequence CCertificate::getCertificatePolicies() {
-  CASN1Sequence certPolicies(getExtension(szCertificatePolicies));
+  CASN1Sequence certPolicies(
+      getExtension(CASN1ObjectIdentifier(szCertificatePolicies)));
 
   if (certPolicies.size() > 0) {
     CASN1OctetString val(certPolicies.elementAt(1));
@@ -254,16 +259,18 @@ CASN1Sequence CCertificate::getCertificatePolicies() {
 }
 
 CASN1OctetString CCertificate::getAuthorithyKeyIdentifier() {
-  CASN1Sequence keyIdentifier(getExtension(szAuthorityKeyIdentifier));
+  CASN1Sequence keyIdentifier(
+      getExtension(CASN1ObjectIdentifier(szAuthorityKeyIdentifier)));
 
   CASN1OctetString val(keyIdentifier.elementAt(1));
 
   BufferedReader reader(*val.getValue());
-  return CASN1Sequence(reader);
+  return CASN1OctetString(reader);
 }
 
 CASN1OctetString CCertificate::getSubjectKeyIdentifier() {
-  CASN1Sequence keyIdentifier = getExtension(szSubjectKeyIdentifier);
+  CASN1Sequence keyIdentifier(
+      getExtension(CASN1ObjectIdentifier(szSubjectKeyIdentifier)));
 
   if (keyIdentifier.size() > 0) {
     CASN1OctetString val(keyIdentifier.elementAt(1));
@@ -322,8 +329,9 @@ int CCertificate::verifyStatus(const char* szTime,
   CASN1Integer serialNumber(getSerialNumber());
 
   try {
-    // verifica la presenza di OCSP
-    CASN1Sequence ocsp(getExtension(szAuthorityInfoAccess));
+    // check for OCSP presence
+    CASN1Sequence ocsp(
+        getExtension(CASN1ObjectIdentifier(szAuthorityInfoAccess)));
     if (ocsp.size() == 0) throw 1L;
 
     CASN1OctetString val(ocsp.elementAt(1));
@@ -339,13 +347,13 @@ int CCertificate::verifyStatus(const char* szTime,
     // accessMethod          OBJECT IDENTIFIER,
     // accessLocation        GeneralName  }
 
-    // cerca il metodo OCSP
+    // find the OCSP method
     CASN1ObjectIdentifier oid(szMethodOCSP);
     int size = authorityInfoAccess.size();
     for (int i = 0; i < size; i++) {
       CASN1Sequence accessDescription(authorityInfoAccess.elementAt(i));
 
-      if (oid.equals(accessDescription.elementAt(0))) {
+      if (oid.equals(CASN1ObjectIdentifier(accessDescription.elementAt(0)))) {
         LOG_DBG((0, "CCertificate::verifyStatus", "createOCSP request"));
 
         CASN1Object accessLocation(accessDescription.elementAt(1));
@@ -356,7 +364,7 @@ int CCertificate::verifyStatus(const char* szTime,
         LOG_DBG((0, "CCertificate::verifyStatus", "OCSP Url: %s",
                  reinterpret_cast<const char*>(pValue->data())));
 
-        // prepara la OCSP request
+        // prepare the OCSP request
         COCSPRequest ocspRequest(*this);
         ByteDynArray baOcspRequest;
         ocspRequest.toByteArray(baOcspRequest);
@@ -378,128 +386,131 @@ int CCertificate::verifyStatus(const char* szTime,
 
         LOG_DBG((0, "CCertificate::verifyStatus", "OCSP OK"));
 
-        // il response data va in un oggetto OCSResponse
-        BufferedReader reader(response);
-        CASN1Sequence ocspResponse(reader);
+        // response data goes into an OCSPResponse object
+        {
+          BufferedReader reader2(response);
+          CASN1Sequence ocspResponse(reader2);
 
-        CASN1Integer responseStatus(ocspResponse.elementAt(0));
+          CASN1Integer responseStatus(ocspResponse.elementAt(0));
 
-        int status = responseStatus.getIntValue();
-        LOG_DBG((0, "CCertificate::verifyStatus", "OCSP responseStatus: %d",
-                 status));
-        if (status == 0) {  // successfull
-          CASN1Sequence responseBytes1(ocspResponse.elementAt(1));
-          CASN1Sequence responseBytes(responseBytes1.elementAt(0));
+          int inner_status = responseStatus.getIntValue();
+          LOG_DBG((0, "CCertificate::verifyStatus", "OCSP responseStatus: %d",
+                   inner_status));
+          if (inner_status == 0) {  // successfull
+            CASN1Sequence responseBytes1(ocspResponse.elementAt(1));
+            CASN1Sequence responseBytes(responseBytes1.elementAt(0));
 
-          CASN1ObjectIdentifier responseType(responseBytes.elementAt(0));
-          CASN1OctetString response(responseBytes.elementAt(1));
+            CASN1ObjectIdentifier responseType(responseBytes.elementAt(0));
+            CASN1OctetString inner_response(responseBytes.elementAt(1));
 
-          const ByteDynArray* pVal = response.getValue();
+            const ByteDynArray* pVal = inner_response.getValue();
 
-          BufferedReader reader1(*pVal);
-          CASN1Sequence basicOCSPResponse(reader1);
+            BufferedReader reader3(*pVal);
+            CASN1Sequence basicOCSPResponse(reader3);
 
-          CASN1Sequence responseData(basicOCSPResponse.elementAt(0));
+            CASN1Sequence responseData(basicOCSPResponse.elementAt(0));
 
-          CASN1Sequence responses(responseData.elementAt(2));
+            CASN1Sequence responses(responseData.elementAt(2));
 
-          CASN1Sequence singleResponse(responses.elementAt(0));
+            CASN1Sequence singleResponse(responses.elementAt(0));
 
-          // NSLog(@"%s",
-          // ((ByteDynArray*)singleResponse.getValue())->toHexString());
+            // NSLog(@"%s",
+            // ((ByteDynArray*)singleResponse.getValue())->toHexString());
 
-          CASN1Object certStatus(singleResponse.elementAt(1));
-          CASN1UTCTime thisUpdate(singleResponse.elementAt(2));
+            CASN1Object certStatus(singleResponse.elementAt(1));
+            CASN1UTCTime thisUpdate(singleResponse.elementAt(2));
 
-          if (pRevocationInfo) {
-            pRevocationInfo->nType = TYPE_OCSP;
-            thisUpdate.getUTCTime(pRevocationInfo->szThisUpdate);
-          }
+            if (pRevocationInfo) {
+              pRevocationInfo->nType = TYPE_OCSP;
+              thisUpdate.getUTCTime(pRevocationInfo->szThisUpdate);
+            }
 
-          BYTE tag = certStatus.getTag();
+            BYTE tag = certStatus.getTag();
 
-          LOG_DBG((0, "CCertificate::verifyStatus", "certStatus: %d", tag));
+            LOG_DBG((0, "CCertificate::verifyStatus", "certStatus: %d", tag));
 
-          switch (tag & 0x0F) {
-            case 0:
-              // good
-              LOG_DBG((0, "CCertificate::verifyStatus", "Status GOOD"));
-              status = REVOCATION_STATUS_GOOD;
-              if (pRevocationInfo)
-                pRevocationInfo->nRevocationStatus = REVOCATION_STATUS_GOOD;
-              break;
+            switch (tag & 0x0F) {
+              case 0:
+                // good
+                LOG_DBG((0, "CCertificate::verifyStatus", "Status GOOD"));
+                inner_status = REVOCATION_STATUS_GOOD;
+                if (pRevocationInfo)
+                  pRevocationInfo->nRevocationStatus = REVOCATION_STATUS_GOOD;
+                break;
 
-            case 1:
-              // revoked
+              case 1:
+                // revoked
 
-              // verifica CRLReason
-              {
-                CASN1Sequence clrReason(certStatus);
+                // check CRLReason
+                {
+                  CASN1Sequence clrReason(certStatus);
 
-                try {
-                  // verifica la data rispetto al revocation time
-                  CASN1Object revocationTime(clrReason.elementAt(0));
+                  try {
+                    // check date against revocation time
+                    CASN1Object revocationTime(clrReason.elementAt(0));
 
-                  BYTE* btRevocationTime;
+                    BYTE* btRevocationTime;
 
-                  if (revocationTime.getValue()->size() > 13) {
-                    btRevocationTime =
-                        const_cast<BYTE*>(revocationTime.getValue()->data()) +
-                        revocationTime.getValue()->size() - 13;
-                  } else {
-                    btRevocationTime =
-                        const_cast<BYTE*>(revocationTime.getValue()->data());
-                  }
-
-                  if (pRevocationInfo) {
-                    memcpy(pRevocationInfo->szRevocationDate, btRevocationTime,
-                           13);
-                    pRevocationInfo->szRevocationDate[13] = 0;
-                  }
-
-                  if (szTime != nullptr)
-                    if (memcmp(szTime, btRevocationTime, 13) < 0) {
-                      if (pRevocationInfo)
-                        pRevocationInfo->nRevocationStatus =
-                            REVOCATION_STATUS_GOOD;
-                      return REVOCATION_STATUS_GOOD;
+                    if (revocationTime.getValue()->size() > 13) {
+                      btRevocationTime =
+                          const_cast<BYTE*>(revocationTime.getValue()->data()) +
+                          revocationTime.getValue()->size() - 13;
+                    } else {
+                      btRevocationTime =
+                          const_cast<BYTE*>(revocationTime.getValue()->data());
                     }
 
-                  CASN1OctetString reasonCode(clrReason.elementAt(1));
-                  const ByteDynArray* pVal = reasonCode.getValue();
+                    if (pRevocationInfo) {
+                      memcpy(pRevocationInfo->szRevocationDate,
+                             btRevocationTime, 13);
+                      pRevocationInfo->szRevocationDate[13] = 0;
+                    }
 
-                  BYTE reason = pVal->data()[2];  // reasonCode.getTag() & 0x0F;
-                  if (reason == 6) {              // Certificate HOLD
-                    LOG_DBG(
-                        (0, "CCertificate::verifyStatus", "Status SUSPENDED"));
-                    status = REVOCATION_STATUS_SUSPENDED;
-                  } else {
-                    LOG_DBG(
-                        (0, "CCertificate::verifyStatus", "Status REVOKED"));
-                    status = REVOCATION_STATUS_REVOKED;
+                    if (szTime != nullptr)
+                      if (memcmp(szTime, btRevocationTime, 13) < 0) {
+                        if (pRevocationInfo)
+                          pRevocationInfo->nRevocationStatus =
+                              REVOCATION_STATUS_GOOD;
+                        return REVOCATION_STATUS_GOOD;
+                      }
+
+                    CASN1OctetString reasonCode(clrReason.elementAt(1));
+                    const ByteDynArray* pVal2 = reasonCode.getValue();
+
+                    BYTE reason =
+                        pVal2->data()[2];  // reasonCode.getTag() & 0x0F;
+                    if (reason == 6) {     // Certificate HOLD
+                      LOG_DBG((0, "CCertificate::verifyStatus",
+                               "Status SUSPENDED"));
+                      inner_status = REVOCATION_STATUS_SUSPENDED;
+                    } else {
+                      LOG_DBG(
+                          (0, "CCertificate::verifyStatus", "Status REVOKED"));
+                      inner_status = REVOCATION_STATUS_REVOKED;
+                    }
+                    if (pRevocationInfo)
+                      pRevocationInfo->nRevocationStatus = inner_status;
+                  } catch (CASN1Exception* ex) {
+                    LOG_DBG((0, "CCertificate::verifyStatus",
+                             "Unexpected Exception"));
+                    delete ex;
+                    inner_status = REVOCATION_STATUS_REVOKED;
                   }
-                  if (pRevocationInfo)
-                    pRevocationInfo->nRevocationStatus = status;
-                } catch (CASN1Exception* ex) {
-                  LOG_DBG((0, "CCertificate::verifyStatus",
-                           "Unexpected Exception"));
-                  delete ex;
-                  status = REVOCATION_STATUS_REVOKED;
                 }
-              }
-              break;
+                break;
 
-            case 2:
-              // unknown
-              LOG_DBG((0, "CCertificate::verifyStatus", "Status UNKNONWN"));
-              status = REVOCATION_STATUS_UNKNOWN;
-              break;
+              case 2:
+                // unknown
+                LOG_DBG((0, "CCertificate::verifyStatus", "Status UNKNONWN"));
+                inner_status = REVOCATION_STATUS_UNKNOWN;
+                break;
 
-            default:
-              break;
+              default:
+                break;
+            }
+
+            if (inner_status != REVOCATION_STATUS_UNKNOWN) return inner_status;
           }
-
-          if (status != REVOCATION_STATUS_UNKNOWN) return status;
         }
       }
     }
@@ -518,8 +529,9 @@ int CCertificate::verifyStatus(const char* szTime,
 
     LOG_DBG((0, "CCertificate::verifyStatus", "Try CRL"));
 
-    // verifica la crl
-    CASN1Sequence crlDP1(getExtension(szCrlDistributionPointsOID));
+    // verify the CRL
+    CASN1Sequence crlDP1(
+        getExtension(CASN1ObjectIdentifier(szCrlDistributionPointsOID)));
     CASN1OctetString crlDPValue(crlDP1.elementAt(1));
 
     BufferedReader reader(*(crlDPValue.getValue()));
@@ -557,8 +569,8 @@ int CCertificate::verifyStatus(const char* szTime,
         }
 
         if (response.size() > 0) {
-          BufferedReader reader(response.data(), response.size());
-          CCrl crl(reader);
+          BufferedReader reader4(response.data(), response.size());
+          CCrl crl(reader4);
 
           int revstatus = 0;
           if (!crl.isRevoked(serialNumber, szTime, &revstatus,
@@ -592,7 +604,7 @@ int CCertificate::verifyStatus(const char* szTime,
 int CCertificate::verify() {
   int bitmask = 0;
 
-  // verifica la cert chain
+  // verify the certificate chain
   CCertificate* pCert = this;
   CCertificate* pCACert = CCertStore::GetCertificate(*pCert);
   while (pCACert && pCert->verifySignature(*pCACert)) {
@@ -630,45 +642,44 @@ bool CCertificate::verifySignature(CCertificate& cert) {
   BYTE decrypted[MAX_RSA_MODULUS_LEN];
   unsigned int len = MAX_RSA_MODULUS_LEN;
 
-  const BYTE* encrypted = encDigest.data();
-  const int encrypted_len = static_cast<int>(encDigest.size());
-
-  EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new(evp_pubkey, nullptr);
-  if (pctx && EVP_PKEY_verify_recover_init(pctx) > 0 &&
-      EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PADDING) > 0) {
-    size_t outlen = MAX_RSA_MODULUS_LEN;
-    if (EVP_PKEY_verify_recover(pctx, decrypted, &outlen, encrypted,
-                                encrypted_len) > 0) {
-      len = static_cast<unsigned int>(outlen);
+  {
+    EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new(evp_pubkey, nullptr);
+    if (pctx && EVP_PKEY_verify_recover_init(pctx) > 0 &&
+        EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PADDING) > 0) {
+      const BYTE* encrypted = encDigest.data();
+      const int encrypted_len = static_cast<int>(encDigest.size());
+      size_t outlen = MAX_RSA_MODULUS_LEN;
+      if (EVP_PKEY_verify_recover(pctx, decrypted, &outlen, encrypted,
+                                  encrypted_len) > 0) {
+        len = static_cast<unsigned int>(outlen);
+      } else {
+        len = 0;
+      }
     } else {
       len = 0;
     }
-  } else {
-    len = 0;
+    EVP_PKEY_CTX_free(pctx);
   }
-  EVP_PKEY_CTX_free(pctx);
 
   EVP_PKEY_free(evp_pubkey);
   X509_free(x509);
 
   if (len) {
     try {
-      char szAux[100];
-
       BufferedReader reader(decrypted, len);
       CDigestInfo digestInfo(reader);
       CASN1OctetString digest = digestInfo.getDigest();
       ByteDynArray* pDigestValue = const_cast<ByteDynArray*>(digest.getValue());
 
       // content
-      ByteDynArray content;
-      getCertificateInfo().toByteArray(content);
+      ByteDynArray content2;
+      getCertificateInfo().toByteArray(content2);
 
       BYTE* buff;
       int bufflen = 0;
 
-      buff = const_cast<BYTE*>(content.data());
-      bufflen = content.size();
+      buff = const_cast<BYTE*>(content2.data());
+      bufflen = content2.size();
 
       CAlgorithmIdentifier digestAlgo(digestInfo.getDigestAlgorithm());
       CAlgorithmIdentifier sha256Algo(szSHA256OID);
@@ -685,19 +696,20 @@ bool CCertificate::verifySignature(CCertificate& cert) {
         EVP_MD_CTX_free(sha256_ctx);
 
         sha256_ctx = EVP_MD_CTX_new();
-        EVP_DigestUpdate(sha256_ctx, content.data(), content.size());
+        EVP_DigestUpdate(sha256_ctx, content2.data(), content2.size());
         EVP_DigestFinal(sha256_ctx, hash2, nullptr);
         EVP_MD_CTX_free(sha256_ctx);
 
         if (CRYPTO_memcmp(hash, pDigestValue->data(), 32) == 0) {
-          // verifica l'hash del content
+          // verify the content hash
           if (CRYPTO_memcmp(hash2, hash, 32) == 0) {
             return true;
           }
         }
 
       } else if (digestAlgo.elementAt(0) == sha1Algo.elementAt(0)) {
-        // calcola l'hash SHA1
+        // compute SHA1 hash
+        char szAux[100];
         unsigned char hash[SHA_DIGEST_LENGTH];
         EVP_MD_CTX* sha1_ctx = nullptr;
 
@@ -719,7 +731,7 @@ bool CCertificate::verifySignature(CCertificate& cert) {
 
         sha1_ctx = EVP_MD_CTX_new();
         EVP_DigestInit(sha1_ctx, EVP_sha1());
-        EVP_DigestUpdate(sha1_ctx, content.data(), content.size());
+        EVP_DigestUpdate(sha1_ctx, content2.data(), content2.size());
         EVP_DigestFinal(sha1_ctx, hash, nullptr);
         EVP_MD_CTX_free(sha1_ctx);
         snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
@@ -730,7 +742,7 @@ bool CCertificate::verifySignature(CCertificate& cert) {
 
         if (CRYPTO_memcmp(hashaux.data(), pDigestValue->data(),
                           hashaux.size()) == 0) {
-          // verifica l'hash del content
+          // verify the content hash
           if (CRYPTO_memcmp(contentHash.data(), hashaux.data(),
                             contentHash.size()) == 0) {
             return true;
@@ -748,7 +760,7 @@ bool CCertificate::verifySignature(CCertificate& cert) {
   return false;
 }
 
-long HTTPRequest(ByteDynArray& data, const char* szUrl,
+long HTTPRequest(const ByteDynArray& data, const char* szUrl,
                  const char* szContentType, ByteDynArray& response) {
 #ifdef __ANDROID__
   if (!g_szResolveList[0]) {
@@ -785,7 +797,7 @@ long HTTPRequest(ByteDynArray& data, const char* szUrl,
         memcpy(hostname, p, hlen);
         hostname[hlen] = '\0';
         int port = (strncmp(szUrl, "https://", 8) == 0) ? 443 : 80;
-        if (*end == ':') port = atoi(end + 1);
+        if (*end == ':') port = static_cast<int>(strtol(end + 1, nullptr, 10));
         const char* entry = g_szResolveList;
         while (*entry) {
           const char* comma = strchr(entry, ',');
@@ -798,7 +810,7 @@ long HTTPRequest(ByteDynArray& data, const char* szUrl,
             if (ehost_len == hlen && strncmp(entry, hostname, hlen) == 0) {
               const char* colon2 = strchr(colon1 + 1, ':');
               if (colon2) {
-                int eport = atoi(colon1 + 1);
+                int eport = static_cast<int>(strtol(colon1 + 1, nullptr, 10));
                 if (eport == port) {
                   char buf[512];
                   snprintf(buf, sizeof(buf), "%.*s", static_cast<int>(elen),

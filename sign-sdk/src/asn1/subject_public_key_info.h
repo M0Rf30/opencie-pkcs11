@@ -28,15 +28,15 @@ class CSubjectPublicKeyInfo : public CASN1Sequence {
    * @brief Parses a SubjectPublicKeyInfo from a DER-encoded stream.
    * @param reader Buffered reader positioned at the SEQUENCE.
    */
-  CSubjectPublicKeyInfo(BufferedReader& reader);
+  explicit CSubjectPublicKeyInfo(BufferedReader& reader);
 
   /**
    * @brief Constructs from an already-parsed ASN.1 object.
    * @param obj Generic ASN.1 object containing the encoding.
    */
-  CSubjectPublicKeyInfo(const CASN1Object& obj);
+  explicit CSubjectPublicKeyInfo(const CASN1Object& obj);
 
-  virtual ~CSubjectPublicKeyInfo();
+  virtual ~CSubjectPublicKeyInfo() override;
 
   /** @brief Returns the algorithm identifier for the public key. */
   CAlgorithmIdentifier getAlgorithmIdentifier();

@@ -71,7 +71,7 @@ class IniSettingsInt : public IniSettings {
    */
   IniSettingsInt(const char* section, const char* name, int defaultValue,
                  const char* description);
-  ~IniSettingsInt();
+  ~IniSettingsInt() override;
 
   /**
    * @brief Read the integer value from an INI file.
@@ -97,7 +97,7 @@ class IniSettingsString : public IniSettings {
    */
   IniSettingsString(const char* section, const char* name,
                     const char* defaultValue, const char* description);
-  ~IniSettingsString();
+  ~IniSettingsString() override;
 
   /**
    * @brief Read the string value from an INI file.
@@ -123,7 +123,7 @@ class IniSettingsBool : public IniSettings {
    */
   IniSettingsBool(const char* section, const char* name, bool defaultValue,
                   const char* description);
-  ~IniSettingsBool();
+  ~IniSettingsBool() override;
 
   /**
    * @brief Read the boolean value from an INI file.
@@ -149,7 +149,7 @@ class IniSettingsByteArray : public IniSettings {
    */
   IniSettingsByteArray(const char* section, const char* name,
                        ByteArray defaultValue, const char* description);
-  ~IniSettingsByteArray();
+  ~IniSettingsByteArray() override;
 
   /**
    * @brief Read the byte array value from an INI file.
@@ -185,7 +185,7 @@ class IniSettingsB64 : public IniSettings {
    */
   IniSettingsB64(const char* section, const char* name,
                  const char* defaultValueB64, const char* description);
-  ~IniSettingsB64();
+  ~IniSettingsB64() override;
 
   /**
    * @brief Read the Base64-decoded byte array value from an INI file.

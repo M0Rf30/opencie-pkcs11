@@ -3,7 +3,7 @@
 
 #include "util/util_exception.h"
 
-CModuleInfo::CModuleInfo() {}
+CModuleInfo::CModuleInfo() : module(nullptr) {}
 
 HANDLE CModuleInfo::getModule() { return module; }
 

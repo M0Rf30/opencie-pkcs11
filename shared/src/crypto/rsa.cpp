@@ -29,15 +29,10 @@ using CryptoPP::RSASS;
 using CryptoPP::SecByteBlock;
 using CryptoPP::SHA512;
 
-DWORD CRSA::GenerateKey(DWORD /*size*/, ByteDynArray & /*module*/,
-                        ByteDynArray & /*pubexp*/, ByteDynArray & /*privexp*/) {
-  init_func throw logged_error("Not supported");
-}
-
 ByteArray modulusBa;
 ByteArray exponentBa;
 
-CRSA::CRSA(ByteArray &mod, ByteArray &exp) {
+CRSA::CRSA(const ByteArray &mod, const ByteArray &exp) {
   modulusBa = mod;
   exponentBa = exp;
 
@@ -47,8 +42,8 @@ CRSA::CRSA(ByteArray &mod, ByteArray &exp) {
 
 CRSA::~CRSA(void) {}
 
-ByteDynArray CRSA::RSA_PURE(ByteArray &data) {
-  CryptoPP::Integer m((const byte *)data.data(), data.size());
+ByteDynArray CRSA::RSA_PURE(const ByteArray &data) {
+  CryptoPP::Integer m(reinterpret_cast<const byte *>(data.data()), data.size());
   CryptoPP::Integer c = pubKey.ApplyFunction(m);
 
   size_t len = c.MinEncodedSize();
@@ -56,17 +51,19 @@ ByteDynArray CRSA::RSA_PURE(ByteArray &data) {
 
   ByteDynArray resp(len);
 
-  c.Encode(static_cast<byte *>(resp.data()), resp.size(),
+  c.Encode(reinterpret_cast<byte *>(resp.data()), resp.size(),
            CryptoPP::Integer::UNSIGNED);
 
   return resp;
 }
 
-bool CRSA::RSA_PSS(ByteArray &signatureData, ByteArray &toSign) {
+bool CRSA::RSA_PSS(const ByteArray &signatureData, const ByteArray &toSign) {
   RSASS<PSS, SHA512>::Verifier verifier(pubKey);
-  SecByteBlock signatureBlock((const byte *)signatureData.data(),
-                              signatureData.size());
+  SecByteBlock signatureBlock(
+      reinterpret_cast<const byte *>(signatureData.data()),
+      signatureData.size());
 
-  return verifier.VerifyMessage((const byte *)toSign.data(), toSign.size(),
-                                signatureBlock, signatureBlock.size());
+  return verifier.VerifyMessage(reinterpret_cast<const byte *>(toSign.data()),
+                                toSign.size(), signatureBlock,
+                                signatureBlock.size());
 }

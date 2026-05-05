@@ -23,7 +23,7 @@ CP11Object::CP11Object(CK_OBJECT_CLASS objClass, void* TemplateData) {
 }
 
 void CP11Object::addAttribute(CK_ATTRIBUTE_TYPE type, ByteArray data) {
-  init_func attributes[type] = data;
+  init_func attributes[type] = ByteDynArray(data);
 }
 
 ByteArray* CP11Object::getAttribute(CK_ATTRIBUTE_TYPE type) {
@@ -143,8 +143,7 @@ ByteArray* CP11PrivateKey::getAttribute(CK_ATTRIBUTE_TYPE type) {
 
       if (type == CKA_PRIME_1 || type == CKA_PRIME_2 ||
           type == CKA_EXPONENT_1 || type == CKA_EXPONENT_2 ||
-          type == CKA_COEFFICIENT ||
-          type == CKA_PRIME_1) throw p11_error(CKR_ATTRIBUTE_SENSITIVE);
+          type == CKA_COEFFICIENT) throw p11_error(CKR_ATTRIBUTE_SENSITIVE);
 
   AttributeMap::iterator it = attributes.find(type);
   if (it == attributes.end() && !bReadValue) {

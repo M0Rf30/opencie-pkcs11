@@ -27,16 +27,22 @@
  */
 class CASN1SetOf : public CASN1GenericSequence {
  public:
-  ~CASN1SetOf();
+  virtual ~CASN1SetOf() override;
 
   /** @brief Constructs an empty SET OF. */
   CASN1SetOf();
 
   /**
+   * @brief Constructs a SET OF by reading from a BufferedReader.
+   * @param reader The reader positioned at the SET OF TLV.
+   */
+  explicit CASN1SetOf(BufferedReader& reader);
+
+  /**
    * @brief Constructs a SET OF from a generic ASN.1 object.
    * @param obj The ASN.1 object to reinterpret as a SET OF.
    */
-  CASN1SetOf(const CASN1Object&);
+  explicit CASN1SetOf(const CASN1Object&);
 
  private:
   static const BYTE TAG;

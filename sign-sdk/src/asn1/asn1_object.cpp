@@ -9,23 +9,21 @@
 #include "asn1_exception.h"
 #include "util/util.h"
 
-CASN1Object::CASN1Object() : m_indefiniteLen(false), m_btLenRead(0) {}
+CASN1Object::CASN1Object()
+    : m_btTag(0), m_indefiniteLen(false), m_btLenRead(0) {}
 
 CASN1Object::CASN1Object(const CASN1Object& obj)
-    : m_indefiniteLen(false), m_btLenRead(0) {
-  m_btTag = obj.getTag();
+    : m_btTag(obj.getTag()), m_indefiniteLen(false), m_btLenRead(0) {
   m_value.append(*(obj.getValue()));
 }
 
 CASN1Object::CASN1Object(BYTE btTag, const ByteDynArray& value)
-    : m_indefiniteLen(false), m_btLenRead(0) {
-  m_btTag = btTag;
+    : m_btTag(btTag), m_indefiniteLen(false), m_btLenRead(0) {
   m_value.append(value);
 }
 
-CASN1Object::CASN1Object(BYTE btTag) : m_indefiniteLen(false), m_btLenRead(0) {
-  m_btTag = btTag;
-}
+CASN1Object::CASN1Object(BYTE btTag)
+    : m_btTag(btTag), m_indefiniteLen(false), m_btLenRead(0) {}
 
 CASN1Object::CASN1Object(BufferedReader& reader)
     : m_indefiniteLen(false), m_btLenRead(0) {
@@ -97,6 +95,7 @@ int CASN1Object::getSerializedLength(int nLen, bool indefiniteLen) {
 CASN1Object CASN1Object::operator=(const CASN1Object& obj) {
   setValue(*obj.getValue());
   setTag(obj.getTag());
+  m_btLenRead = obj.m_btLenRead;
   return CASN1Object(obj);
 }
 
@@ -151,11 +150,10 @@ void CASN1Object::toByteArray(ByteDynArray& byteArray) const {
 
     serialized[0] = getTag();
     serialized[1] = static_cast<BYTE>(0x80 + nLenNeeded);
-    int nDigit = 0;
     int i = 0;
     int nAux = nLen;
     for (i = 0; i < nLenNeeded; i++) {
-      nDigit = nAux >> (256 * i);
+      int nDigit = nAux >> (256 * i);
       serialized[2 + (nLenNeeded - i - 1)] = static_cast<BYTE>(nDigit);
       nAux = nAux / 256;
     }
@@ -233,12 +231,11 @@ int CASN1Object::parseLen(BufferedReader& reader, BYTE* pbtTag,
     if (pbtLenRead) *pbtLenRead = 0;
   }
 
-  // legge il resto dei
+  // read the rest of the value
 
   if (pValue) {
     std::vector<BYTE> pbtVal(nLen);
-    unsigned int n;
-    if ((n = reader.read(pbtVal.data(), nLen)) < nLen) {
+    if (reader.read(pbtVal.data(), nLen) < nLen) {
       throw CASN1ParsingException();
     }
 
@@ -249,7 +246,8 @@ int CASN1Object::parseLen(BufferedReader& reader, BYTE* pbtTag,
 
 const char* CASN1Object::toHexString() {
   toByteArray(m_der);
-  return dumpHexData(m_der).c_str();
+  m_hexStr = dumpHexData(m_der);
+  return m_hexStr.c_str();
 }
 
 int CASN1Object::parseBER(BufferedReader& reader, ByteDynArray& buffer) {
@@ -262,11 +260,10 @@ int CASN1Object::parseBER(BufferedReader& reader, ByteDynArray& buffer) {
   obj.toByteArray(buffer);
 
   BYTE btEnd[2];
-  int n;
 
   // reader.mark();
 
-  if ((n = reader.read(btEnd, 2)) < 2) {
+  if (reader.read(btEnd, 2) < 2) {
     throw CASN1ParsingException();
   }
 

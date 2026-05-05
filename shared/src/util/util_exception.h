@@ -28,19 +28,20 @@ class logged_error : public std::runtime_error {
    * @brief Construct from an rvalue string.
    * @param message Error message (moved).
    */
-  logged_error(std::string &&message) : logged_error(message.c_str()) {}
+  explicit logged_error(std::string &&message)
+      : logged_error(message.c_str()) {}
 
   /**
    * @brief Construct from a const string reference.
    * @param message Error message.
    */
-  logged_error(const std::string &message);
+  explicit logged_error(const std::string &message);
 
   /**
    * @brief Construct from a C string.
    * @param message Error message.
    */
-  logged_error(const char *message);
+  explicit logged_error(const char *message);
 };
 
 /**
@@ -56,7 +57,7 @@ class scard_error : public logged_error {
    * @brief Construct from a status word.
    * @param sw The ISO 7816 status word returned by the card.
    */
-  scard_error(StatusWord sw);
+  explicit scard_error(StatusWord sw);
 };
 
 /**
@@ -68,5 +69,5 @@ class windows_error : public logged_error {
    * @brief Construct from a Windows error code.
    * @param ris HRESULT or Win32 error code.
    */
-  windows_error(long ris);
+  explicit windows_error(long ris);
 };

@@ -34,7 +34,7 @@ class CSHA256 {
    * @param data Input data to hash.
    * @return ByteDynArray containing the 32-byte SHA-256 digest.
    */
-  ByteDynArray Digest(ByteArray& data);
+  static ByteDynArray Digest(const ByteArray& data);
 
   /** @brief Initializes the hash context for incremental hashing. */
   void Init();

@@ -47,7 +47,7 @@ namespace p11 {
 DWORD CSlot::dwSlotCnt = 0;
 SlotMap CSlot::g_mSlots;
 std::thread CSlot::Thread;
-std::atomic<CCardContext *> CSlot::ThreadContext{nullptr};
+std::atomic<CCardContext *> CSlot::ThreadContext {nullptr};
 bool CSlot::bMonitorUpdate = false;
 
 CSlot::CSlot(ISmartCardTransport &transport, const char *szReader)
@@ -75,10 +75,10 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
     size_t dwSlotNum = pSlotMap->size();
     std::vector<SCARD_READERSTATE> state(dwSlotNum);
     std::vector<std::shared_ptr<CSlot>> slot(dwSlotNum);
-    size_t i = 0;
     LONG ris;
     {
       std::unique_lock<std::mutex> lock(p11Mutex);
+      size_t i = 0;
       for (auto &[id, pSlot] : *pSlotMap) {
         if (!bP11Initialized) {
           CSlot::ThreadContext = nullptr;
@@ -257,8 +257,8 @@ void CSlot::InitSlotList(ISmartCardTransport &transport) {
     LOG_INFO("InitSlotList - reader:%s", szReaderName);
     std::shared_ptr<CSlot> pSlot = GetSlotFromReaderName(szReaderName);
     if (pSlot == nullptr) {
-      auto pSlot = std::make_shared<CSlot>(transport, szReaderName);
-      AddSlot(pSlot);
+      auto pSlot2 = std::make_shared<CSlot>(transport, szReaderName);
+      AddSlot(pSlot2);
       bMapChanged = true;
     }
     szReaderName = szReaderName + strnlen(szReaderName, readersLen) + 1;
@@ -270,15 +270,15 @@ void CSlot::InitSlotList(ISmartCardTransport &transport) {
     LOG_DEBUG("InitSlotList - %s", it->second->szName.c_str());
     const char *name = it->second->szName.c_str();
 
-    const char *szReaderName = readers.c_str();
+    const char *szReaderName2 = readers.c_str();
     // char *szReaderName=szReaderAlloc;
     bool bFound = false;
-    while (*szReaderName != 0) {
-      if (strcmp(name, szReaderName) == 0) {
+    while (*szReaderName2 != 0) {
+      if (strcmp(name, szReaderName2) == 0) {
         bFound = true;
         break;
       }
-      szReaderName = szReaderName + strnlen(szReaderName, readersLen) + 1;
+      szReaderName2 = szReaderName2 + strnlen(szReaderName2, readersLen) + 1;
     }
     if (!bFound) {
       CK_SLOT_ID ID = it->second->hSlot;
@@ -626,10 +626,10 @@ ByteDynArray CSlot::GetATR() {
   if (ret == SCARD_S_SUCCESS) {
     LOG_INFO("CSlot::GetATR() - ATR:");
     LOG_BUFFER(reinterpret_cast<BYTE *>(ATR), atrLen);
-    return ByteArray(reinterpret_cast<BYTE *>(ATR), atrLen);
+    return ByteDynArray(ByteArray(reinterpret_cast<BYTE *>(ATR), atrLen));
   } else {
     LOG_INFO("CSlot::GetATR() - no card inserted");
-    return ByteArray();
+    return ByteDynArray(ByteArray());
   }
 }
 

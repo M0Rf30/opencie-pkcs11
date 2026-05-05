@@ -12,11 +12,11 @@
 #include "util/array.h"
 
 #include <cryptopp/cryptlib.h>
-#include <cstring>
 #include <cryptopp/osrng.h>
 #include <cryptopp/secblock.h>
 #include <openssl/rand.h>
 
+#include <cstring>
 #include <fstream>
 
 ByteArray::ByteArray() {
@@ -48,8 +48,7 @@ ByteArray::ByteArray(const ByteArray &ba, size_t start) {
 }
 
 ByteArray::ByteArray(const ByteArray &ba, size_t start, size_t size) {
-  if (start + size > ba.size())
-    throw logged_error("Derived array too large");
+  if (start + size > ba.size()) throw logged_error("Derived array too large");
   _size = size;
   _data = ba._data + start;
 }
@@ -97,20 +96,19 @@ bool ByteArray::operator!=(const ByteArray &src) const {
 
 void ByteArray::copy(const ByteArray &src, size_t start) {
   if (src._size + start > _size)
-    throw logged_error(stdPrintf(
-        "Source array size %i too large to copy; maximum size %i",
-        src._size + start, _size));
+    throw logged_error(
+        stdPrintf("Source array size %i too large to copy; maximum size %i",
+                  src._size + start, _size));
   if (src._size > 0 && src._data)
     std::memcpy(_data + start, src._data, src._size);
 }
 
 void ByteArray::rightcopy(const ByteArray &src, size_t end) {
   if (src._size + end > _size)
-    throw logged_error(stdPrintf(
-        "Source array size %i too large to copy; maximum size %i",
-        src._size + end, _size));
-  std::memcpy(_data + _size - end - src._size,
-                     src._data, src._size);
+    throw logged_error(
+        stdPrintf("Source array size %i too large to copy; maximum size %i",
+                  src._size + end, _size));
+  std::memcpy(_data + _size - end - src._size, src._data, src._size);
 }
 
 ByteArray &ByteArray::fill(const uint8_t value) {
@@ -125,15 +123,15 @@ class init_rnd {
 } _initRand;
 
 ByteArray &ByteArray::random() {
-  RAND_bytes(_data, static_cast<int>(_size));
+  if (RAND_bytes(_data, static_cast<int>(_size)) != 1)
+    throw logged_error("RAND_bytes failed");
   return *this;
 }
 
 ByteArray &ByteArray::reverse() {
   size_t dwHalfSize = _size >> 1;
-  uint8_t temp;
   for (size_t i = 0; i < dwHalfSize; i++) {
-    temp = _data[i];
+    uint8_t temp = _data[i];
     _data[i] = _data[_size - i - 1];
     _data[_size - i - 1] = temp;
   }
@@ -265,7 +263,7 @@ uint8_t *ByteDynArray::detach() {
 
   return data;
 }
-bool ByteArray::indexOf(ByteArray &data, size_t &position) const {
+bool ByteArray::indexOf(const ByteArray &data, size_t &position) const {
   if (data.size() == 0) return 0;
   if (_size < data.size()) return false;
   size_t start = _size - data.size();
@@ -285,7 +283,8 @@ bool ByteArray::indexOf(ByteArray &data, size_t &position) const {
   return false;
 }
 
-ByteDynArray &ByteDynArray::setASN1Tag(unsigned int tag, ByteArray &content) {
+ByteDynArray &ByteDynArray::setASN1Tag(unsigned int tag,
+                                       const ByteArray &content) {
   size_t tl = ASN1TLength(tag);
   size_t ll = ASN1LLength(content.size());
   resize(tl + ll + content.size());

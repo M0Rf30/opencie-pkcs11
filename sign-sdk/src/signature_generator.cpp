@@ -213,49 +213,51 @@ long CSignatureGenerator::Generate(ByteDynArray& pkcs7SignedData,
       hashBuf.resize(24);
       hashlen = 24;
 
-      char szAux[50];
+      {
+        char szAux[50];
 
-      EVP_MD_CTX* sha1_ctx = EVP_MD_CTX_new();
-      EVP_DigestInit(sha1_ctx, EVP_sha1());
-      EVP_DigestUpdate(sha1_ctx, const_cast<BYTE*>(m_data.data()),
-                       m_data.size());
-      EVP_DigestFinal(sha1_ctx, hashBuf.data(), nullptr);
-      EVP_MD_CTX_free(sha1_ctx);
+        EVP_MD_CTX* sha1_ctx = EVP_MD_CTX_new();
+        EVP_DigestInit(sha1_ctx, EVP_sha1());
+        EVP_DigestUpdate(sha1_ctx, const_cast<BYTE*>(m_data.data()),
+                         m_data.size());
+        EVP_DigestFinal(sha1_ctx, hashBuf.data(), nullptr);
+        EVP_MD_CTX_free(sha1_ctx);
 
-      // Reinterpret the hash as five unsigned 32-bit words.
-      unsigned* word = reinterpret_cast<unsigned*>(hashBuf.data());
+        // Reinterpret the hash as five unsigned 32-bit words.
+        unsigned* word = reinterpret_cast<unsigned*>(hashBuf.data());
 
-      snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
-               __builtin_bswap32(word[0]), __builtin_bswap32(word[1]),
-               __builtin_bswap32(word[2]), __builtin_bswap32(word[3]),
-               __builtin_bswap32(word[4]));
+        snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
+                 __builtin_bswap32(word[0]), __builtin_bswap32(word[1]),
+                 __builtin_bswap32(word[2]), __builtin_bswap32(word[3]),
+                 __builtin_bswap32(word[4]));
 
-      ByteDynArray hashaux(szAux);
+        ByteDynArray hashaux(szAux);
 
-      memcpy(hashBuf.data(), hashaux.data(), hashlen);
+        memcpy(hashBuf.data(), hashaux.data(), hashlen);
 
-      m_signerInfoGenerator.setContentHash(hashBuf.data(), hashlen);
+        m_signerInfoGenerator.setContentHash(hashBuf.data(), hashlen);
 
-      ByteDynArray signedAttributes;
-      m_signerInfoGenerator.getSignedAttributes(signedAttributes, false,
-                                                !bDetached);
+        ByteDynArray signedAttributes;
+        m_signerInfoGenerator.getSignedAttributes(signedAttributes, false,
+                                                  !bDetached);
 
-      // compute total digest
-      EVP_MD_CTX* sha1_1_ctx = EVP_MD_CTX_new();
-      EVP_DigestInit(sha1_1_ctx, EVP_sha1());
-      EVP_DigestUpdate(sha1_1_ctx, signedAttributes.data(),
-                       signedAttributes.size());
-      EVP_DigestFinal(sha1_1_ctx, hashBuf.data(), nullptr);
-      EVP_MD_CTX_free(sha1_1_ctx);
+        // compute total digest
+        EVP_MD_CTX* sha1_1_ctx = EVP_MD_CTX_new();
+        EVP_DigestInit(sha1_1_ctx, EVP_sha1());
+        EVP_DigestUpdate(sha1_1_ctx, signedAttributes.data(),
+                         signedAttributes.size());
+        EVP_DigestFinal(sha1_1_ctx, hashBuf.data(), nullptr);
+        EVP_MD_CTX_free(sha1_1_ctx);
 
-      snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
-               __builtin_bswap32(word[0]), __builtin_bswap32(word[1]),
-               __builtin_bswap32(word[2]), __builtin_bswap32(word[3]),
-               __builtin_bswap32(word[4]));
+        snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
+                 __builtin_bswap32(word[0]), __builtin_bswap32(word[1]),
+                 __builtin_bswap32(word[2]), __builtin_bswap32(word[3]),
+                 __builtin_bswap32(word[4]));
 
-      ByteDynArray hashaux1(szAux);
+        ByteDynArray hashaux1(szAux);
 
-      memcpy(hashBuf.data(), hashaux1.data(), hashlen);
+        memcpy(hashBuf.data(), hashaux1.data(), hashlen);
+      }
     } break;
   }
 
@@ -294,9 +296,9 @@ long CSignatureGenerator::Generate(ByteDynArray& pkcs7SignedData,
     if (octetString.getTag() == 0x24) {  // contructed octet string
       CASN1Sequence contentArray(octetString);
       int size = contentArray.size();
-      for (int i = 0; i < size; i++) {
-        content.append(ByteArray(contentArray.elementAt(i).getValue()->data(),
-                                 contentArray.elementAt(i).getLength()));
+      for (int j = 0; j < size; j++) {
+        content.append(ByteArray(contentArray.elementAt(j).getValue()->data(),
+                                 contentArray.elementAt(j).getLength()));
       }
     } else {
       content.append(
@@ -332,7 +334,7 @@ long CSignatureGenerator::Generate(ByteDynArray& pkcs7SignedData,
   CSignerInfo signerInfo = m_signerInfoGenerator.getSignerInfo();
   m_signerInfos.addElement(signerInfo);
 
-  // aggiunge i certificati di CA
+  // Add CA certificates
   CCertificate* pCACert = CCertStore::GetCertificate(*pSignerCertificate);
   while (pCACert) {
     m_certificates.addElement(*pCACert);
@@ -342,7 +344,7 @@ long CSignatureGenerator::Generate(ByteDynArray& pkcs7SignedData,
   m_certificates.addElement(*pSignerCertificate);
   delete pSignerCertificate;
 
-  // Crea signedData
+  // Create signedData
   CSignedData* pSignedData;
   if (m_data.size() == 0 || bDetached) {  // detached
     const char* dataOID = szDataOID;
@@ -350,18 +352,18 @@ long CSignatureGenerator::Generate(ByteDynArray& pkcs7SignedData,
     pSignedData = new CSignedData(m_digestAlgos, CContentInfo(contentType),
                                   m_signerInfos, m_certificates);
   } else {
-    // Crea signedData
+    // Create signedData
     CASN1ObjectIdentifier dataOID(szDataOID);
     CASN1OctetString data(m_data);
-    CContentInfo ci(dataOID, data);
+    CContentInfo ci(CContentType(dataOID), data);
     pSignedData =
         new CSignedData(m_digestAlgos, ci, m_signerInfos, m_certificates);
   }
 
   LOG_DBG((0, "CSignatureGenerator::Generate", "ContentInfo"));
 
-  // Infine crea ContentInfo
-  CContentInfo contentInfo(szSignedDataOID, *pSignedData);
+  // Finally create ContentInfo
+  CContentInfo contentInfo(CContentType(szSignedDataOID), *pSignedData);
 
   pkcs7SignedData.clear();
   contentInfo.toByteArray(pkcs7SignedData);

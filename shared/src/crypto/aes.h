@@ -53,7 +53,7 @@ class CAES : public CipherBase {
   CAES(const ByteArray &key, const ByteArray &iv);
 
   /** @brief Destructor. */
-  ~CAES(void);
+  ~CAES(void) override;
 
   /**
    * @brief Set (or reset) the AES key and initialization vector.

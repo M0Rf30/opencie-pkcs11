@@ -33,7 +33,7 @@ size_t countHexData(const std::string &data) {
   for (size_t i = 0; i < slen; i++) {
     if (isspace(data[i]) || data[i] == ',') continue;
     if (!isxdigit(data[i])) {
-      throw logged_error("Carattere non valido");
+      throw logged_error("Invalid character");
     }
 
     if ((i < slen - 3) && data[i] == '0' && data[i + 3] == 'h') continue;
@@ -44,7 +44,7 @@ size_t countHexData(const std::string &data) {
     }
     i++;
     if (i < slen) {
-      if (!isspace(data[i])) throw logged_error("richiesto spazio");
+      if (!isspace(data[i])) throw logged_error("Space required");
     }
     cnt++;
 
@@ -59,7 +59,7 @@ size_t setHexData(const std::string &data, uint8_t *buf) {
   for (size_t i = 0; i < slen; i++) {
     if (isspace(data[i]) || data[i] == ',') continue;
     if (!isxdigit(data[i])) {
-      throw logged_error("Carattere non valido");
+      throw logged_error("Invalid character");
     }
 
     if ((i < slen - 3) && data[i] == '0' && data[i + 3] == 'h') continue;
@@ -75,7 +75,7 @@ size_t setHexData(const std::string &data, uint8_t *buf) {
         v <<= 4;
         v |= hex2byte(data[i]);
       } else if (!isspace(data[i]))
-        throw logged_error("richiesto spazio");
+        throw logged_error("Space required");
     }
     buf[0] = v;
     buf++;
@@ -93,7 +93,7 @@ void readHexData(const std::string &data, ByteDynArray &ba) {
   for (unsigned long i = 0; i < slen; i++) {
     if (isspace(data[i]) || data[i] == ',') continue;
     if (!isxdigit(data[i])) {
-      throw logged_error("Carattere non valido");
+      throw logged_error("Invalid character");
     }
 
     if ((i < slen - 3) && data[i] == '0' && data[i + 3] == 'h') continue;
@@ -109,7 +109,7 @@ void readHexData(const std::string &data, ByteDynArray &ba) {
         v <<= 4;
         v |= hex2byte(data[i]);
       } else if (!isspace(data[i]))
-        throw logged_error("richiesto spazio");
+        throw logged_error("Space required");
     }
     dt.push_back(v);
 
@@ -117,7 +117,7 @@ void readHexData(const std::string &data, ByteDynArray &ba) {
   }
 
   if (dt.size() > 0)
-    ba = ByteArray(&dt[0], dt.size());
+    ba = ByteDynArray(ByteArray(&dt[0], dt.size()));
   else
     ba.clear();
 }
@@ -163,11 +163,11 @@ std::string dumpHexDataLowerCase(ByteArray data, std::string &dump) {
   return dumpHexData(data, dump, false, false);
 }
 
-void PutPaddingBT0(ByteArray &ba, long dwLen) {
+void PutPaddingBT0(const ByteArray &ba, long dwLen) {
   init_func
 
       if (dwLen > static_cast<long>(ba.size())) {
-    throw logged_error("Lunghezza del padding errata");
+    throw logged_error("Invalid padding length");
   }
 
   ba.left(ba.size() - dwLen).fill(0);
@@ -175,8 +175,8 @@ void PutPaddingBT0(ByteArray &ba, long dwLen) {
 }
 
 void PutPaddingBT1(ByteArray &ba, unsigned long dwLen) {
-  init_func if (dwLen > ba.size() - 3) throw logged_error(
-      "Lunghezza del padding errata");
+  init_func if (dwLen >
+                ba.size() - 3) throw logged_error("Invalid padding length");
 
   ba[0] = 0;
   ba[1] = 1;
@@ -186,8 +186,8 @@ void PutPaddingBT1(ByteArray &ba, unsigned long dwLen) {
 }
 
 void PutPaddingBT2(ByteArray &ba, unsigned long dwLen) {
-  init_func if (dwLen > ba.size() - 3) throw logged_error(
-      "Lunghezza del padding errata");
+  init_func if (dwLen >
+                ba.size() - 3) throw logged_error("Invalid padding length");
 
   ba[0] = 0;
   ba[1] = 2;
@@ -196,58 +196,58 @@ void PutPaddingBT2(ByteArray &ba, unsigned long dwLen) {
   exit_func
 }
 
-unsigned long RemoveSha1(ByteArray &paddedData) {
+unsigned long RemoveSha1(const ByteArray &paddedData) {
   static uint8_t SHA1Algo[] = {0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e,
                                0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14};
   if (paddedData.left(sizeof(SHA1Algo)) == VarToByteArray(SHA1Algo))
     return sizeof(SHA1Algo);
-  throw logged_error("OID Algoritmo SHA1 non presente");
+  throw logged_error("SHA-1 algorithm OID not found");
 }
 
-unsigned long RemoveSha256(ByteArray &paddedData) {
+unsigned long RemoveSha256(const ByteArray &paddedData) {
   static uint8_t SHA256Algo[] = {0x30, 0x31, 0x30, 0x0D, 0x06, 0x09, 0x60,
                                  0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02,
                                  0x01, 0x05, 0x00, 0x04, 0x20};
   if (paddedData.left(sizeof(SHA256Algo)) == VarToByteArray(SHA256Algo))
     return sizeof(SHA256Algo);
-  throw logged_error("OID Algoritmo SHA256 non presente");
+  throw logged_error("SHA-256 algorithm OID not found");
 }
 
-unsigned long RemovePaddingBT1(ByteArray &paddedData) {
-  init_func if (paddedData[0] != 0) throw logged_error("Errore nel padding");
-  if (paddedData[1] != 1) throw logged_error("Errore nel padding");
+unsigned long RemovePaddingBT1(const ByteArray &paddedData) {
+  init_func if (paddedData[0] != 0) throw logged_error("Padding error");
+  if (paddedData[1] != 1) throw logged_error("Padding error");
   for (unsigned long i = 2; i < paddedData.size(); i++) {
     if (paddedData[i] == 0) {
       return i + 1;
     }
-    if (paddedData[i] != 0xff) throw logged_error("Errore nel padding");
+    if (paddedData[i] != 0xff) throw logged_error("Padding error");
   }
-  throw logged_error("Errore nel padding");
+  throw logged_error("Padding error");
   exit_func
 }
 
-unsigned long RemovePaddingBT2(ByteArray &paddedData) {
-  init_func if (paddedData[0] != 0) throw logged_error("Errore nel padding");
-  if (paddedData[1] != 2) throw logged_error("Errore nel padding");
+unsigned long RemovePaddingBT2(const ByteArray &paddedData) {
+  init_func if (paddedData[0] != 0) throw logged_error("Padding error");
+  if (paddedData[1] != 2) throw logged_error("Padding error");
   for (unsigned long i = 2; i < paddedData.size(); i++)
     if (paddedData[i] == 0) {
       return i + 1;
     }
-  throw logged_error("Errore nel padding");
+  throw logged_error("Padding error");
   exit_func
 }
 
-unsigned long RemoveISOPad(ByteArray &paddedData) {
+unsigned long RemoveISOPad(const ByteArray &paddedData) {
   init_func for (unsigned long i = paddedData.size(); i-- > 0;) {
     if (paddedData[i] != 0) {
       if (paddedData[i] != 0x80) {
-        throw logged_error("Errore nel padding");
+        throw logged_error("Padding error");
       } else {
         return i;
       }
     }
   }
-  throw logged_error("Errore nel padding");
+  throw logged_error("Padding error");
   exit_func
 }
 
@@ -258,7 +258,7 @@ unsigned long ANSIPadLen(unsigned long Len) {
     return (Len - (Len & 0x7) + 0x08);
 }
 
-void ANSIPad(ByteArray &Data, unsigned long DataLen) {
+void ANSIPad(const ByteArray &Data, unsigned long DataLen) {
   init_func Data.mid(DataLen).fill(0);
   exit_func
 }
@@ -304,7 +304,7 @@ ByteDynArray ISOPad(const ByteArray &data) {
   exit_func
 }
 
-long ByteArrayToInt(ByteArray &ba) {
+long ByteArrayToInt(const ByteArray &ba) {
   init_func long val = 0;
   for (unsigned long i = 0; i < ba.size(); i++) {
     val <<= 8;
@@ -461,7 +461,7 @@ const char *CardErr(DWORD dwSW) {
   return (msg);
 }
 
-ByteDynArray ASN1Tag(DWORD tag, ByteArray &content) {
+ByteDynArray ASN1Tag(DWORD tag, const ByteArray &content) {
   ByteDynArray result = content.getASN1Tag(tag);
   return result;
 }
@@ -500,7 +500,7 @@ size_t ASN1LLength(size_t len) {
     else if (len <= 0xffffffff)
       return 5;
   }
-  throw logged_error("Lunghezza ASN1 non valida");
+  throw logged_error("Invalid ASN.1 length");
 }
 
 void putASN1Length(size_t len, ByteArray &data) {
@@ -533,11 +533,15 @@ std::string stdPrintf(const char *format, ...) {
   va_list args;
   va_start(args, format);
 
-  auto size = std::snprintf(nullptr, 0, format, args);
-  std::string result(size + 1, '\0');
-  std::snprintf(&result[0], result.size(), format, args);
-
+  va_list args2;
+  va_copy(args2, args);
+  auto size = std::vsnprintf(nullptr, 0, format, args);
   va_end(args);
+
+  std::string result(size + 1, '\0');
+  std::vsnprintf(&result[0], result.size(), format, args2);
+  va_end(args2);
+
   return result;
 }
 

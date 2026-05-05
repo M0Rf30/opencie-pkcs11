@@ -12,14 +12,14 @@
 
 // Make Digest Info
 int make_digest_info(int algid, const unsigned char *pbtDigest,
-                   size_t btDigestLen, unsigned char *pbtDigestInfo,
-                   size_t *pbtDigestInfoLen) {
+                     size_t btDigestLen, unsigned char *pbtDigestInfo,
+                     size_t *pbtDigestInfoLen) {
   size_t requestedLen;
   switch (algid) {
     case NID_sha1:
       requestedLen = 2 + 2 + 9 + 2 + btDigestLen;
       if (*pbtDigestInfoLen <
-          requestedLen)  // protezione memoria e memcpy in basso
+          requestedLen)  // buffer overflow protection before memcpy below
         return 0;
 
       pbtDigestInfo[0] = 0x30;
@@ -37,7 +37,7 @@ int make_digest_info(int algid, const unsigned char *pbtDigest,
       pbtDigestInfo[12] = 0x00;
       pbtDigestInfo[13] = 0x04;
       pbtDigestInfo[14] = btDigestLen;
-      // Ricopia l'hash
+      // Copy the hash
       memcpy(pbtDigestInfo + 15, pbtDigest, btDigestLen);
       *pbtDigestInfoLen = 2 + 2 + 9 + 2 + btDigestLen;
       break;
@@ -45,7 +45,7 @@ int make_digest_info(int algid, const unsigned char *pbtDigest,
     case NID_sha256:
       requestedLen = 2 + 2 + 9 + 6 + btDigestLen;
       if (*pbtDigestInfoLen <
-          requestedLen)  // protezione memoria e memcpy in basso
+          requestedLen)  // buffer overflow protection before memcpy below
         return 0;
 
       pbtDigestInfo[0] = 0x30;
@@ -67,7 +67,7 @@ int make_digest_info(int algid, const unsigned char *pbtDigest,
       pbtDigestInfo[16] = 0x00;
       pbtDigestInfo[17] = 0x04;
       pbtDigestInfo[18] = btDigestLen;
-      // Ricopia l'hash
+      // Copy the hash
       memcpy(pbtDigestInfo + 19, pbtDigest, btDigestLen);
       *pbtDigestInfoLen = 2 + 2 + 9 + 6 + btDigestLen;
       break;
@@ -75,7 +75,7 @@ int make_digest_info(int algid, const unsigned char *pbtDigest,
     case NID_sha384:
       requestedLen = 2 + 2 + 9 + 6 + btDigestLen;
       if (*pbtDigestInfoLen <
-          requestedLen)  // protezione memoria e memcpy in basso
+          requestedLen)  // buffer overflow protection before memcpy below
         return 0;
 
       pbtDigestInfo[0] = 0x30;
@@ -97,7 +97,7 @@ int make_digest_info(int algid, const unsigned char *pbtDigest,
       pbtDigestInfo[16] = 0x00;
       pbtDigestInfo[17] = 0x04;
       pbtDigestInfo[18] = btDigestLen;
-      // Ricopia l'hash
+      // Copy the hash
       memcpy(pbtDigestInfo + 19, pbtDigest, btDigestLen);
       *pbtDigestInfoLen = 2 + 2 + 9 + 6 + btDigestLen;
       break;
@@ -105,7 +105,7 @@ int make_digest_info(int algid, const unsigned char *pbtDigest,
     case NID_sha512:
       requestedLen = 2 + 2 + 9 + 6 + btDigestLen;
       if (*pbtDigestInfoLen <
-          requestedLen)  // protezione memoria e memcpy in basso
+          requestedLen)  // buffer overflow protection before memcpy below
         return 0;
 
       pbtDigestInfo[0] = 0x30;
@@ -127,7 +127,7 @@ int make_digest_info(int algid, const unsigned char *pbtDigest,
       pbtDigestInfo[16] = 0x00;
       pbtDigestInfo[17] = 0x04;
       pbtDigestInfo[18] = btDigestLen;
-      // Ricopia l'hash
+      // Copy the hash
       memcpy(pbtDigestInfo + 19, pbtDigest, btDigestLen);
       *pbtDigestInfoLen = 2 + 2 + 9 + 6 + btDigestLen;
       break;

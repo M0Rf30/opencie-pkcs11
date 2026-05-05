@@ -54,7 +54,7 @@ class CFuncCallInfoList {
    * @brief Construct a list node.
    * @param info Pointer to the function call info object.
    */
-  CFuncCallInfoList(CFuncCallInfo *info) : info(info) {}
+  explicit CFuncCallInfoList(CFuncCallInfo *info) : info(info) {}
 
   CFuncCallInfo *info; /**< Function call info for this node. */
   std::unique_ptr<CFuncCallInfoList> next =

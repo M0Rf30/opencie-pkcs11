@@ -4,8 +4,7 @@
 extern CLog Log;
 
 CCardLocker::CCardLocker(ISmartCardTransport &transport, SCARDHANDLE card)
-    : transport(transport) {
-  hCard = card;
+    : transport(transport), hCard(card) {
   Lock();
 }
 

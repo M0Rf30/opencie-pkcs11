@@ -30,13 +30,13 @@ class CTimeStampToken : public CContentInfo {
    * @brief Parses a TimeStampToken from a DER-encoded stream.
    * @param reader Buffered reader positioned at the ContentInfo SEQUENCE.
    */
-  CTimeStampToken(BufferedReader& reader);
+  explicit CTimeStampToken(BufferedReader& reader);
 
   /**
    * @brief Constructs a TimeStampToken from an already-parsed ASN.1 object.
    * @param timeStampToken Generic ASN.1 object containing the token encoding.
    */
-  CTimeStampToken(const CASN1Object& timeStampToken);
+  explicit CTimeStampToken(const CASN1Object& timeStampToken);
 
   /** @brief Extracts and returns the embedded TSTInfo structure. */
   CTSTInfo getTSTInfo();

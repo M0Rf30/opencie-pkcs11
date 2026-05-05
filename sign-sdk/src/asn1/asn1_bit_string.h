@@ -26,15 +26,15 @@ class CASN1BitString : public CASN1Object {
    * @brief Parses a BIT STRING from a DER-encoded stream.
    * @param reader Buffered reader positioned at the BIT STRING TLV.
    */
-  CASN1BitString(BufferedReader& reader);
+  explicit CASN1BitString(BufferedReader& reader);
 
   /**
    * @brief Constructs a BIT STRING from an already-parsed ASN.1 object.
    * @param obj Generic ASN.1 object containing BIT STRING encoding.
    */
-  CASN1BitString(const CASN1Object& obj);
+  explicit CASN1BitString(const CASN1Object& obj);
 
-  virtual ~CASN1BitString();
+  virtual ~CASN1BitString() override;
 
  private:
   /** @brief DER tag byte for BIT STRING (0x03). */

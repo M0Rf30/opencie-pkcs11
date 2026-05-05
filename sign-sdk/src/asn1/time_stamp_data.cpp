@@ -60,7 +60,8 @@ CTimeStampData::CTimeStampData(BufferedReader& reader) : CContentInfo(reader) {}
 CTimeStampData::CTimeStampData(const CASN1Object& timeStampData)
     : CContentInfo(timeStampData) {}
 
-CTimeStampData::CTimeStampData(ByteDynArray& content, CTimeStampToken& tst)
+CTimeStampData::CTimeStampData(const ByteDynArray& content,
+                               CTimeStampToken& tst)
     : CContentInfo(CContentType(szTimeStampDataOID)) {
   CASN1Sequence timeStampData;
   timeStampData.addElement(CASN1Integer(1));  // version
@@ -110,5 +111,5 @@ CASN1OctetString CTimeStampData::getTimeStampDataContent() {
 
   int size = timeStampData.size();
 
-  return timeStampData.elementAt(size - 2);
+  return CASN1OctetString(timeStampData.elementAt(size - 2));
 }

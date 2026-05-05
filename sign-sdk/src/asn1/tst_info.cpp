@@ -12,9 +12,11 @@ CTSTInfo::CTSTInfo(const CASN1Object& tstInfo) : CASN1Sequence(tstInfo) {}
 
 CTSTInfo::~CTSTInfo() {}
 
-CASN1Sequence CTSTInfo::getMessageImprint() { return elementAt(2); }
+CASN1Sequence CTSTInfo::getMessageImprint() {
+  return CASN1Sequence(elementAt(2));
+}
 
-CASN1UTCTime CTSTInfo::getUTCTime() { return elementAt(4); }
+CASN1UTCTime CTSTInfo::getUTCTime() { return CASN1UTCTime(elementAt(4)); }
 
 CAlgorithmIdentifier CTSTInfo::getDigestAlgorithn() {
   CASN1Sequence messageImprint(elementAt(2));
@@ -30,7 +32,7 @@ CName CTSTInfo::getTSAName() {
     if (obj.getTag() == 0xA0) {
       CASN1Sequence val(obj);
       CASN1Sequence val1(val.elementAt(0));
-      return val1.elementAt(0);
+      return CName(val1.elementAt(0));
     }
   }
 

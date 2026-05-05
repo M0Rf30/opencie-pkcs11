@@ -40,7 +40,7 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
   char* ATR = nullptr;
 
   LOG_INFO("******** Starting PINManager::ChangePIN ********");
-  // verifica bontà PIN
+  // Validate PIN
   if (szCurrentPIN == nullptr || strnlen(szCurrentPIN, 9) != 8)
     return CKR_PIN_LEN_RANGE;
 
@@ -87,7 +87,7 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
     }
 
     LOG_INFO("PINManager::ChangePIN - CIE connected");
-    progressCallBack(10, "CIE Connessa");
+    progressCallBack(10, "CIE Connected");
 
     char* curreader = readers;
     bool foundCIE = false;
@@ -143,19 +143,17 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
 
       foundCIE = true;
 
-      // leggo i parametri di dominio DH e della chiave di extauth
       ias.InitDHParam();
 
       ias.InitExtAuthKeyParam();
 
-      progressCallBack(40, "Autenticazione...");
+      progressCallBack(40, "Authenticating...");
 
       ias.DHKeyExchange();
 
-      // DAPP
       ias.DAPP();
 
-      progressCallBack(80, "Cambio PIN...");
+      progressCallBack(80, "Changing PIN...");
 
       ByteArray oldPINBa(reinterpret_cast<const uint8_t*>(szCurrentPIN),
                          strlen(szCurrentPIN));
@@ -211,7 +209,7 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
         ias.SetCache(strPAN.c_str(), cert, leftPINBa);
       }
 
-      progressCallBack(100, "Cambio PIN eseguito");
+      progressCallBack(100, "PIN changed successfully");
       LOG_INFO("******** PINManager::ChangePIN Completed ********");
 
       // A this point a CIE has been found, stop looking for it
@@ -241,7 +239,7 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
   char* readers = nullptr;
   char* ATR = nullptr;
   LOG_INFO("******** Starting PINManager::cie_unblock_pin ********");
-  // verifica bontà PIN
+  // Validate PIN
   if (szPUK == nullptr || strnlen(szPUK, 9) != 8) return CKR_PIN_LEN_RANGE;
 
   if (szNewPIN == nullptr || strnlen(szNewPIN, 9) != 8)
@@ -283,7 +281,7 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
     }
 
     LOG_INFO("PINManager::UnlockPIN - CIE connected");
-    progressCallBack(20, "CIE Connessa");
+    progressCallBack(20, "CIE Connected");
 
     char* curreader = readers;
     bool foundCIE = false;
@@ -338,19 +336,17 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
 
       foundCIE = true;
 
-      // leggo i parametri di dominio DH e della chiave di extauth
       ias.InitDHParam();
 
       ias.InitExtAuthKeyParam();
 
-      progressCallBack(50, "Autenticazione...");
+      progressCallBack(50, "Authenticating...");
 
       ias.DHKeyExchange();
 
-      // DAPP
       ias.DAPP();
 
-      progressCallBack(80, "Sblocco carta...");
+      progressCallBack(80, "Unblocking card...");
 
       ByteArray pukBa(reinterpret_cast<const uint8_t*>(szPUK), strlen(szPUK));
 
@@ -405,7 +401,7 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
         ias.SetCache(strPAN.c_str(), cert, leftPINBa);
       }
 
-      progressCallBack(100, "Sblocco carta eseguito");
+      progressCallBack(100, "Card unblocked");
       LOG_INFO("******** PINManager::UnlockPIN Completed ********");
 
       // A this point a CIE has been found, stop looking for it

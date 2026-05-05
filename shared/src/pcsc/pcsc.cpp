@@ -10,13 +10,12 @@
 #include "util/util_exception.h"
 
 struct transData {
-  ISmartCardTransport *transport;
   SCARDCONTEXT context;
-  bool started;
 };
 bool safeTransaction::isLocked() { return locked; }
 safeTransaction::safeTransaction(ISmartCardTransport &transport,
-                                 safeConnection &conn, DWORD dwDisposition)
+                                 const safeConnection &conn,
+                                 DWORD dwDisposition)
     : transport(transport) {
   this->hCard = conn.hCard;
   this->dwDisposition = dwDisposition;
@@ -24,17 +23,12 @@ safeTransaction::safeTransaction(ISmartCardTransport &transport,
 
 #ifdef _WIN32
   auto td = std::make_shared<struct transData>();
-  td->transport = &transport;
   td->context = conn.hContext;
-  td->started = false;
-  auto thread = std::thread([td]() {
+  auto thread = std::thread([td, &transport]() {
     for (int i = 0; i < 10; i++) {
       Sleep(500);
-      if (td->started) {
-        return 0;
-      }
     }
-    td->transport->Cancel(td->context);
+    transport.Cancel(td->context);
     return 0;
   });
   thread.detach();
@@ -45,9 +39,6 @@ safeTransaction::safeTransaction(ISmartCardTransport &transport,
     this->dwDisposition = 0;
     return;
   } else {
-#ifdef _WIN32
-    td->started = true;
-#endif
     locked = true;
   }
 }
@@ -137,7 +128,8 @@ readerMonitor::readerMonitor(ISmartCardTransport &transport,
           }
           auto &PnP = states[static_cast<DWORD>(readerList.size())];
           PnP.szReader = "\\\\?PnP?\\Notification";
-          PnP.pvUserData = (void *)PnP.szReader;
+          PnP.pvUserData =
+              const_cast<void *>(reinterpret_cast<const void *>(PnP.szReader));
 
           rm->transport.GetStatusChange(rm->hContext, 0, states.data(),
                                         states.size());

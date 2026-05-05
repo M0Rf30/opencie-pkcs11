@@ -27,7 +27,7 @@ class auto_reset_event {
    * @brief Construct an auto-reset event.
    * @param signaled Initial signaled state (default: non-signaled).
    */
-  auto_reset_event(bool signaled = false) : signaled_(signaled) {}
+  explicit auto_reset_event(bool signaled = false) : signaled_(signaled) {}
 
   /** @brief Signal the event, releasing one waiting thread. */
   void set();

@@ -3,7 +3,7 @@
 
 CLog Log;
 
-CTLV::CTLV(ByteArray &data) {
+CTLV::CTLV(const ByteArray &data) {
   init_func uint32_t dwPtr = 0;
   while (dwPtr < data.size()) {
     uint8_t btLen = data[dwPtr + 1];
@@ -60,8 +60,8 @@ ByteDynArray *CTLVCreate::addValue(uint8_t Tag) {
   return &map[Tag];
 }
 
-void CTLVCreate::setValue(uint8_t Tag, ByteArray &Value) {
-  init_func map[Tag] = Value;
+void CTLVCreate::setValue(uint8_t Tag, const ByteArray &Value) {
+  init_func map[Tag] = ByteDynArray(Value);
 }
 
 ByteDynArray CTLVCreate::getBuffer() {
@@ -72,7 +72,7 @@ ByteDynArray CTLVCreate::getBuffer() {
       dwSize += static_cast<uint32_t>(it->second.size()) + 2;
     else
       dwSize += static_cast<uint32_t>(it->second.size()) + 2 + sizeof(uint32_t);
-    it++;
+    ++it;
   }
   ByteDynArray Value(dwSize);
   uint32_t dwPtr = 0;
@@ -86,14 +86,14 @@ ByteDynArray CTLVCreate::getBuffer() {
     } else {
       Value[dwPtr] = 0xff;
       dwPtr++;
-      uint32_t dwSize = static_cast<uint32_t>(it->second.size());
-      Value.copy(VarToByteArray(dwSize), dwPtr);
+      uint32_t dwSize2 = static_cast<uint32_t>(it->second.size());
+      Value.copy(VarToByteArray(dwSize2), dwPtr);
       dwPtr += sizeof(uint32_t);
     }
 
     Value.copy(it->second, dwPtr);
     dwPtr += static_cast<uint32_t>(it->second.size());
-    it++;
+    ++it;
   }
   return Value;
 }

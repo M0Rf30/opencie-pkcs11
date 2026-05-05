@@ -8,14 +8,16 @@ CASN1OptionalField::CASN1OptionalField(const CASN1Object& asn1Obj,
     : CASN1Object(asn1Obj), m_btClass(btClass) {}
 
 CASN1OptionalField::CASN1OptionalField(const CASN1Object& opt)
-    : CASN1Object(opt) {}
+    : CASN1Object(opt), m_btClass(0) {}
 
 CASN1OptionalField::CASN1OptionalField(BufferedReader& reader)
-    : CASN1Object(reader) {}
+    : CASN1Object(reader), m_btClass(0) {}
 
 CASN1OptionalField::~CASN1OptionalField() {}
 
-BYTE CASN1OptionalField::getTag() const { return static_cast<BYTE>(TAG | m_btClass); }
+BYTE CASN1OptionalField::getTag() const {
+  return static_cast<BYTE>(TAG | m_btClass);
+}
 
 /*
 BOOL CASN1OptionalField::isOptionaField(const BYTE& btClass, CBufferedReader&

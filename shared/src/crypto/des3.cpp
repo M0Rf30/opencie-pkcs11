@@ -28,12 +28,12 @@ void CDES3::Init(const ByteArray &key, const ByteArray &iv) {
       break;
     case 16:
     case 24:
-      this->key = key;
+      this->key = ByteDynArray(key);
       break;
     default:
       throw logged_error("Invalid 3DES key size");
   }
-  this->iv = iv;
+  this->iv = ByteDynArray(iv);
 
   exit_func
 }

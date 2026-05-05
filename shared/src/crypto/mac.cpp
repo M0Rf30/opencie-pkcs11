@@ -30,12 +30,12 @@ void CMAC::Init(const ByteArray &key, const ByteArray &iv) {
       break;
     case 16:
     case 24:
-      this->key = key;
+      this->key = ByteDynArray(key);
       break;
     default:
       throw logged_error("Invalid MAC key size");
   }
-  this->iv = iv;
+  this->iv = ByteDynArray(iv);
 
   exit_func
 }

@@ -48,7 +48,7 @@ void CIEtemplateGetTokenFlags(p11::CSlot &pSlot, CK_FLAGS &dwFlags);
 /** @brief Authenticate the user to the CIE card via IAS-ECC secure messaging.
  */
 void CIEtemplateLogin(void *pTemplateData, CK_USER_TYPE userType,
-                      ByteArray &Pin);
+                      const ByteArray &Pin);
 
 /** @brief End the authenticated session on the CIE card. */
 void CIEtemplateLogout(void *pTemplateData, CK_USER_TYPE userType);
@@ -61,7 +61,7 @@ void CIEtemplateReadObjectAttributes(void *pCardTemplateData,
 /** @brief Perform an RSA signature operation using the CIE on-card private key.
  */
 void CIEtemplateSign(void *pCardTemplateData, p11::CP11PrivateKey *pPrivKey,
-                     ByteArray &baSignBuffer, ByteDynArray &baSignature,
+                     const ByteArray &baSignBuffer, ByteDynArray &baSignature,
                      CK_MECHANISM_TYPE mechanism, bool bSilent);
 
 /** @brief Perform an RSA sign-recover operation using the CIE private key. */
@@ -80,11 +80,11 @@ void CIEtemplateGenerateRandom(void *pCardTemplateData,
                                ByteArray &baRandomData);
 
 /** @brief Initialize the user PIN on the CIE card. */
-void CIEtemplateInitPIN(void *pCardTemplateData, ByteArray &baPin);
+void CIEtemplateInitPIN(void *pCardTemplateData, const ByteArray &baPin);
 
 /** @brief Change the user or SO PIN on the CIE card. */
-void CIEtemplateSetPIN(void *pCardTemplateData, ByteArray &baOldPin,
-                       ByteArray &baNewPin, CK_USER_TYPE User);
+void CIEtemplateSetPIN(void *pCardTemplateData, const ByteArray &baOldPin,
+                       const ByteArray &baNewPin, CK_USER_TYPE User);
 
 /** @brief Return the on-card size of the specified PKCS#11 object. */
 CK_ULONG CIEtemplateGetObjectSize(void *pCardTemplateData,

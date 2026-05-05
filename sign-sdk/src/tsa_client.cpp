@@ -14,7 +14,9 @@ extern char g_szResolveList[4096];
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb,
                             void* userp);
 
-CTSAClient::CTSAClient(void) { m_szTSAUsername[0] = '\0'; }
+CTSAClient::CTSAClient(void) : m_szTSAUrl(""), m_szTSAPassword("") {
+  m_szTSAUsername[0] = '\0';
+}
 
 CTSAClient::~CTSAClient(void) {}
 
@@ -93,7 +95,7 @@ long CTSAClient::GetTimeStampToken(ByteDynArray& digest, const char* szPolicyID,
         memcpy(hostname, p, hlen);
         hostname[hlen] = '\0';
         int port = (strncmp(szUrl, "https://", 8) == 0) ? 443 : 80;
-        if (*end == ':') port = atoi(end + 1);
+        if (*end == ':') port = static_cast<int>(strtol(end + 1, nullptr, 10));
         const char* entry = g_szResolveList;
         while (*entry) {
           const char* comma = strchr(entry, ',');
@@ -106,7 +108,7 @@ long CTSAClient::GetTimeStampToken(ByteDynArray& digest, const char* szPolicyID,
             if (ehost_len == hlen && strncmp(entry, hostname, hlen) == 0) {
               const char* colon2 = strchr(colon1 + 1, ':');
               if (colon2) {
-                int eport = atoi(colon1 + 1);
+                int eport = static_cast<int>(strtol(colon1 + 1, nullptr, 10));
                 if (eport == port) {
                   char buf[512];
                   snprintf(buf, sizeof(buf), "%.*s", static_cast<int>(elen),

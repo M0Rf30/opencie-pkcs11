@@ -67,10 +67,10 @@ class PDFVerifier {
                       const PoDoFo::PdfObject* const pObj, const char* szDate,
                       char* signatureType, REVOCATION_INFO* pRevocationInfo);
 
-  int GetSignature(const PoDoFo::PdfMemDocument* pDoc,
-                   const PoDoFo::PdfObject* const pObj,
-                   ByteDynArray& signedDocument,
-                   SignatureAppearanceInfo& appearanceInfo);
+  static int GetSignature(const PoDoFo::PdfMemDocument* pDoc,
+                          const PoDoFo::PdfObject* const pObj,
+                          ByteDynArray& signedDocument,
+                          SignatureAppearanceInfo& appearanceInfo);
 
   std::unique_ptr<PoDoFo::PdfMemDocument> m_pPdfMemDocument;
 

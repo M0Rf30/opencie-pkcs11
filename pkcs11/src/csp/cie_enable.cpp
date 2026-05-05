@@ -118,9 +118,8 @@ CK_RV CK_ENTRY cie_enable(const char* szPAN, const char* szPIN, int* attempts,
   char* ATR = nullptr;
 
   LOG_INFO("***** Starting cie_enable *****");
-  LOG_DEBUG("szPAN:%s, pin len : %d", szPAN, strlen(szPIN));
 
-  // verifica bontà PIN
+  // Validate PIN before use
   if (szPIN == nullptr || strnlen(szPIN, 9) != 8) {
     return CKR_PIN_LEN_RANGE;
   }
@@ -171,7 +170,7 @@ CK_RV CK_ENTRY cie_enable(const char* szPAN, const char* szPIN, int* attempts,
       return CKR_TOKEN_NOT_PRESENT;
     }
 
-    progressCallBack(5, "CIE Connessa");
+    progressCallBack(5, "CIE Connected");
     LOG_INFO("cie_enable - CIE Connected");
 
     char* curreader = readers;
@@ -202,7 +201,7 @@ CK_RV CK_ENTRY cie_enable(const char* szPAN, const char* szPIN, int* attempts,
 
       ByteArray atrBa(reinterpret_cast<BYTE*>(ATR), atrLen);
 
-      progressCallBack(10, "Verifica carta esistente");
+      progressCallBack(10, "Verifying existing card");
 
       LOG_DEBUG("cie_enable - Checking if card has been activated yet...");
       IAS ias(TokenTransmitCallback, atrBa);
@@ -219,15 +218,15 @@ CK_RV CK_ENTRY cie_enable(const char* szPAN, const char* szPIN, int* attempts,
       ias.ReadDappPubKey(IntAuth);
       ias.InitEncKey();
 
-      ByteDynArray IdServizi;
-      ias.ReadIdServizi(IdServizi);
+      ByteDynArray IdServizi2;
+      ias.ReadIdServizi(IdServizi2);
 
       if (ias.IsEnrolled()) {
         LOG_INFO("cie_enable - CIE already enabled. Serial number: %s\n",
-                 IdServizi.data());
+                 IdServizi2.data());
 
         std::string sidServizi_already(
-            reinterpret_cast<char*>(IdServizi.data()), IdServizi.size());
+            reinterpret_cast<char*>(IdServizi2.data()), IdServizi2.size());
 
         completedCallBack(sidServizi_already.c_str(), "", "");
 
@@ -243,11 +242,11 @@ CK_RV CK_ENTRY cie_enable(const char* szPAN, const char* szPIN, int* attempts,
       progressCallBack(15, "Lettura dati dalla CIE");
       LOG_INFO("cie_enable - Reading data from CIE...");
 
-      ByteArray serviziData(IdServizi.left(12));
+      ByteArray serviziData(IdServizi2.left(12));
 
-      ByteDynArray SOD;
-      ias.ReadSOD(SOD);
-      uint8_t digest = ias.GetSODDigestAlg(SOD);
+      ByteDynArray SOD2;
+      ias.ReadSOD(SOD2);
+      uint8_t digest = ias.GetSODDigestAlg(SOD2);
 
       ByteArray intAuthData(IntAuth.left(GetASN1DataLenght(IntAuth)));
 
@@ -263,7 +262,7 @@ CK_RV CK_ENTRY cie_enable(const char* szPAN, const char* szPIN, int* attempts,
 
       foundCIE = true;
 
-      progressCallBack(20, "Autenticazione...");
+      progressCallBack(20, "Authenticating...");
 
       free(readers);
       readers = nullptr;
@@ -303,9 +302,9 @@ CK_RV CK_ENTRY cie_enable(const char* szPAN, const char* szPIN, int* attempts,
       progressCallBack(55, "Lettura certificato");
       LOG_INFO("cie_enable - Reading certificate...");
 
-      ByteDynArray CertCIE;
-      ias.ReadCertCIE(CertCIE);
-      ByteArray certCIEData = CertCIE.left(GetASN1DataLenght(CertCIE));
+      ByteDynArray CertCIE2;
+      ias.ReadCertCIE(CertCIE2);
+      ByteArray certCIEData = CertCIE2.left(GetASN1DataLenght(CertCIE2));
 
       LOG_INFO("cie_enable - Verifying SOD, digest algorithm: %s",
                (digest == 1) ? "RSA/SHA256" : "RSA-PSS/SHA512");
@@ -317,7 +316,7 @@ CK_RV CK_ENTRY cie_enable(const char* szPAN, const char* szPIN, int* attempts,
         hashSet[0x1b] = sha256.Digest(dhData);
         hashSet[0xa2] = sha256.Digest(serialData);
         hashSet[0xa3] = sha256.Digest(certCIEData);
-        ias.VerificaSOD(SOD, hashSet);
+        ias.VerificaSOD(SOD2, hashSet);
 
       } else {
         CSHA512 sha512;
@@ -327,7 +326,7 @@ CK_RV CK_ENTRY cie_enable(const char* szPAN, const char* szPIN, int* attempts,
         hashSet[0x1b] = sha512.Digest(dhData);
         hashSet[0xa2] = sha512.Digest(serialData);
         hashSet[0xa3] = sha512.Digest(certCIEData);
-        ias.VerificaSODPSS(SOD, hashSet);
+        ias.VerificaSODPSS(SOD2, hashSet);
       }
 
       ByteArray pinBa(reinterpret_cast<const uint8_t*>(szPIN), 4);
@@ -338,14 +337,14 @@ CK_RV CK_ENTRY cie_enable(const char* szPAN, const char* szPIN, int* attempts,
       std::string sidServizi(reinterpret_cast<char*>(IdServizi.data()),
                              IdServizi.size());
 
-      ias.SetCache(const_cast<char*>(sidServizi.c_str()), CertCIE, pinBa);
+      ias.SetCache(const_cast<char*>(sidServizi.c_str()), CertCIE2, pinBa);
 
       std::string span(const_cast<char*>(sidServizi.c_str()));
       std::string name;
       std::string surname;
 
       CryptoPP::ByteQueue certin;
-      certin.Put(CertCIE.data(), CertCIE.size());
+      certin.Put(CertCIE2.data(), CertCIE2.size());
 
       std::string serial;
       CryptoPP::ByteQueue issuer;
@@ -423,10 +422,8 @@ DWORD CardAuthenticateEx(IAS* ias, DWORD PinId, DWORD dwFlags, BYTE* pbPinData,
                          PROGRESS_CALLBACK progressCallBack,
                          int* pcAttemptsRemaining) {
   LOG_INFO("***** Starting CardAuthenticateEx *****");
-  LOG_DEBUG(
-      "Pin id: %d, dwFlags: %d, cbPinData: %d, pbSessionPin: %s, "
-      "pcAttemptsRemaining: %d",
-      PinId, dwFlags, cbPinData, pcbSessionPin, *pcAttemptsRemaining);
+  LOG_DEBUG("Pin id: %d, dwFlags: %d, cbPinData: %d, pbSessionPin: %s", PinId,
+            dwFlags, cbPinData, pcbSessionPin);
 
   LOG_INFO("CardAuthenticateEx - Selecting IAS and CIE AID");
 
@@ -435,7 +432,6 @@ DWORD CardAuthenticateEx(IAS* ias, DWORD PinId, DWORD dwFlags, BYTE* pbPinData,
   ias->SelectAID_CIE();
 
   progressCallBack(22, "init DH Param");
-  // leggo i parametri di dominio DH e della chiave di extauth
   LOG_INFO("CardAuthenticateEx - Reading DH parameters");
 
   ias->InitDHParam();
@@ -454,13 +450,11 @@ DWORD CardAuthenticateEx(IAS* ias, DWORD PinId, DWORD dwFlags, BYTE* pbPinData,
   ias->DHKeyExchange();
 
   progressCallBack(30, "DAPP");
-
-  // DAPP
   ias->DAPP();
 
   progressCallBack(32, "VerifyPIN");
 
-  // verifica PIN
+  // Verify PIN
   StatusWord sw;
   if (PinId == ROLE_USER) {
     LOG_INFO("CardAuthenticateEx - Verifying PIN");
@@ -579,17 +573,14 @@ HRESULT TokenTransmitCallback(void* data, BYTE* apdu, DWORD apduSize,
   return ris;
 }
 
-std::vector<word32> fromObjectIdentifier(std::string sObjId) {
+std::vector<word32> fromObjectIdentifier(const std::string& sObjId) {
   std::vector<word32> out;
 
-  int nVal;
-  int nAux;
-  char* szTok;
   std::vector<char> oidBuf(sObjId.size() + 1);
   char* szOID = oidBuf.data();
   memcpy(szOID, sObjId.c_str(), sObjId.size());
   char* next = nullptr;
-  szTok = strtok_r(szOID, ".", &next);
+  const char* szTok = strtok_r(szOID, ".", &next);
 
   UINT nFirst = 40 * strtol(szTok, nullptr, 10) +
                 strtol(strtok_r(nullptr, ".", &next), nullptr, 10);
@@ -599,20 +590,18 @@ std::vector<word32> fromObjectIdentifier(std::string sObjId) {
 
   out.push_back(nFirst);
 
-  int i = 0;
-
   while ((szTok = strtok_r(nullptr, ".", &next)) != nullptr) {
-    nVal = strtol(szTok, nullptr, 10);
+    int nVal = strtol(szTok, nullptr, 10);
     if (nVal == 0) {
       out.push_back(0x00);
     } else if (nVal == 1) {
       out.push_back(0x01);
     } else {
-      i = static_cast<int>(ceil(
+      int i = static_cast<int>(ceil(
           (log(static_cast<double>(abs(nVal))) / log(static_cast<double>(2))) /
           7));  // base 128
       while (nVal != 0) {
-        nAux = static_cast<int>(floor(nVal / pow(128, i - 1)));
+        int nAux = static_cast<int>(floor(nVal / pow(128, i - 1)));
         nVal = nVal - static_cast<int>(pow(128, i - 1) * nAux);
 
         // next value (or with 0x80)
@@ -629,29 +618,34 @@ std::vector<word32> fromObjectIdentifier(std::string sObjId) {
 }
 bool file_exists(const char* name);
 
-char command[1000];
-
 #ifdef _WIN32
 DWORD WINAPI mythread(LPVOID thr_data) {
   char* command = static_cast<char*>(thr_data);
   system(command);
+  delete[] command;
   return 0;
 }
 #else
-void mythread(char* cmd) { system(cmd); }
+void mythread(std::string cmd) { system(cmd.c_str()); }
 #endif
 
 int sendMessage(const char* szCommand, const char* /*szParam*/) {
   const char* file = "cieid";
 
-  snprintf(command, 1000, "%s %s", file, szCommand);
-
 #ifdef _WIN32
+  // Heap-allocate to avoid race on a shared buffer
+  size_t len = strlen(file) + 1 + strlen(szCommand) + 1;
+  char* command = new char[len];
+  snprintf(command, len, "%s %s", file, szCommand);
   HANDLE hThread = CreateThread(nullptr, 0, mythread,
                                 static_cast<void*>(command), 0, nullptr);
-  if (hThread) CloseHandle(hThread);
+  if (hThread)
+    CloseHandle(hThread);
+  else
+    delete[] command;
 #else
-  std::thread(mythread, command).detach();
+  std::string command = std::string(file) + " " + szCommand;
+  std::thread(mythread, std::move(command)).detach();
 #endif
 
   return 0;
@@ -695,7 +689,7 @@ int CK_ENTRY cie_reader_watch(int current_count) {
   if (transport.EstablishContext(SCARD_SCOPE_USER, &hCtx) != SCARD_S_SUCCESS)
     return -1;
 
-  SCARD_READERSTATE pnp{};
+  SCARD_READERSTATE pnp {};
   pnp.szReader = "\\\\?PnP?\\Notification";
   pnp.dwCurrentState = SCARD_STATE_UNAWARE;
 
@@ -753,7 +747,7 @@ int CK_ENTRY cie_reader_name(char* buf, int buf_len) {
       if (strstr(p, "Virtual") != nullptr) continue;
 
       // Probe state without blocking (timeout=0)
-      SCARD_READERSTATE rs{};
+      SCARD_READERSTATE rs {};
       rs.szReader = p;
       rs.dwCurrentState = SCARD_STATE_UNAWARE;
       LONG sr = transport.GetStatusChange(hCtx, 0, &rs, 1);

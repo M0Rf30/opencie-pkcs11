@@ -36,21 +36,21 @@ class CDigestInfo : public CASN1Sequence {
    * @brief Parses a DigestInfo from a DER-encoded stream.
    * @param reader Buffered reader positioned at the DigestInfo SEQUENCE.
    */
-  CDigestInfo(BufferedReader& reader);
+  explicit CDigestInfo(BufferedReader& reader);
 
   /**
    * @brief Constructs a DigestInfo from algorithm and digest components.
    * @param algoId The digest algorithm identifier.
    * @param digest The message digest value.
    */
-  CDigestInfo(const CAlgorithmIdentifier& algoId,
-              const CASN1OctetString& digest);
+  explicit CDigestInfo(const CAlgorithmIdentifier& algoId,
+                       const CASN1OctetString& digest);
 
   /**
    * @brief Constructs from an already-parsed ASN.1 object.
    * @param digestInfo Generic ASN.1 object containing DigestInfo encoding.
    */
-  CDigestInfo(const CASN1Object& digestInfo);
+  explicit CDigestInfo(const CASN1Object& digestInfo);
 
   /** @brief Returns the digest algorithm identifier. */
   CAlgorithmIdentifier getDigestAlgorithm();

@@ -2,8 +2,8 @@
 #pragma once
 #include <openssl/evp.h>
 
-#include "util/util_exception.h"
 #include "util/util.h"
+#include "util/util_exception.h"
 
 class CMAC {
   ByteDynArray key;

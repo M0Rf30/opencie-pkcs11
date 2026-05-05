@@ -140,7 +140,7 @@ void CIEtemplateFinalCard(void *pTemplateData) {
   if (pTemplateData) delete static_cast<CIEData *>(pTemplateData);
 }
 
-ByteArray SkipZero(ByteArray &ba) {
+ByteArray SkipZero(const ByteArray &ba) {
   for (DWORD i = 0; i < ba.size(); i++) {
     if (ba[i] != 0) return ba.mid(i);
   }
@@ -238,8 +238,10 @@ void CIEtemplateInitSession(void *pTemplateData) {
     subject.Get(subjectBa.data(), subjectBa.size());
 
     cie->cert->addAttribute(CKA_ISSUER, issuerBa);
-    cie->cert->addAttribute(CKA_SERIAL_NUMBER,
-                            ByteArray((BYTE *)serial.c_str(), serial.size()));
+    cie->cert->addAttribute(
+        CKA_SERIAL_NUMBER,
+        ByteArray(reinterpret_cast<const BYTE *>(serial.c_str()),
+                  serial.size()));
     cie->cert->addAttribute(CKA_SUBJECT, subjectBa);
 
     CK_DATE start, end;
@@ -312,7 +314,8 @@ ByteDynArray CIEtemplateGetSerial(CSlot &pSlot) {
     ias.ReadPAN();
     std::string numSerial;
     dumpHexData(ias.PAN.mid(5, 6), numSerial, false);
-    return ByteArray((BYTE *)numSerial.c_str(), numSerial.length());
+    return ByteDynArray(ByteArray(
+        reinterpret_cast<const BYTE *>(numSerial.c_str()), numSerial.length()));
   }
 }
 void CIEtemplateGetModel(CSlot & /*pSlot*/, std::string &szModel) {
@@ -324,7 +327,7 @@ void CIEtemplateGetTokenFlags(CSlot & /*pSlot*/, CK_FLAGS &dwFlags) {
 }
 
 void CIEtemplateLogin(void *pTemplateData, CK_USER_TYPE userType,
-                      ByteArray &Pin) {
+                      const ByteArray &Pin) {
   init_func CToken token;
   CIEData *cie = static_cast<CIEData *>(pTemplateData);
 
@@ -352,11 +355,8 @@ void CIEtemplateLogin(void *pTemplateData, CK_USER_TYPE userType,
     if (cie->ias.Callback != nullptr)
       cie->ias.Callback(1, "DiffieHellman", cie->ias.CallbackData);
     cie->ias.DHKeyExchange();
-    // DAPP
-    if (cie->ias.Callback != nullptr)
-      cie->ias.Callback(2, "DAPP", cie->ias.CallbackData);
     cie->ias.DAPP();
-    // verifica PIN
+    // Verify PIN
     StatusWord sw;
     if (cie->ias.Callback != nullptr)
       cie->ias.Callback(3, "Verify PIN", cie->ias.CallbackData);
@@ -406,7 +406,7 @@ void CIEtemplateLogout(void *pTemplateData, CK_USER_TYPE /*userType*/) {
 void CIEtemplateReadObjectAttributes(void * /*pCardTemplateData*/,
                                      CP11Object * /*pObject*/) {}
 void CIEtemplateSign(void *pCardTemplateData, CP11PrivateKey * /*pPrivKey*/,
-                     ByteArray &baSignBuffer, ByteDynArray &baSignature,
+                     const ByteArray &baSignBuffer, ByteDynArray &baSignature,
                      CK_MECHANISM_TYPE /*mechanism*/, bool /*bSilent*/) {
   init_func CToken token;
   CIEData *cie = static_cast<CIEData *>(pCardTemplateData);
@@ -435,7 +435,7 @@ void CIEtemplateSign(void *pCardTemplateData, CP11PrivateKey * /*pPrivKey*/,
   }
 }
 
-void CIEtemplateInitPIN(void *pCardTemplateData, ByteArray &baPin) {
+void CIEtemplateInitPIN(void *pCardTemplateData, const ByteArray &baPin) {
   init_func CToken token;
   CIEData *cie = static_cast<CIEData *>(pCardTemplateData);
   if (cie->userType == CKU_SO) {
@@ -470,8 +470,8 @@ void CIEtemplateInitPIN(void *pCardTemplateData, ByteArray &baPin) {
   }
 }
 
-void CIEtemplateSetPIN(void *pCardTemplateData, ByteArray &baOldPin,
-                       ByteArray &baNewPin, CK_USER_TYPE /*User*/) {
+void CIEtemplateSetPIN(void *pCardTemplateData, const ByteArray &baOldPin,
+                       const ByteArray &baNewPin, CK_USER_TYPE /*User*/) {
   init_func CToken token;
   CIEData *cie = static_cast<CIEData *>(pCardTemplateData);
   if (cie->userType != CKU_SO) {

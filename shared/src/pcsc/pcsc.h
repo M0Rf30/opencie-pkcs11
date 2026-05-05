@@ -74,7 +74,7 @@ class safeTransaction {
    * @param dwDisposition Action to take when the transaction ends
    *                      (e.g. SCARD_LEAVE_CARD).
    */
-  safeTransaction(ISmartCardTransport &transport, safeConnection &conn,
+  safeTransaction(ISmartCardTransport &transport, const safeConnection &conn,
                   DWORD dwDisposition);
 
   /** Manually ends the transaction before destruction. */

@@ -7,11 +7,10 @@ CounterSignatureGenerator::CounterSignatureGenerator(CSignedDocument& signedDoc,
                                                      int signerInfoIndex)
     : m_signedDoc(signedDoc),
       m_signerInfo(m_signedDoc.getSignerInfo(m_signerInfoIndex = 0)),
-      m_signerInfoIndex(signerInfoIndex) {
-  m_signerInfos = signedDoc.getSignerInfos();
-  m_certificates = signedDoc.getCertificates();
-  m_digestAlgos = signedDoc.getDigestAlgos();
-}
+      m_signerInfoIndex(signerInfoIndex),
+      m_signerInfos(signedDoc.getSignerInfos()),
+      m_certificates(signedDoc.getCertificates()),
+      m_digestAlgos(signedDoc.getDigestAlgos()) {}
 
 CounterSignatureGenerator::~CounterSignatureGenerator() {}
 
@@ -82,14 +81,14 @@ void CounterSignatureGenerator::toByteArray(ByteDynArray& pkcs7SignedData) {
   ByteDynArray content;
   m_signedDoc.getContent(content);
 
-  // Crea signedData
+  // Create signedData
   CSignedData signedData(
       m_digestAlgos,
-      CContentInfo(CAlgorithmIdentifier(szDataOID), CASN1OctetString(content)),
+      CContentInfo(CContentType(szDataOID), CASN1OctetString(content)),
       m_signerInfos, m_certificates);
 
-  // Infine crea ContentInfo
-  CContentInfo contentInfo(szSignedDataOID, signedData);
+  // Finally create ContentInfo
+  CContentInfo contentInfo(CContentType(szSignedDataOID), signedData);
 
   contentInfo.toByteArray(pkcs7SignedData);
 }

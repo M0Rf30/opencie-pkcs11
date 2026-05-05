@@ -28,9 +28,8 @@ extern "C" {
  *         CKR_HOST_MEMORY   if malloc fails.
  *         CKR_FUNCTION_FAILED for any other error.
  */
-CK_RV CK_ENTRY cie_get_certificate(const char *pan,
-                                    unsigned char **outDer,
-                                    unsigned long *outLen) {
+CK_RV CK_ENTRY cie_get_certificate(const char *pan, unsigned char **outDer,
+                                   unsigned long *outLen) {
   if (pan == nullptr || outDer == nullptr || outLen == nullptr)
     return CKR_ARGUMENTS_BAD;
 
@@ -71,4 +70,4 @@ CK_RV CK_ENTRY cie_get_certificate(const char *pan,
   }
 }
 
-} // extern "C"
+}  // extern "C"

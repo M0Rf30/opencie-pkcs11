@@ -27,13 +27,13 @@ class CTimeStampRequest : public CASN1Sequence {
    * @brief Parses a TimeStampReq from a DER-encoded stream.
    * @param reader Buffered reader positioned at the TimeStampReq SEQUENCE.
    */
-  CTimeStampRequest(BufferedReader& reader);
+  explicit CTimeStampRequest(BufferedReader& reader);
 
   /**
    * @brief Constructs a TimeStampReq from an already-parsed ASN.1 object.
    * @param timeStampToken Generic ASN.1 object containing the request encoding.
    */
-  CTimeStampRequest(const CASN1Object& timeStampToken);
+  explicit CTimeStampRequest(const CASN1Object& timeStampToken);
 
   /**
    * @brief Constructs a TimeStampReq from explicit components.

@@ -20,7 +20,9 @@
 #ifdef _WIN32
 #define CK_ENTRY __declspec(dllexport)
 #else
+#ifndef CK_ENTRY
 #define CK_ENTRY __attribute__((visibility("default")))
+#endif
 #endif
 #define LIBRARY_VERSION_MAJOR 2  ///< PKCS#11 library major version.
 #define LIBRARY_VERSION_MINOR 0  ///< PKCS#11 library minor version.

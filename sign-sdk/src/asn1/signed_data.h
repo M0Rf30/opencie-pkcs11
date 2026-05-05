@@ -31,13 +31,13 @@ class CSignedData : public CASN1Sequence {
    * @brief Constructs a SignedData by parsing a DER-encoded stream.
    * @param reader Buffered reader positioned at the SignedData SEQUENCE.
    */
-  CSignedData(BufferedReader& reader);
+  explicit CSignedData(BufferedReader& reader);
 
   /**
    * @brief Constructs a SignedData from an already-parsed ASN.1 object.
    * @param signedData Generic ASN.1 object containing SignedData encoding.
    */
-  CSignedData(const CASN1Object& signedData);
+  explicit CSignedData(const CASN1Object& signedData);
 
   /**
    * @brief Constructs a SignedData from its individual components.

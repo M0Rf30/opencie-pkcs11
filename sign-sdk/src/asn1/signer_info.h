@@ -41,13 +41,13 @@ class CSignerInfo : public CASN1Sequence {
    * @brief Parses a SignerInfo from a DER-encoded stream.
    * @param reader Buffered reader positioned at the SignerInfo SEQUENCE.
    */
-  CSignerInfo(BufferedReader& reader);
+  explicit CSignerInfo(BufferedReader& reader);
 
   /**
    * @brief Constructs a SignerInfo from an already-parsed ASN.1 object.
    * @param signerInfo Generic ASN.1 object containing SignerInfo encoding.
    */
-  CSignerInfo(const CASN1Object& signerInfo);
+  explicit CSignerInfo(const CASN1Object& signerInfo);
 
   /**
    * @brief Constructs a SignerInfo from explicit components.
@@ -148,7 +148,7 @@ class CSignerInfo : public CASN1Sequence {
    */
   void setTimeStampToken(CTimeStampToken& tst);
 
-  virtual ~CSignerInfo();
+  virtual ~CSignerInfo() override;
 
   /**
    * @brief Finds the certificate matching a signer within a certificate set.
