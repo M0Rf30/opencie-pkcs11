@@ -226,6 +226,7 @@ This prevents symbol collisions when the library is loaded into a host process (
 | PoDoFo ≥ 1.0 | PDF manipulation for signature embedding |
 | libxml2 | XAdES XML generation and parsing |
 | FreeType 2 + libpng | Signature stamp image rendering in PDFs |
+| OpenJPEG (libopenjp2) | JPEG2000 decoding for CIE DG2 portrait photos (optional) |
 | Fontconfig | Font discovery (Linux only) |
 | zlib | Compression (PoDoFo dependency) |
 

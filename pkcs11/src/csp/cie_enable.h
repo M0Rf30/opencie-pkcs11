@@ -11,6 +11,7 @@
  * APDU transmit callback used by the token transport layer.
  */
 
+#include "csp/ias.h"
 #include "pcsc/pcsc.h"
 #include "pkcs11/cryptoki.h"
 #include "util/definitions.h"
@@ -59,3 +60,28 @@ using cie_disable_fn = CK_RV (*)(const char* szPAN);
  */
 HRESULT TokenTransmitCallback(void* data, uint8_t* apdu, DWORD apduSize,
                               uint8_t* resp, DWORD* respSize);
+
+/**
+ * @brief Perform PACE authentication (DH key exchange + PIN/PUK verify).
+ *
+ * Shared by cie_enable and cie_read_chip.  Selects the IAS/CIE applets,
+ * performs the full Diffie-Hellman key exchange, and verifies the PIN or PUK.
+ *
+ * @param ias                 Initialised IAS instance bound to the card.
+ * @param PinId               ROLE_USER (1) or ROLE_ADMIN (2).
+ * @param dwFlags             FULL_PIN flag or 0.
+ * @param pbPinData           Raw PIN/PUK bytes.
+ * @param cbPinData           Length of pbPinData.
+ * @param ppbSessionPin       Unused; pass nullptr.
+ * @param pcbSessionPin       Unused; pass nullptr.
+ * @param progressCallBack    Progress callback (must not be NULL).
+ * @param pcAttemptsRemaining Set to remaining attempts on PIN error; may be
+ * NULL.
+ * @return SCARD_S_SUCCESS on success, SCARD_W_WRONG_CHV / SCARD_W_CHV_BLOCKED
+ *         on PIN errors, or another SCARD_* error code.
+ */
+DWORD CardAuthenticateEx(IAS* ias, DWORD PinId, DWORD dwFlags, BYTE* pbPinData,
+                         DWORD cbPinData, BYTE** ppbSessionPin,
+                         DWORD* pcbSessionPin,
+                         PROGRESS_CALLBACK progressCallBack,
+                         int* pcAttemptsRemaining);

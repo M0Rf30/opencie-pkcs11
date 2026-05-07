@@ -36,8 +36,6 @@ void CMAC::Init(const ByteArray &key, const ByteArray &iv) {
       throw logged_error("Invalid MAC key size");
   }
   this->iv = ByteDynArray(iv);
-
-  exit_func
 }
 
 /** @brief Destructor. */
@@ -144,8 +142,6 @@ ByteDynArray CMAC::Mac(const ByteArray &data) {
   }
 
   return resp;
-
-  exit_func
 }
 
 /** @brief Default constructor. */

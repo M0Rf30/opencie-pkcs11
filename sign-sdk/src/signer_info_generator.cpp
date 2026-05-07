@@ -58,7 +58,6 @@ void CSignerInfoGenerator::getSignedAttributes(ByteDynArray &signedAttribute,
                                                bool signingTime) {
   CASN1SetOf authAttributes;
 
-  // nella countersignature il content type non deve essere presente
   if (!counterSignature) {
     CASN1SetOf attrValues;
     CASN1Sequence attr;

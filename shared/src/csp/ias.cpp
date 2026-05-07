@@ -5,6 +5,7 @@
 #include <cryptopp/cryptlib.h>
 #include <cryptopp/misc.h>
 #include <cryptopp/queue.h>
+#include <openssl/crypto.h>
 
 #include <algorithm>
 
@@ -45,9 +46,7 @@ void notifyCardNotRegistered(const char *szPAN);
 
 IAS::IAS(CToken::TokenTransmitCallback transmit, ByteArray ATR)
     : attemptsRemaining(0) {
-  init_func
-
-      Callback = nullptr;
+  Callback = nullptr;
   CallbackData = nullptr;
 
   this->ATR = ByteDynArray(ATR);
@@ -64,7 +63,15 @@ IAS::IAS(CToken::TokenTransmitCallback transmit, ByteArray ATR)
   token.setTransmitCallback(transmit, nullptr);
 }
 
-IAS::~IAS() {}
+IAS::~IAS() {
+  // Zero all key material so it does not linger in freed heap memory.
+  if (!CardEncKey.isEmpty())
+    OPENSSL_cleanse(CardEncKey.data(), CardEncKey.size());
+  if (!CardEncIv.isEmpty()) OPENSSL_cleanse(CardEncIv.data(), CardEncIv.size());
+  if (!sessENC.isEmpty()) OPENSSL_cleanse(sessENC.data(), sessENC.size());
+  if (!sessMAC.isEmpty()) OPENSSL_cleanse(sessMAC.data(), sessMAC.size());
+  if (!sessSSC.isEmpty()) OPENSSL_cleanse(sessSSC.data(), sessSSC.size());
+}
 
 uint8_t defModule[] = {
     0xba, 0x28, 0x37, 0xab, 0x4c, 0x6b, 0xb8, 0x27, 0x57, 0x7b, 0xff, 0x4e,
@@ -114,33 +121,88 @@ uint8_t defPrivExp[] = {
     0x93, 0x38, 0xfd, 0x81};
 uint8_t defPubExp[] = {0x00, 0x01, 0x00, 0x01};
 
-void IAS::ReadSOD(ByteDynArray &data) {
-  init_func readfile(0x1006, data);
-  exit_func
-}
-void IAS::ReadDH(ByteDynArray &data) {
-  init_func readfile(0xd004, data);
-  exit_func
-}
-void IAS::ReadCertCIE(ByteDynArray &data) {
-  init_func readfile(0x1003, data);
-  exit_func
-}
-void IAS::ReadServiziPubKey(ByteDynArray &data) {
-  init_func readfile(0x1005, data);
-  exit_func
-}
-void IAS::ReadSerialeCIE(ByteDynArray &data) {
-  init_func readfile(0x1002, data);
-  exit_func
-}
-void IAS::ReadIdServizi(ByteDynArray &data) {
-  init_func readfile(0x1001, data);
-  exit_func
+void IAS::ReadSOD(ByteDynArray &data) { readfile(0x1006, data); }
+void IAS::ReadDH(ByteDynArray &data) { readfile(0xd004, data); }
+void IAS::ReadCertCIE(ByteDynArray &data) { readfile(0x1003, data); }
+void IAS::ReadServiziPubKey(ByteDynArray &data) { readfile(0x1005, data); }
+void IAS::ReadSerialeCIE(ByteDynArray &data) { readfile(0x1002, data); }
+void IAS::ReadIdServizi(ByteDynArray &data) { readfile(0x1001, data); }
+
+void IAS::ReadDG1(ByteDynArray &data) { readDGbySFI(1, data); }
+
+void IAS::ReadDG2(ByteDynArray &data) { readDGbySFI(2, data); }
+
+void IAS::readDGbySFI(uint8_t sfi, ByteDynArray &content) {
+  // Select the ICAO eMRTD application (AID A0 00 00 02 47 10 01).
+  // Must be sent as a plain (non-SM) APDU: the SM session is bound to the
+  // IAS/CIE AID; selecting a new AID via SM would corrupt the session.
+  ByteDynArray resp;
+  uint8_t selecteMRTD[] = {0x00, 0xa4, 0x04, 0x0c};
+  uint8_t eMRTD_AID[] = {0xA0, 0x00, 0x00, 0x02, 0x47, 0x10, 0x01};
+  StatusWord sw;
+  if ((sw = SendAPDU(VarToByteArray(selecteMRTD), VarToByteArray(eMRTD_AID),
+                     resp)) != 0x9000)
+    throw scard_error(sw);
+
+  // READ BINARY using Short File Identifier: P1 = 0x80 | SFI, P2 = offset
+  // First read: get the first 6 bytes to determine total length from TLV header
+  uint8_t chunk = 6;
+  uint8_t readSFI[] = {0x00, 0xb0, static_cast<uint8_t>(0x80 | sfi), 0x00};
+  if ((sw = SendAPDU_SM(VarToByteArray(readSFI), ByteArray(), resp, &chunk)) !=
+      0x9000)
+    throw scard_error(sw);
+  content.append(resp);
+
+  // Parse BER-TLV length to determine total file size
+  size_t totalLen = 0;
+  size_t headerLen = 0;
+  if (content.size() >= 2) {
+    size_t idx = 1;  // skip tag byte
+    if (content[idx] <= 0x7f) {
+      totalLen = content[idx];
+      headerLen = idx + 1;
+    } else if (content[idx] == 0x81 && content.size() >= 3) {
+      totalLen = content[idx + 1];
+      headerLen = idx + 2;
+    } else if (content[idx] == 0x82 && content.size() >= 4) {
+      totalLen =
+          (static_cast<size_t>(content[idx + 1]) << 8) | content[idx + 2];
+      headerLen = idx + 3;
+    }
+  }
+  size_t fileSize = headerLen + totalLen;
+
+  // Read remaining bytes in chunks using absolute offset (P1=0, P2=offset).
+  // 224 bytes fits within the SM APDU overhead budget for all CIE variants;
+  // the 6C retry loop below handles cards that return fewer bytes.
+  WORD cnt = static_cast<WORD>(content.size());
+  chunk = 224;
+  while (cnt < fileSize) {
+    ByteDynArray chn;
+    uint8_t remaining =
+        static_cast<uint8_t>(std::min<size_t>(chunk, fileSize - cnt));
+    uint8_t readFile[] = {0x00, 0xb0, static_cast<uint8_t>(HIBYTE(cnt)),
+                          static_cast<uint8_t>(LOBYTE(cnt))};
+    sw = SendAPDU_SM(VarToByteArray(readFile), ByteArray(), chn, &remaining);
+    if ((sw >> 8) == 0x6c) {
+      uint8_t le = sw & 0xff;
+      sw = SendAPDU_SM(VarToByteArray(readFile), ByteArray(), chn, &le);
+    }
+    if (sw == 0x9000) {
+      content.append(chn);
+      cnt = static_cast<WORD>(content.size());
+    } else {
+      if (sw == 0x6282)
+        content.append(chn);
+      else if (sw != 0x6b00)
+        throw scard_error(sw);
+      break;
+    }
+  }
 }
 
 void IAS::Sign(const ByteArray &data, ByteDynArray &signedData) {
-  init_func ByteDynArray resp;
+  ByteDynArray resp;
   uint8_t SetKey[] = {0x00, 0x22, 0x41, 0xA4};
   uint8_t val02 = 2;
   uint8_t keyId = CIE_KEY_Sign_ID;
@@ -158,45 +220,39 @@ void IAS::Sign(const ByteArray &data, ByteDynArray &signedData) {
 }
 
 StatusWord IAS::VerifyPUK(const ByteArray &PIN) {
-  init_func ByteDynArray resp;
+  ByteDynArray resp;
   uint8_t verifyPIN[] = {0x00, 0x20, 0x00, CIE_PUK_ID};
   return SendAPDU_SM(VarToByteArray(verifyPIN), PIN, resp);
 }
 
 StatusWord IAS::VerifyPIN(const ByteArray &PIN) {
-  init_func ByteDynArray resp;
+  ByteDynArray resp;
   uint8_t verifyPIN[] = {0x00, 0x20, 0x00, CIE_PIN_ID};
   return SendAPDU_SM(VarToByteArray(verifyPIN), PIN, resp);
-  exit_func
 }
 
 StatusWord IAS::UnblockPIN() {
-  init_func ByteDynArray resp;
+  ByteDynArray resp;
   uint8_t UnblockPIN[] = {0x00, 0x2C, 0x03, CIE_PIN_ID};
   return SendAPDU_SM(VarToByteArray(UnblockPIN), ByteArray(), resp);
-  exit_func
 }
 
 StatusWord IAS::ChangePIN(const ByteArray &oldPIN, const ByteArray &newPIN) {
-  init_func ByteDynArray resp;
+  ByteDynArray resp;
   ByteDynArray data(oldPIN);
   data.append(newPIN);
   uint8_t ChangePIN[] = {0x00, 0x24, 0x00, CIE_PIN_ID};
   return SendAPDU_SM(VarToByteArray(ChangePIN), data, resp);
-  exit_func
 }
 
 StatusWord IAS::ChangePIN(const ByteArray &newPIN) {
-  init_func ByteDynArray resp;
+  ByteDynArray resp;
   uint8_t ChangePIN[] = {0x00, 0x2C, 0x02, CIE_PIN_ID};
   return SendAPDU_SM(VarToByteArray(ChangePIN), newPIN, resp);
-  exit_func
 }
 
 void IAS::readfile(uint16_t id, ByteDynArray &content) {
-  init_func
-
-      if (ActiveSM) return readfile_SM(id, content);
+  if (ActiveSM) return readfile_SM(id, content);
 
   ByteDynArray resp;
   uint8_t selectFile[] = {0x00, 0xa4, 0x02, 0x04};
@@ -208,7 +264,7 @@ void IAS::readfile(uint16_t id, ByteDynArray &content) {
     throw scard_error(sw);
 
   WORD cnt = 0;
-  uint8_t chunk = 128;
+  uint8_t chunk = 224;
   while (true) {
     ByteDynArray chn;
     uint8_t readFile[] = {0x00, 0xb0, static_cast<uint8_t>(HIBYTE(cnt)),
@@ -221,7 +277,7 @@ void IAS::readfile(uint16_t id, ByteDynArray &content) {
     if (sw == 0x9000) {
       content.append(chn);
       cnt = content.size();
-      chunk = 128;
+      chunk = 224;
     } else {
       if (sw == 0x6282)
         content.append(chn);
@@ -230,13 +286,10 @@ void IAS::readfile(uint16_t id, ByteDynArray &content) {
       break;
     }
   }
-  exit_func
 }
 
 void IAS::readfile_SM(uint16_t id, ByteDynArray &content) {
-  init_func
-
-      ByteDynArray resp;
+  ByteDynArray resp;
   uint8_t selectFile[] = {0x00, 0xa4, 0x02, 0x04};
   uint8_t fileId[] = {static_cast<uint8_t>(HIBYTE(id)),
                       static_cast<uint8_t>(LOBYTE(id))};
@@ -246,7 +299,7 @@ void IAS::readfile_SM(uint16_t id, ByteDynArray &content) {
     throw scard_error(sw);
 
   WORD cnt = 0;
-  uint8_t chunk = 128;
+  uint8_t chunk = 224;
   while (true) {
     ByteDynArray chn;
     uint8_t readFile[] = {0x00, 0xb0, static_cast<uint8_t>(HIBYTE(cnt)),
@@ -259,7 +312,7 @@ void IAS::readfile_SM(uint16_t id, ByteDynArray &content) {
     if (sw == 0x9000) {
       content.append(chn);
       cnt = content.size();
-      chunk = 128;
+      chunk = 224;
     } else {
       if (sw == 0x6282)
         content.append(chn);
@@ -268,11 +321,10 @@ void IAS::readfile_SM(uint16_t id, ByteDynArray &content) {
       break;
     }
   }
-  exit_func
 }
 
 void IAS::SelectAID_CIE(bool SM) {
-  init_func ByteDynArray resp;
+  ByteDynArray resp;
   uint8_t selectCIE[] = {0x00, 0xa4, 0x04, 0x0c};
   ByteDynArray selectCIEapdu;
   StatusWord sw;
@@ -285,7 +337,6 @@ void IAS::SelectAID_CIE(bool SM) {
   }
   ActiveDF = CIE_DF::CIE;
   ActiveSM = false;
-  exit_func
 }
 
 uint8_t NXP_ATR[] = {0x80, 0x31, 0x80, 0x65, 0x49, 0x54, 0x4E, 0x58, 0x50};
@@ -319,7 +370,7 @@ ByteArray baBIT4ID_ATR2(BIT4ID_ATR2, sizeof(BIT4ID_ATR2));
 ByteArray baBIT4ID_ATR3(BIT4ID_ATR3, sizeof(BIT4ID_ATR3));
 
 void IAS::ReadCIEType() {
-  init_func size_t position;
+  size_t position;
   if (ATR.indexOf(baNXP_ATR, position)) {
     type = CIE_Type::CIE_NXP;
   } else if (ATR.indexOf(baGemalto_ATR, position)) {
@@ -348,7 +399,9 @@ void IAS::ReadCIEType() {
 }
 
 void IAS::SelectAID_IAS(bool SM) {
-  init_func if (type == CIE_Type::CIE_Unknown) { ReadCIEType(); }
+  if (type == CIE_Type::CIE_Unknown) {
+    ReadCIEType();
+  }
   ByteDynArray resp;
   StatusWord sw;
 
@@ -378,11 +431,10 @@ void IAS::SelectAID_IAS(bool SM) {
 
   ActiveDF = CIE_DF::IAS;
   ActiveSM = false;
-  exit_func
 }
 
 void IAS::ReadDappPubKey(ByteDynArray &DappKey) {
-  init_func ByteDynArray resp;
+  ByteDynArray resp;
   readfile(0x1004, DappKey);
 
   CASNParser parser;
@@ -393,19 +445,12 @@ void IAS::ReadDappPubKey(ByteDynArray &DappKey) {
   ByteArray pubKey = parser.tags[0]->tags[1]->content;
   while (pubKey[0] == 0) pubKey = pubKey.mid(1);
   DappPubKey = ByteDynArray(pubKey);
-  exit_func
 }
 
-void IAS::ReadPAN() {
-  init_func readfile(0xd003, PAN);
-
-  exit_func
-}
+void IAS::ReadPAN() { readfile(0xd003, PAN); }
 
 void IAS::DAPP() {
-  init_func
-
-      ByteDynArray resp;
+  ByteDynArray resp;
   uint8_t psoVerifyAlgo = 0x41;
   uint8_t PKdScheme = 0x9B;
   uint8_t shaOID = 0x04;
@@ -555,11 +600,10 @@ void IAS::DAPP() {
   ByteArray rndIFDBa = rndIFD.right(4);
   sessSSC.set(&challengeBa, &rndIFDBa);
   ActiveSM = true;
-  exit_func
 }
 
 void IAS::DHKeyExchange() {
-  init_func CASNParser asn1;
+  CASNParser asn1;
 
   ByteDynArray dh_prKey, secret, resp, d1;
   do {
@@ -618,7 +662,6 @@ void IAS::DHKeyExchange() {
   sessSSC[7] = 1;
 
   ActiveSM = true;
-  exit_func
 }
 
 void IAS::increment(ByteArray &seq) {
@@ -633,9 +676,7 @@ void IAS::increment(ByteArray &seq) {
 
 ByteDynArray IAS::SM(const ByteArray &keyEnc, const ByteArray &keySig,
                      const ByteArray &apdu, ByteArray &seq) {
-  init_func
-
-      std::string dmp;
+  std::string dmp;
   Log.writePure("%s", dumpHexData(seq, dmp).c_str());
 
   increment(seq);
@@ -714,9 +755,7 @@ ByteDynArray IAS::SM(const ByteArray &keyEnc, const ByteArray &keySig,
 StatusWord IAS::respSM(const ByteArray &keyEnc, const ByteArray &keySig,
                        const ByteArray &resp, ByteArray &seq,
                        ByteDynArray &elabResp) {
-  init_func
-
-      increment(seq);
+  increment(seq);
   DWORD index, llen, lgn;
   StatusWord sw = 0xffff;
   ByteDynArray encData;
@@ -791,7 +830,7 @@ StatusWord IAS::respSM(const ByteArray &keyEnc, const ByteArray &keySig,
 
 StatusWord IAS::getResp(const ByteDynArray &resp, StatusWord sw,
                         ByteDynArray &elabresp) {
-  init_func elabresp.clear();
+  elabresp.clear();
   if (resp.size() != 0) elabresp.append(resp);
 
   ByteDynArray curresp;
@@ -812,15 +851,11 @@ StatusWord IAS::getResp(const ByteDynArray &resp, StatusWord sw,
       return sw;
     }
   }
-  exit_func
 }
 
 StatusWord IAS::getResp_SM(const ByteArray &resp, StatusWord sw,
                            ByteDynArray &elabresp) {
-  init_func
-
-      ByteDynArray s,
-      ap;
+  ByteDynArray s, ap;
   CASNParser p;
   elabresp.clear();
   if (resp.size() != 0) elabresp.append(resp);
@@ -846,12 +881,11 @@ StatusWord IAS::getResp_SM(const ByteArray &resp, StatusWord sw,
       return sw;
   }
   return respSM(sessENC, sessMAC, elabresp, sessSSC, elabresp);
-  exit_func
 }
 
 StatusWord IAS::SendAPDU_SM(ByteArray head, ByteArray data, ByteDynArray &resp,
                             uint8_t *le) {
-  init_func ByteDynArray smApdu;
+  ByteDynArray smApdu;
   ByteDynArray s, curresp;
   ByteArray emptyBa;
   ByteArray leBa = VarToByteArray(*le);
@@ -913,14 +947,11 @@ StatusWord IAS::SendAPDU_SM(ByteArray head, ByteArray data, ByteDynArray &resp,
       if (i == data.size()) return sw;
     }
   }
-  exit_func
 }
 
 StatusWord IAS::SendAPDU(ByteArray head, ByteArray data, ByteDynArray &resp,
                          uint8_t *le) {
-  init_func
-
-      ByteArray emptyBa;
+  ByteArray emptyBa;
   ByteArray leBa = VarToByteArray(*le);
 
   ByteDynArray apdu, curresp;
@@ -960,11 +991,10 @@ StatusWord IAS::SendAPDU(ByteArray head, ByteArray data, ByteDynArray &resp,
 
     return sw;
   }
-  exit_func
 }
 
 void IAS::InitDHParam() {
-  init_func ByteDynArray resp;
+  ByteDynArray resp;
 
   CASNParser parser;
   StatusWord sw;
@@ -1013,8 +1043,6 @@ void IAS::InitDHParam() {
     dh_q = parser.tags[0]->tags[0]->tags[0]->tags[0]->content;
   } else
     throw logged_error("InitDHParam - CIE type not recognized");
-
-  exit_func
 }
 
 CASNTag *GetTag(CASNTagArray &tags, DWORD id) {
@@ -1024,7 +1052,7 @@ CASNTag *GetTag(CASNTagArray &tags, DWORD id) {
 }
 
 void IAS::InitExtAuthKeyParam() {
-  init_func ByteDynArray resp;
+  ByteDynArray resp;
 
   uint8_t getKeyDoup[] = {00, 0xcb, 0x3f, 0xff};
   uint8_t getKeyDuopData[] = {
@@ -1055,7 +1083,7 @@ void IAS::SetCardContext(void *pCardData) {
   token.setTransmitCallbackData(pCardData);
 }
 
-void IAS::Deauthenticate() { init_func token.Reset(true); }
+void IAS::Deauthenticate() { token.Reset(true); }
 
 extern uint8_t encMod[];
 extern uint8_t encPriv[];
@@ -1063,7 +1091,7 @@ extern uint8_t encPub[];
 
 void IAS::InitEncKey() {
   // Use the intAuth key for services to decrypt the certificate
-  init_func std::string strPAN;
+  std::string strPAN;
   dumpHexData(PAN.mid(5, 6), strPAN, false);
 
   uint8_t mseSet[] = {0x00, 0x22, 0x41, 0xa4};
@@ -1110,7 +1138,7 @@ void IAS::InitEncKey() {
 
 void IAS::SetCache(const char *PAN, const ByteArray &certificate,
                    const ByteArray &FirstPIN) {
-  init_func ByteDynArray encCert, encPIN;
+  ByteDynArray encCert, encPIN;
   CAES enc(CardEncKey, CardEncIv);
 
   encCert = enc.Encode(certificate);
@@ -1122,36 +1150,36 @@ void IAS::SetCache(const char *PAN, const ByteArray &certificate,
 int integrity = 0;
 bool IsLowIntegrity() { return integrity == 1; }
 
-void IAS::IconaSbloccoPIN() { init_func }
-
 void IAS::GetFirstPIN(ByteDynArray &PIN) {
-  init_func std::string PANStr;
+  std::string PANStr;
   dumpHexData(PAN.mid(5, 6), PANStr, false);
   std::vector<BYTE> EncPINBuf;
   CacheGetPIN(PANStr.c_str(), EncPINBuf);
 
   CAES enc(CardEncKey, CardEncIv);
   PIN = enc.Decode(ByteArray(EncPINBuf.data(), EncPINBuf.size()));
+  // Zero the encrypted PIN buffer now that it has been decoded.
+  OPENSSL_cleanse(EncPINBuf.data(), EncPINBuf.size());
 }
 
 bool IAS::IsEnrolled() {
-  init_func std::string PANStr;
+  std::string PANStr;
   dumpHexData(PAN.mid(5, 6), PANStr, false);
   return CacheExists(PANStr.c_str());
 }
 
-bool IAS::IsEnrolled(const char *szPAN) { init_func return CacheExists(szPAN); }
+bool IAS::IsEnrolled(const char *szPAN) { return CacheExists(szPAN); }
 
-bool IAS::Unenroll(const char *szPAN) { init_func return CacheRemove(szPAN); }
+bool IAS::Unenroll(const char *szPAN) { return CacheRemove(szPAN); }
 
 bool IAS::Unenroll() {
-  init_func std::string PANStr;
+  std::string PANStr;
   dumpHexData(PAN.mid(5, 6), PANStr, false);
   return CacheRemove(PANStr.c_str());
 }
 
 void IAS::GetCertificate(ByteDynArray &certificate, bool askEnable) {
-  init_func if (!Certificate.isEmpty()) {
+  if (!Certificate.isEmpty()) {
     certificate = Certificate;
     return;
   }
@@ -1205,7 +1233,7 @@ uint8_t IAS::GetSODDigestAlg(const ByteArray &SOD) {
 
 void IAS::VerificaSODPSS(const ByteArray &SOD,
                          std::map<uint8_t, ByteDynArray> &hashSet) {
-  init_func CASNParser parser;
+  CASNParser parser;
   parser.Parse(SOD);
 
   std::string dump;
@@ -1377,13 +1405,11 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
       throw logged_error(
           stdPrintf("VerificaSODPSS - Digest for DG %02X not found", num));
   }
-
-  exit_func
 }
 
 void IAS::VerificaSOD(const ByteArray &SOD,
                       std::map<BYTE, ByteDynArray> &hashSet) {
-  init_func CASNParser parser;
+  CASNParser parser;
   parser.Parse(SOD);
 
   std::string dump;
@@ -1554,8 +1580,6 @@ void IAS::VerificaSOD(const ByteArray &SOD,
       Log.writePure("%s",
                     stdPrintf("Digest mismatch for DG %02X", num).c_str());
   }
-
-  exit_func
 }
 
 #define DWL_MSGRESULT 0

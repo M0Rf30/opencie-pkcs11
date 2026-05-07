@@ -36,17 +36,21 @@ CK_RV CK_ENTRY cie_get_certificate(const char *pan, unsigned char **outDer,
   *outDer = nullptr;
   *outLen = 0;
 
+  LOG_INFO("cie_get_certificate: looking up PAN='%s'", pan);
+
   if (!CacheExists(pan)) {
     LOG_ERROR("cie_get_certificate: card not enrolled (PAN not in cache)");
     return CKR_DEVICE_ERROR;
   }
 
   try {
+    // Prefer the DER file written by cie_enable() — it contains the raw
+    // X.509 cert encrypted with the static cache key and requires no live
+    // PACE session to decrypt.
     std::vector<uint8_t> cert;
-    CacheGetCertificate(pan, cert);
-
-    if (cert.empty()) {
-      LOG_ERROR("cie_get_certificate: empty certificate in cache");
+    if (!CacheGetDer(pan, cert) || cert.empty()) {
+      LOG_ERROR("cie_get_certificate: DER cert not found in cache for PAN '%s'",
+                pan);
       return CKR_FUNCTION_FAILED;
     }
 
@@ -59,6 +63,7 @@ CK_RV CK_ENTRY cie_get_certificate(const char *pan, unsigned char **outDer,
     memcpy(buf, cert.data(), cert.size());
     *outDer = buf;
     *outLen = static_cast<unsigned long>(cert.size());
+    LOG_INFO("cie_get_certificate: OK, %zu bytes", cert.size());
     return CKR_OK;
 
   } catch (const std::exception &e) {

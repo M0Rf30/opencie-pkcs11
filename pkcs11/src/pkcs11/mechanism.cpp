@@ -59,28 +59,26 @@ CDigestSHA::CDigestSHA(std::shared_ptr<CSession> Session)
     : CDigest(CKM_SHA_1, std::move(Session)) {}
 CDigestSHA::~CDigestSHA() {}
 
-void CDigestSHA::DigestInit() { init_func data.clear(); }
+void CDigestSHA::DigestInit() { data.clear(); }
 
-void CDigestSHA::DigestUpdate(ByteArray &Part) { init_func data.append(Part); }
+void CDigestSHA::DigestUpdate(ByteArray &Part) { data.append(Part); }
 
 void CDigestSHA::DigestFinal(ByteArray &Digest) {
-  init_func
-
-      ByteDynArray dataOut(SHA_DIGEST_LENGTH);
+  ByteDynArray dataOut(SHA_DIGEST_LENGTH);
   dataOut = sha1.Digest(data);
   Digest.copy(dataOut);
 }
 
-CK_ULONG CDigestSHA::DigestLength() { init_func return SHA_DIGEST_LENGTH; }
+CK_ULONG CDigestSHA::DigestLength() { return SHA_DIGEST_LENGTH; }
 
-ByteArray CDigestSHA::DigestInfo() { init_func return baSHA1DigestInfo; }
+ByteArray CDigestSHA::DigestInfo() { return baSHA1DigestInfo; }
 
 ByteDynArray CDigestSHA::DigestGetOperationState() {
-  init_func throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);
+  throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);
 }
 
 void CDigestSHA::DigestSetOperationState(ByteArray & /*OperationState*/) {
-  init_func throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);
+  throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);
 }
 
 /* ******************** */
@@ -90,32 +88,26 @@ CDigestSHA256::CDigestSHA256(std::shared_ptr<CSession> Session)
     : CDigest(CKM_SHA_1, std::move(Session)) {}
 CDigestSHA256::~CDigestSHA256() {}
 
-void CDigestSHA256::DigestInit() { init_func data.clear(); }
+void CDigestSHA256::DigestInit() { data.clear(); }
 
-void CDigestSHA256::DigestUpdate(ByteArray &Part) {
-  init_func data.append(Part);
-}
+void CDigestSHA256::DigestUpdate(ByteArray &Part) { data.append(Part); }
 
 void CDigestSHA256::DigestFinal(ByteArray &Digest) {
-  init_func
-
-      ByteDynArray dataOut(SHA256_DIGEST_LENGTH);
+  ByteDynArray dataOut(SHA256_DIGEST_LENGTH);
   dataOut = sha256.Digest(data);
   Digest.copy(dataOut);
 }
 
-CK_ULONG CDigestSHA256::DigestLength() {
-  init_func return SHA256_DIGEST_LENGTH;
-}
+CK_ULONG CDigestSHA256::DigestLength() { return SHA256_DIGEST_LENGTH; }
 
-ByteArray CDigestSHA256::DigestInfo() { init_func return baSHA1DigestInfo; }
+ByteArray CDigestSHA256::DigestInfo() { return baSHA1DigestInfo; }
 
 ByteDynArray CDigestSHA256::DigestGetOperationState() {
-  init_func throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);
+  throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);
 }
 
 void CDigestSHA256::DigestSetOperationState(ByteArray & /*OperationState*/) {
-  init_func throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);
+  throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);
 }
 
 /* ******************** */
@@ -125,28 +117,26 @@ CDigestMD5::CDigestMD5(std::shared_ptr<CSession> Session)
     : CDigest(CKM_MD5, std::move(Session)) {}
 CDigestMD5::~CDigestMD5() {}
 
-void CDigestMD5::DigestInit() { init_func data.clear(); }
+void CDigestMD5::DigestInit() { data.clear(); }
 
-void CDigestMD5::DigestUpdate(ByteArray &Part) { init_func data.append(Part); }
+void CDigestMD5::DigestUpdate(ByteArray &Part) { data.append(Part); }
 
 void CDigestMD5::DigestFinal(ByteArray &Digest) {
-  init_func
-
-      ByteDynArray dataOut(MD5_DIGEST_LENGTH);
+  ByteDynArray dataOut(MD5_DIGEST_LENGTH);
   dataOut = md5.Digest(data);  //, dataOut);
   Digest.copy(dataOut);
 }
 
-CK_ULONG CDigestMD5::DigestLength() { init_func return MD5_DIGEST_LENGTH; }
+CK_ULONG CDigestMD5::DigestLength() { return MD5_DIGEST_LENGTH; }
 
-ByteArray CDigestMD5::DigestInfo() { init_func return baMD5DigestInfo; }
+ByteArray CDigestMD5::DigestInfo() { return baMD5DigestInfo; }
 
 ByteDynArray CDigestMD5::DigestGetOperationState() {
-  init_func throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);
+  throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);
 }
 
 void CDigestMD5::DigestSetOperationState(ByteArray & /*OperationState*/) {
-  init_func throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);
+  throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);
 }
 
 /* ******************** */
@@ -157,13 +147,11 @@ CVerifyRSA::CVerifyRSA(CK_MECHANISM_TYPE type,
     : CVerify(type, std::move(Session)) {}
 CVerifyRSA::~CVerifyRSA() {}
 
-bool CVerifyRSA::VerifySupportMultipart() { init_func return false; }
+bool CVerifyRSA::VerifySupportMultipart() { return false; }
 
 CK_ULONG CVerifyRSA::VerifyLength() {
-  init_func
-
-      std::shared_ptr<CP11Object>
-          pObject = pSession->pSlot->GetObjectFromID(hVerifyKey);
+  std::shared_ptr<CP11Object> pObject =
+      pSession->pSlot->GetObjectFromID(hVerifyKey);
   ER_ASSERT(pObject != nullptr, ERR_CANT_GET_OBJECT)
   ER_ASSERT(pObject->ObjClass == CKO_PUBLIC_KEY, ERR_WRONG_OBJECT_TYPE)
   auto pPublicKey = std::static_pointer_cast<CP11PublicKey>(pObject);
@@ -174,7 +162,7 @@ CK_ULONG CVerifyRSA::VerifyLength() {
 }
 
 ByteDynArray CVerifyRSA::VerifyDecryptSignature(ByteArray &Signature) {
-  init_func ByteArray *baKeyExponent = nullptr, *baKeyModule = nullptr;
+  ByteArray *baKeyExponent = nullptr, *baKeyModule = nullptr;
 
   std::shared_ptr<CP11Object> pObject =
       pSession->pSlot->GetObjectFromID(hVerifyKey);
@@ -195,13 +183,10 @@ ByteDynArray CVerifyRSA::VerifyDecryptSignature(ByteArray &Signature) {
   return rsa.RSA_PURE(Signature);
 }
 
-ByteDynArray CVerifyRSA::VerifyGetOperationState() {
-  init_func return ByteDynArray();
-}
+ByteDynArray CVerifyRSA::VerifyGetOperationState() { return ByteDynArray(); }
 
 void CVerifyRSA::VerifySetOperationState(ByteArray &OperationState) {
-  init_func if (OperationState.size() !=
-                0) throw p11_error(CKR_SAVED_STATE_INVALID);
+  if (OperationState.size() != 0) throw p11_error(CKR_SAVED_STATE_INVALID);
 }
 
 /* ******************** */
@@ -213,10 +198,8 @@ CVerifyRecoverRSA::CVerifyRecoverRSA(CK_MECHANISM_TYPE type,
 CVerifyRecoverRSA::~CVerifyRecoverRSA() {}
 
 CK_ULONG CVerifyRecoverRSA::VerifyRecoverLength() {
-  init_func
-
-      std::shared_ptr<CP11Object>
-          pObject = pSession->pSlot->GetObjectFromID(hVerifyRecoverKey);
+  std::shared_ptr<CP11Object> pObject =
+      pSession->pSlot->GetObjectFromID(hVerifyRecoverKey);
   ER_ASSERT(pObject != nullptr, ERR_CANT_GET_OBJECT)
   ER_ASSERT(pObject->ObjClass == CKO_PUBLIC_KEY, ERR_WRONG_OBJECT_TYPE)
   auto pPublicKey = std::static_pointer_cast<CP11PublicKey>(pObject);
@@ -228,7 +211,7 @@ CK_ULONG CVerifyRecoverRSA::VerifyRecoverLength() {
 
 ByteDynArray CVerifyRecoverRSA::VerifyRecoverDecryptSignature(
     ByteArray &Signature) {
-  init_func ByteArray *baKeyExponent = nullptr, *baKeyModule = nullptr;
+  ByteArray *baKeyExponent = nullptr, *baKeyModule = nullptr;
 
   std::shared_ptr<CP11Object> pObject =
       pSession->pSlot->GetObjectFromID(hVerifyRecoverKey);
@@ -250,13 +233,12 @@ ByteDynArray CVerifyRecoverRSA::VerifyRecoverDecryptSignature(
 }
 
 ByteDynArray CVerifyRecoverRSA::VerifyRecoverGetOperationState() {
-  init_func return ByteDynArray();
+  return ByteDynArray();
 }
 
 void CVerifyRecoverRSA::VerifyRecoverSetOperationState(
     ByteArray &OperationState) {
-  init_func if (OperationState.size() !=
-                0) throw p11_error(CKR_SAVED_STATE_INVALID);
+  if (OperationState.size() != 0) throw p11_error(CKR_SAVED_STATE_INVALID);
 }
 
 /* ******************** */
@@ -266,10 +248,10 @@ CSignRSA::CSignRSA(CK_MECHANISM_TYPE type, std::shared_ptr<CSession> Session)
     : CSign(type, std::move(Session)) {}
 CSignRSA::~CSignRSA() {}
 
-bool CSignRSA::SignSupportMultipart() { init_func return false; }
+bool CSignRSA::SignSupportMultipart() { return false; }
 
 CK_ULONG CSignRSA::SignLength() {
-  init_func std::shared_ptr<CP11Object> pObject =
+  std::shared_ptr<CP11Object> pObject =
       pSession->pSlot->GetObjectFromID(hSignKey);
   ER_ASSERT(pObject != nullptr, ERR_CANT_GET_OBJECT)
   ER_ASSERT(pObject->ObjClass == CKO_PRIVATE_KEY, ERR_WRONG_OBJECT_TYPE)
@@ -280,13 +262,10 @@ CK_ULONG CSignRSA::SignLength() {
   return static_cast<CK_ULONG>(baKeyModule->size());
 }
 
-ByteDynArray CSignRSA::SignGetOperationState() {
-  init_func return ByteDynArray();
-}
+ByteDynArray CSignRSA::SignGetOperationState() { return ByteDynArray(); }
 
 void CSignRSA::SignSetOperationState(ByteArray &OperationState) {
-  init_func if (OperationState.size() !=
-                0) throw p11_error(CKR_SAVED_STATE_INVALID);
+  if (OperationState.size() != 0) throw p11_error(CKR_SAVED_STATE_INVALID);
 }
 
 /* ******************** */
@@ -298,7 +277,7 @@ CSignRecoverRSA::CSignRecoverRSA(CK_MECHANISM_TYPE type,
 CSignRecoverRSA::~CSignRecoverRSA() {}
 
 CK_ULONG CSignRecoverRSA::SignRecoverLength() {
-  init_func std::shared_ptr<CP11Object> pObject =
+  std::shared_ptr<CP11Object> pObject =
       pSession->pSlot->GetObjectFromID(hSignRecoverKey);
   ER_ASSERT(pObject != nullptr, ERR_CANT_GET_OBJECT)
   ER_ASSERT(pObject->ObjClass == CKO_PRIVATE_KEY, ERR_WRONG_OBJECT_TYPE)
@@ -310,12 +289,11 @@ CK_ULONG CSignRecoverRSA::SignRecoverLength() {
 }
 
 ByteDynArray CSignRecoverRSA::SignRecoverGetOperationState() {
-  init_func return ByteDynArray();
+  return ByteDynArray();
 }
 
 void CSignRecoverRSA::SignRecoverSetOperationState(ByteArray &OperationState) {
-  init_func if (OperationState.size() !=
-                0) throw p11_error(CKR_SAVED_STATE_INVALID);
+  if (OperationState.size() != 0) throw p11_error(CKR_SAVED_STATE_INVALID);
 }
 
 /* ******************** */
@@ -329,17 +307,17 @@ CRSA_PKCS1::CRSA_PKCS1(std::shared_ptr<CSession> Session)
 CRSA_PKCS1::~CRSA_PKCS1() {}
 
 void CRSA_PKCS1::VerifyInit(CK_OBJECT_HANDLE PublicKey) {
-  init_func hVerifyKey = PublicKey;
+  hVerifyKey = PublicKey;
 }
 
 void CRSA_PKCS1::VerifyUpdate(ByteArray &Part) {
-  init_func auto dwSize = baVerifyBuffer.size();
+  auto dwSize = baVerifyBuffer.size();
   baVerifyBuffer.resize(dwSize + Part.size(), true);
   baVerifyBuffer.mid(dwSize, Part.size()).copy(Part);
 }
 
 void CRSA_PKCS1::VerifyFinal(ByteArray &Signature) {
-  init_func ByteDynArray baPlainSignature;
+  ByteDynArray baPlainSignature;
   CK_ULONG ulVerifyLength = VerifyLength();
 
   if (Signature.size() != ulVerifyLength)
@@ -362,11 +340,11 @@ void CRSA_PKCS1::VerifyFinal(ByteArray &Signature) {
 }
 
 void CRSA_PKCS1::VerifyRecoverInit(CK_OBJECT_HANDLE PublicKey) {
-  init_func hVerifyRecoverKey = PublicKey;
+  hVerifyRecoverKey = PublicKey;
 }
 
 ByteDynArray CRSA_PKCS1::VerifyRecover(ByteArray &Signature) {
-  init_func CK_ULONG ulVerifyRecoverLength = VerifyRecoverLength();
+  CK_ULONG ulVerifyRecoverLength = VerifyRecoverLength();
 
   if (Signature.size() != ulVerifyRecoverLength)
     throw p11_error(CKR_SIGNATURE_LEN_RANGE);
@@ -391,19 +369,19 @@ ByteDynArray CRSA_PKCS1::VerifyRecover(ByteArray &Signature) {
 }
 
 void CRSA_PKCS1::SignInit(CK_OBJECT_HANDLE PrivateKey) {
-  init_func hSignKey = PrivateKey;
+  hSignKey = PrivateKey;
 }
 
-void CRSA_PKCS1::SignReset() { init_func baSignBuffer.clear(); }
+void CRSA_PKCS1::SignReset() { baSignBuffer.clear(); }
 
 void CRSA_PKCS1::SignUpdate(ByteArray &Part) {
-  init_func auto dwSize = baSignBuffer.size();
+  auto dwSize = baSignBuffer.size();
   baSignBuffer.resize(dwSize + Part.size(), true);
   baSignBuffer.mid(dwSize, Part.size()).copy(Part);
 }
 
 ByteDynArray CRSA_PKCS1::SignFinal() {
-  init_func CK_ULONG ulSignatureLength = SignLength();
+  CK_ULONG ulSignatureLength = SignLength();
 
   // at most k-11 bytes (PKCS#11 specs)
   if (baSignBuffer.size() > ulSignatureLength - 11)
@@ -413,13 +391,11 @@ ByteDynArray CRSA_PKCS1::SignFinal() {
 }
 
 void CRSA_PKCS1::SignRecoverInit(CK_OBJECT_HANDLE PrivateKey) {
-  init_func hSignRecoverKey = PrivateKey;
+  hSignRecoverKey = PrivateKey;
 }
 
 ByteDynArray CRSA_PKCS1::SignRecover(ByteArray &Data) {
-  init_func
-
-      CK_ULONG ulSignatureLength = SignRecoverLength();
+  CK_ULONG ulSignatureLength = SignRecoverLength();
 
   // at most k-11 bytes (PKCS#11 specs)
   if (Data.size() > ulSignatureLength - 11) throw p11_error(CKR_DATA_LEN_RANGE);
@@ -437,21 +413,21 @@ CSignRSAwithDigest::CSignRSAwithDigest(CK_MECHANISM_TYPE type,
     : CSignRSA(type, std::move(Session)), pDigest(Digest) {}
 CSignRSAwithDigest::~CSignRSAwithDigest() {}
 
-bool CSignRSAwithDigest::SignSupportMultipart() { init_func return true; }
+bool CSignRSAwithDigest::SignSupportMultipart() { return true; }
 
 void CSignRSAwithDigest::SignInit(CK_OBJECT_HANDLE hPrivateKey) {
-  init_func hSignKey = hPrivateKey;
+  hSignKey = hPrivateKey;
   pDigest->DigestInit();
 }
 
-void CSignRSAwithDigest::SignReset() { init_func pDigest->DigestInit(); }
+void CSignRSAwithDigest::SignReset() { pDigest->DigestInit(); }
 
 void CSignRSAwithDigest::SignUpdate(ByteArray &Part) {
-  init_func pDigest->DigestUpdate(Part);
+  pDigest->DigestUpdate(Part);
 }
 
 ByteDynArray CSignRSAwithDigest::SignFinal() {
-  init_func CK_ULONG ulDigestLength = pDigest->DigestLength();
+  CK_ULONG ulDigestLength = pDigest->DigestLength();
 
   ByteDynArray SignBuffer(ulDigestLength);
   pDigest->DigestFinal(SignBuffer);
@@ -462,11 +438,11 @@ ByteDynArray CSignRSAwithDigest::SignFinal() {
 }
 
 ByteDynArray CSignRSAwithDigest::SignGetOperationState() {
-  init_func return pDigest->DigestGetOperationState();
+  return pDigest->DigestGetOperationState();
 }
 
 void CSignRSAwithDigest::SignSetOperationState(ByteArray &OperationState) {
-  init_func pDigest->DigestSetOperationState(OperationState);
+  pDigest->DigestSetOperationState(OperationState);
 }
 
 /* ************************ */
@@ -479,19 +455,19 @@ CVerifyRSAwithDigest::CVerifyRSAwithDigest(CK_MECHANISM_TYPE type,
     : CVerifyRSA(type, std::move(Session)), pDigest(Digest) {}
 CVerifyRSAwithDigest::~CVerifyRSAwithDigest() {}
 
-bool CVerifyRSAwithDigest::VerifySupportMultipart() { init_func return true; }
+bool CVerifyRSAwithDigest::VerifySupportMultipart() { return true; }
 
 void CVerifyRSAwithDigest::VerifyInit(CK_OBJECT_HANDLE PublicKey) {
-  init_func hVerifyKey = PublicKey;
+  hVerifyKey = PublicKey;
   pDigest->DigestInit();
 }
 
 void CVerifyRSAwithDigest::VerifyUpdate(ByteArray &Part) {
-  init_func pDigest->DigestUpdate(Part);
+  pDigest->DigestUpdate(Part);
 }
 
 void CVerifyRSAwithDigest::VerifyFinal(ByteArray &Signature) {
-  init_func ByteDynArray baPlainSignature;
+  ByteDynArray baPlainSignature;
   CK_ULONG ulVerifyLength = VerifyLength();
 
   if (Signature.size() != ulVerifyLength)
@@ -515,11 +491,11 @@ void CVerifyRSAwithDigest::VerifyFinal(ByteArray &Signature) {
 }
 
 ByteDynArray CVerifyRSAwithDigest::VerifyGetOperationState() {
-  init_func return pDigest->DigestGetOperationState();
+  return pDigest->DigestGetOperationState();
 }
 
 void CVerifyRSAwithDigest::VerifySetOperationState(ByteArray &OperationState) {
-  init_func pDigest->DigestSetOperationState(OperationState);
+  pDigest->DigestSetOperationState(OperationState);
 }
 /* ******************** */
 /*		RSA_withMD5		*/

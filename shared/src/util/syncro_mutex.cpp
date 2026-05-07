@@ -14,13 +14,12 @@ CSyncroMutex::CSyncroMutex(void) {}
 #ifdef _WIN32
 
 void CSyncroMutex::Create(void) {
-  init_func hMutex = CreateMutex(nullptr, FALSE, nullptr);
+  hMutex = CreateMutex(nullptr, FALSE, nullptr);
   ER_ASSERT(hMutex != nullptr, "Error creating mutex");
-  exit_func
 }
 
 void CSyncroMutex::Create(const char *szName) {
-  init_func hMutex = OpenMutex(SYNCHRONIZE, FALSE, szName);
+  hMutex = OpenMutex(SYNCHRONIZE, FALSE, szName);
   if (hMutex == nullptr) {
     HRESULT r = GetLastError();
     if (r == ERROR_FILE_NOT_FOUND) {
@@ -54,35 +53,31 @@ void CSyncroMutex::Create(const char *szName) {
       ER_ASSERT(FALSE, "Error creating mutex")
     }
   }
-  exit_func
 }
 
 CSyncroMutex::~CSyncroMutex(void) {
-  init_func if (hMutex) CloseHandle(hMutex);
-  exit_func
+  if (hMutex) CloseHandle(hMutex);
 }
 
 void CSyncroMutex::Lock() {
-  init_func DWORD res = WaitForSingleObject(hMutex, INFINITE);
+  DWORD res = WaitForSingleObject(hMutex, INFINITE);
   ER_ASSERT(res == S_OK || res == WAIT_ABANDONED, "Error releasing mutex");
-  exit_func
 }
 
 void CSyncroMutex::Unlock() {
-  init_func if (!ReleaseMutex(hMutex)) {
-      ER_ASSERT(FALSE, "Error releasing mutex")} exit_func
+  if (!ReleaseMutex(hMutex)) {
+    ER_ASSERT(FALSE, "Error releasing mutex")
+  }
 }
 
 CSyncroLocker::CSyncroLocker(CSyncroMutex &mutex) {
-  init_func pMutex = &mutex;
+  pMutex = &mutex;
   pMutex->Lock();
-  exit_func
 }
 
 CSyncroLocker::~CSyncroLocker() {
   // cppcheck-suppress throwInNoexceptFunction
-  init_func pMutex->Unlock();
-  exit_func
+  pMutex->Unlock();
 }
 
 #else  // !_WIN32

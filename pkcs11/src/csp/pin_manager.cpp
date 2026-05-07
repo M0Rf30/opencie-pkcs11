@@ -4,6 +4,7 @@
 #include "csp/pin_manager.h"
 
 #include <cryptopp/misc.h>
+#include <openssl/crypto.h>
 
 #include <string>
 
@@ -162,29 +163,33 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
       LOG_INFO("PINManager::VerifyPIN verify PIN status: %02X", sw);
 
       if (sw == 0x6983) {
+        OPENSSL_cleanse(oldPINBa.data(), oldPINBa.size());
         free(readers);
         free(ATR);
         return CKR_PIN_LOCKED;
       }
       if (sw >= 0x63C0 && sw <= 0x63CF) {
         if (pAttempts != nullptr) *pAttempts = sw - 0x63C0;
-
+        OPENSSL_cleanse(oldPINBa.data(), oldPINBa.size());
         free(readers);
         free(ATR);
         return CKR_PIN_INCORRECT;
       }
 
       if (sw == 0x6700) {
+        OPENSSL_cleanse(oldPINBa.data(), oldPINBa.size());
         free(readers);
         free(ATR);
         return CKR_PIN_INCORRECT;
       }
       if (sw == 0x6300) {
+        OPENSSL_cleanse(oldPINBa.data(), oldPINBa.size());
         free(readers);
         free(ATR);
         return CKR_PIN_INCORRECT;
       }
       if (sw != 0x9000) {
+        OPENSSL_cleanse(oldPINBa.data(), oldPINBa.size());
         throw scard_error(sw);
       }
 
@@ -197,8 +202,10 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
                          strlen(szNewPIN));
 
       sw = ias.ChangePIN(oldPINBa, newPINBa);
+      OPENSSL_cleanse(oldPINBa.data(), oldPINBa.size());
       LOG_INFO("PINManager::ChangePIN change PIN status: %02X", sw);
       if (sw != 0x9000) {
+        OPENSSL_cleanse(newPINBa.data(), newPINBa.size());
         throw scard_error(sw);
       }
 
@@ -207,7 +214,9 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
         dumpHexData(ias.PAN.mid(5, 6), strPAN, false);
         ByteArray leftPINBa = newPINBa.left(4);
         ias.SetCache(strPAN.c_str(), cert, leftPINBa);
+        OPENSSL_cleanse(leftPINBa.data(), leftPINBa.size());
       }
+      OPENSSL_cleanse(newPINBa.data(), newPINBa.size());
 
       progressCallBack(100, "PIN changed successfully");
       LOG_INFO("******** PINManager::ChangePIN Completed ********");
@@ -354,11 +363,13 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
       LOG_INFO("PINManager::UnlockPIN VerifyPUK status: %02X", sw);
 
       if (sw == 0x6983) {
+        OPENSSL_cleanse(pukBa.data(), pukBa.size());
         free(ATR);
         free(readers);
         return CKR_PIN_LOCKED;
       }
       if (sw >= 0x63C0 && sw <= 0x63CF) {
+        OPENSSL_cleanse(pukBa.data(), pukBa.size());
         free(ATR);
         free(readers);
         if (pAttempts != nullptr) *pAttempts = sw - 0x63C0;
@@ -367,18 +378,22 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
       }
 
       if (sw == 0x6700) {
+        OPENSSL_cleanse(pukBa.data(), pukBa.size());
         free(ATR);
         free(readers);
         return CKR_PIN_INCORRECT;
       }
       if (sw == 0x6300) {
+        OPENSSL_cleanse(pukBa.data(), pukBa.size());
         free(ATR);
         free(readers);
         return CKR_PIN_INCORRECT;
       }
       if (sw != 0x9000) {
+        OPENSSL_cleanse(pukBa.data(), pukBa.size());
         throw scard_error(sw);
       }
+      OPENSSL_cleanse(pukBa.data(), pukBa.size());
 
       ByteDynArray cert;
       bool isEnrolled = ias.IsEnrolled();
@@ -391,6 +406,7 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
       sw = ias.ChangePIN(newPINBa);
       LOG_INFO("PINManager::UnlockPIN ChangePIN status: %02X", sw);
       if (sw != 0x9000) {
+        OPENSSL_cleanse(newPINBa.data(), newPINBa.size());
         throw scard_error(sw);
       }
 
@@ -399,7 +415,9 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
         dumpHexData(ias.PAN.mid(5, 6), strPAN, false);
         ByteArray leftPINBa = newPINBa.left(4);
         ias.SetCache(strPAN.c_str(), cert, leftPINBa);
+        OPENSSL_cleanse(leftPINBa.data(), leftPINBa.size());
       }
+      OPENSSL_cleanse(newPINBa.data(), newPINBa.size());
 
       progressCallBack(100, "Card unblocked");
       LOG_INFO("******** PINManager::UnlockPIN Completed ********");

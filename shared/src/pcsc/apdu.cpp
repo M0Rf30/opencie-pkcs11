@@ -22,7 +22,6 @@ APDU::APDU(BYTE CLA, BYTE INS, BYTE P1, BYTE P2, BYTE LC, BYTE *pData,
   btLE = LE;
   bLC = true;
   bLE = true;
-  exit_func
 }
 APDU::APDU(BYTE CLA, BYTE INS, BYTE P1, BYTE P2, BYTE LC, BYTE *pData) {
   if (LC > 251) throw;

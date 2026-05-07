@@ -122,11 +122,12 @@ int GetIniSettings(int i, void* data) {
 
   std::string out2;
   if (id == 0) {
-    out2 = (static_cast<IniSettingsInt*>(is))->defaultVal;
+    out2 = std::to_string((static_cast<IniSettingsInt*>(is))->defaultVal);
   } else if (id == 1) {
     out2 = (static_cast<IniSettingsString*>(is))->defaultVal;
   } else if (id == 2) {
-    out2 = (static_cast<IniSettingsBool*>(is))->defaultVal ? 1 : 0;
+    out2 =
+        std::to_string((static_cast<IniSettingsBool*>(is))->defaultVal ? 1 : 0);
   } else if (id == 3 || id == 4) {
     b64.Encode((static_cast<IniSettingsByteArray*>(is))->defaultVal, out2);
   }

@@ -20,13 +20,6 @@ BYTE hex2byte(char h) {
   return (0);
 }
 
-bool ishexdigit(char c) {
-  if (c >= '0' && c <= '9') return true;
-  if (c >= 'a' && c <= 'f') return true;
-  if (c >= 'A' && c <= 'F') return true;
-  return false;
-}
-
 size_t countHexData(const std::string &data) {
   size_t cnt = 0;
   size_t slen = data.size();
@@ -171,7 +164,6 @@ void PutPaddingBT0(const ByteArray &ba, long dwLen) {
   }
 
   ba.left(ba.size() - dwLen).fill(0);
-  exit_func
 }
 
 void PutPaddingBT1(ByteArray &ba, unsigned long dwLen) {
@@ -182,7 +174,6 @@ void PutPaddingBT1(ByteArray &ba, unsigned long dwLen) {
   ba[1] = 1;
   ba.mid(2, ba.size() - dwLen - 3).fill(0xff);
   ba[ba.size() - dwLen - 1] = 0;
-  exit_func
 }
 
 void PutPaddingBT2(ByteArray &ba, unsigned long dwLen) {
@@ -193,7 +184,6 @@ void PutPaddingBT2(ByteArray &ba, unsigned long dwLen) {
   ba[1] = 2;
   ba.mid(2, ba.size() - dwLen - 3).random();
   ba[ba.size() - dwLen - 1] = 0;
-  exit_func
 }
 
 unsigned long RemoveSha1(const ByteArray &paddedData) {
@@ -223,7 +213,6 @@ unsigned long RemovePaddingBT1(const ByteArray &paddedData) {
     if (paddedData[i] != 0xff) throw logged_error("Padding error");
   }
   throw logged_error("Padding error");
-  exit_func
 }
 
 unsigned long RemovePaddingBT2(const ByteArray &paddedData) {
@@ -234,7 +223,6 @@ unsigned long RemovePaddingBT2(const ByteArray &paddedData) {
       return i + 1;
     }
   throw logged_error("Padding error");
-  exit_func
 }
 
 unsigned long RemoveISOPad(const ByteArray &paddedData) {
@@ -248,7 +236,6 @@ unsigned long RemoveISOPad(const ByteArray &paddedData) {
     }
   }
   throw logged_error("Padding error");
-  exit_func
 }
 
 unsigned long ANSIPadLen(unsigned long Len) {
@@ -260,7 +247,6 @@ unsigned long ANSIPadLen(unsigned long Len) {
 
 void ANSIPad(const ByteArray &Data, unsigned long DataLen) {
   init_func Data.mid(DataLen).fill(0);
-  exit_func
 }
 
 unsigned long ISOPadLen16(unsigned long Len) {
@@ -283,8 +269,6 @@ void ISOPad(const ByteArray &Data, unsigned long DataLen) {
       Data.mid(DataLen)
           .fill(0);
   Data[DataLen] = 0x80;
-
-  exit_func
 }
 
 ByteDynArray ISOPad16(const ByteArray &data) {
@@ -292,7 +276,6 @@ ByteDynArray ISOPad16(const ByteArray &data) {
   resp.copy(data);
   ISOPad(resp, data.size());
   return resp;
-  exit_func
 }
 
 ByteDynArray ISOPad(const ByteArray &data) {
@@ -301,7 +284,6 @@ ByteDynArray ISOPad(const ByteArray &data) {
   ISOPad(resp, data.size());
 
   return resp;
-  exit_func
 }
 
 long ByteArrayToInt(const ByteArray &ba) {
@@ -311,7 +293,6 @@ long ByteArrayToInt(const ByteArray &ba) {
     val |= ba[i];
   }
   return val;
-  exit_func
 }
 
 const char *CardErr(DWORD dwSW) {
@@ -490,7 +471,6 @@ size_t ASN1LLength(size_t len) {
   if (len < 0x80)
     return 1;
   else {
-    // vediamo quanti byte mi servono...
     if (len <= 0xff)
       return 2;
     else if (len <= 0xffff)

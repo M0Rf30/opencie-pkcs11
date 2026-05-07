@@ -142,7 +142,110 @@ bool CacheExists(const char *PAN) {
 bool CacheRemove(const char *PAN) {
   std::string sPath;
   GetCardPath(PAN, sPath);
-  return remove(sPath.c_str());
+  int ret = remove(sPath.c_str());
+  // Also remove the companion .der file if it exists.
+  std::string derPath = sPath.substr(0, sPath.size() - 6) + ".der";
+  remove(derPath.c_str());  // ignore error — file may not exist
+  return ret == 0;
+}
+
+static void GetDerPath(const char *PAN, std::string &sPath) {
+  auto Path = GetCardDir();
+  Path += std::string(PAN);
+  Path += ".der";
+  sPath = Path;
+}
+
+void CacheSetDer(const char *PAN, const uint8_t *der, size_t len) {
+  if (PAN == nullptr || der == nullptr || len == 0)
+    throw logged_error("CacheSetDer: invalid arguments");
+
+  auto szDir = GetCardDir();
+#ifndef _WIN32
+  struct stat st {};
+  if (stat(szDir.c_str(), &st) == -1) {
+    mkdir(szDir.c_str(), 0700);
+  }
+#endif
+
+  std::string sPath;
+  GetDerPath(PAN, sPath);
+
+#ifdef _WIN32
+  std::ofstream file(sPath.c_str(), std::ofstream::out | std::ofstream::binary);
+  if (!file) throw logged_error("CacheSetDer: cannot open file for writing");
+  uint32_t certlen = static_cast<uint32_t>(len);
+  file.write(reinterpret_cast<const char *>(&certlen), sizeof(certlen));
+  file.write(reinterpret_cast<const char *>(der),
+             static_cast<std::streamsize>(len));
+#else
+  // Encrypt with the same static AES-CBC key used by CacheSetData so the
+  // certificate is not stored in plaintext (consistent with existing cache).
+  byte key[CryptoPP::AES::DEFAULT_KEYLENGTH], iv[CryptoPP::AES::BLOCKSIZE];
+  memset(key, 0x00, CryptoPP::AES::DEFAULT_KEYLENGTH);
+  memset(iv, 0x00, CryptoPP::AES::BLOCKSIZE);
+
+  std::string enckey = ENCRYPTION_KEY;
+  byte digest[SHA1::DIGESTSIZE];
+  SHA1().CalculateDigest(digest, reinterpret_cast<const byte *>(enckey.c_str()),
+                         enckey.length());
+  memcpy(key, digest, CryptoPP::AES::DEFAULT_KEYLENGTH);
+
+  uint32_t certlen = static_cast<uint32_t>(len);
+  std::string ciphertext;
+  CryptoPP::AES::Encryption aesEncryption(key,
+                                          CryptoPP::AES::DEFAULT_KEYLENGTH);
+  CryptoPP::CBC_Mode_ExternalCipher::Encryption cbcEncryption(aesEncryption,
+                                                              iv);
+  CryptoPP::StreamTransformationFilter stfEncryptor(
+      cbcEncryption, new CryptoPP::StringSink(ciphertext));
+  stfEncryptor.Put(reinterpret_cast<const unsigned char *>(&certlen),
+                   sizeof(certlen));
+  stfEncryptor.Put(reinterpret_cast<const unsigned char *>(der),
+                   static_cast<size_t>(len));
+  stfEncryptor.MessageEnd();
+
+  std::ofstream file(sPath.c_str(), std::ofstream::out | std::ofstream::binary);
+  if (!file) throw logged_error("CacheSetDer: cannot open file for writing");
+  file.write(ciphertext.c_str(), ciphertext.length());
+#endif
+  file.close();
+}
+
+bool CacheGetDer(const char *PAN, std::vector<uint8_t> &certificate) {
+  if (PAN == nullptr) return false;
+
+  std::string sPath;
+  GetDerPath(PAN, sPath);
+
+  if (!file_exists(sPath.c_str())) return false;
+
+  try {
+    ByteDynArray data;
+    data.load(sPath.c_str());
+    if (data.isEmpty()) return false;
+
+#ifdef _WIN32
+    uint8_t *ptr = data.data();
+    uint32_t len = *reinterpret_cast<uint32_t *>(ptr);
+    ptr += sizeof(uint32_t);
+    certificate.assign(ptr, ptr + len);
+#else
+    std::string ciphertext(reinterpret_cast<const char *>(data.data()),
+                           data.size());
+    std::string plaintext;
+    if (decrypt(ciphertext, plaintext) != 0) return false;
+
+    uint8_t *ptr =
+        reinterpret_cast<uint8_t *>(const_cast<char *>(plaintext.c_str()));
+    uint32_t len = *reinterpret_cast<uint32_t *>(ptr);
+    ptr += sizeof(uint32_t);
+    certificate.assign(ptr, ptr + len);
+#endif
+    return true;
+  } catch (...) {
+    return false;
+  }
 }
 
 void CacheGetCertificate(const char *PAN, std::vector<uint8_t> &certificate) {

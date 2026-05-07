@@ -83,13 +83,13 @@ CSession::CSession() {
 }
 
 CK_SLOT_ID CSession::GetNewSessionID() {
-  init_func dwSessionCnt++;
+  dwSessionCnt++;
   __sync_fetch_and_add(&dwSessionCnt, 1);
   return dwSessionCnt;
 }
 
 CK_SESSION_HANDLE CSession::AddSession(std::unique_ptr<CSession> pSession) {
-  init_func pSession->hSessionHandle = GetNewSessionID();
+  pSession->hSessionHandle = GetNewSessionID();
   auto id = pSession->hSessionHandle;
 
   pSession->pSlot->pTemplate->FunctionList.templateInitSession(
@@ -103,8 +103,7 @@ CK_SESSION_HANDLE CSession::AddSession(std::unique_ptr<CSession> pSession) {
 }
 
 void CSession::DeleteSession(CK_SESSION_HANDLE hSessionHandle) {
-  init_func std::shared_ptr<CSession> pSession =
-      GetSessionFromID(hSessionHandle);
+  std::shared_ptr<CSession> pSession = GetSessionFromID(hSessionHandle);
 
   ER_ASSERT(pSession != nullptr, ERR_SESSION_NOT_OPENED);
 
@@ -122,7 +121,7 @@ void CSession::DeleteSession(CK_SESSION_HANDLE hSessionHandle) {
 
 std::shared_ptr<CSession> CSession::GetSessionFromID(
     CK_SESSION_HANDLE hSessionHandle) {
-  init_func SessionMap::const_iterator pPair;
+  SessionMap::const_iterator pPair;
   pPair = g_mSessions.find(hSessionHandle);
   if (pPair == g_mSessions.end()) return nullptr;
 
@@ -132,10 +131,8 @@ std::shared_ptr<CSession> CSession::GetSessionFromID(
 // LOGIN e LOGOUT
 void CSession::Login(CK_USER_TYPE userType, CK_CHAR_PTR pPin,
                      CK_ULONG ulPinLen) {
-  init_func
-
-      if (pSlot->User == CKU_USER && userType == CKU_SO) throw p11_error(
-          CKR_USER_ANOTHER_ALREADY_LOGGED_IN);
+  if (pSlot->User == CKU_USER && userType == CKU_SO)
+    throw p11_error(CKR_USER_ANOTHER_ALREADY_LOGGED_IN);
   if (pSlot->User == CKU_SO && userType == CKU_USER)
     throw p11_error(CKR_USER_ANOTHER_ALREADY_LOGGED_IN);
 
@@ -153,10 +150,8 @@ void CSession::Login(CK_USER_TYPE userType, CK_CHAR_PTR pPin,
 }
 
 void CSession::Logout() {
-  init_func
-
-      pSlot->pTemplate->FunctionList.templateLogout(pSlot->pTemplateData,
-                                                    pSlot->User);
+  pSlot->pTemplate->FunctionList.templateLogout(pSlot->pTemplateData,
+                                                pSlot->User);
 
   for (const auto &obj : pSlot->P11Objects) {
     if (obj->IsPrivate()) pSlot->DelObjectHandle(obj);
@@ -166,7 +161,7 @@ void CSession::Logout() {
 
 // Find Objects
 void CSession::FindObjectsInit(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
-  init_func if (bFindInit) throw p11_error(CKR_OPERATION_ACTIVE);
+  if (bFindInit) throw p11_error(CKR_OPERATION_ACTIVE);
   findResult.clear();
   if (ulCount == 0) {
     for (const auto &obj : pSlot->P11Objects) {
@@ -214,7 +209,7 @@ void CSession::FindObjectsInit(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
 void CSession::FindObjects(CK_OBJECT_HANDLE_PTR phObject,
                            CK_ULONG ulMaxObjectCount,
                            CK_ULONG_PTR pulObjectCount) {
-  init_func if (!bFindInit) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
+  if (!bFindInit) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
   *pulObjectCount = 0;
   int iCnt = 0;
   while (!findResult.empty() && ulMaxObjectCount > 0) {
@@ -227,7 +222,7 @@ void CSession::FindObjects(CK_OBJECT_HANDLE_PTR phObject,
 }
 
 void CSession::FindObjectsFinal() {
-  init_func if (!bFindInit) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
+  if (!bFindInit) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
   findResult.clear();
   bFindInit = false;
 }
@@ -235,10 +230,7 @@ void CSession::FindObjectsFinal() {
 CK_RV CSession::GetAttributeValue(CK_OBJECT_HANDLE hObject,
                                   CK_ATTRIBUTE_PTR pTemplate,
                                   CK_ULONG ulCount) {
-  init_func
-
-      std::shared_ptr<CP11Object>
-          pObject = pSlot->GetObjectFromID(hObject);
+  std::shared_ptr<CP11Object> pObject = pSlot->GetObjectFromID(hObject);
   if (pObject == nullptr) throw p11_error(CKR_OBJECT_HANDLE_INVALID);
 
   return pObject->GetAttributeValue(pTemplate, ulCount);
@@ -246,7 +238,7 @@ CK_RV CSession::GetAttributeValue(CK_OBJECT_HANDLE hObject,
 
 ByteDynArray GetTemplateValue(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount,
                               CK_ATTRIBUTE_TYPE type) {
-  init_func for (unsigned int i = 0; i < ulCount; i++) {
+  for (unsigned int i = 0; i < ulCount; i++) {
     if (pTemplate[i].type == type) {
       return ByteDynArray(ByteArray(static_cast<uint8_t *>(pTemplate[i].pValue),
                                     pTemplate[i].ulValueLen));
@@ -257,9 +249,7 @@ ByteDynArray GetTemplateValue(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount,
 
 CK_OBJECT_HANDLE CSession::CreateObject(CK_ATTRIBUTE_PTR pTemplate,
                                         CK_ULONG ulCount) {
-  init_func
-
-      if ((flags & CKF_RW_SESSION) == 0) throw p11_error(CKR_SESSION_READ_ONLY);
+  if ((flags & CKF_RW_SESSION) == 0) throw p11_error(CKR_SESSION_READ_ONLY);
 
   if (pSlot->User != CKU_USER) throw p11_error(CKR_USER_NOT_LOGGED_IN);
 
@@ -276,10 +266,8 @@ CK_OBJECT_HANDLE CSession::CreateObject(CK_ATTRIBUTE_PTR pTemplate,
 CK_OBJECT_HANDLE CSession::GenerateKey(CK_MECHANISM_PTR /*pMechanism*/,
                                        CK_ATTRIBUTE_PTR /*pTemplate*/,
                                        CK_ULONG /*ulCount*/) {
-  init_func
-
-      // NOT SUPPORTED BY CIE
-      throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);
+  // NOT SUPPORTED BY CIE
+  throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);
 }
 
 void CSession::GenerateKeyPair(CK_MECHANISM_PTR /*pMechanism*/,
@@ -289,16 +277,12 @@ void CSession::GenerateKeyPair(CK_MECHANISM_PTR /*pMechanism*/,
                                CK_ULONG /*ulPrivateKeyAttributeCount*/,
                                CK_OBJECT_HANDLE_PTR /*phPublicKey*/,
                                CK_OBJECT_HANDLE_PTR /*phPrivateKey*/) {
-  init_func
-
-      // NOT SUPPORTED BY CIE
-      throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);
+  // NOT SUPPORTED BY CIE
+  throw p11_error(CKR_FUNCTION_NOT_SUPPORTED);
 }
 
 void CSession::DestroyObject(CK_OBJECT_HANDLE hObject) {
-  init_func
-
-      if ((flags & CKF_RW_SESSION) == 0) throw p11_error(CKR_SESSION_READ_ONLY);
+  if ((flags & CKF_RW_SESSION) == 0) throw p11_error(CKR_SESSION_READ_ONLY);
 
   if (pSlot->User != CKU_USER) throw p11_error(CKR_USER_NOT_LOGGED_IN);
 
@@ -311,8 +295,8 @@ void CSession::DestroyObject(CK_OBJECT_HANDLE hObject) {
 }
 
 bool CSession::ExistsRO() {
-  init_func for (SessionMap::const_iterator it = g_mSessions.begin();
-                 it != g_mSessions.end(); ++it) {
+  for (SessionMap::const_iterator it = g_mSessions.begin();
+       it != g_mSessions.end(); ++it) {
     if (it->second->pSlot == pSlot &&
         (it->second->flags & CKF_RW_SESSION) == 0) {
       return true;
@@ -323,7 +307,7 @@ bool CSession::ExistsRO() {
 }
 
 bool CSession::ExistsSO_RW() {
-  init_func if (pSlot->User != CKU_SO) return false;
+  if (pSlot->User != CKU_SO) return false;
   for (SessionMap::const_iterator it = g_mSessions.begin();
        it != g_mSessions.end(); ++it) {
     if (it->second->pSlot == pSlot && (it->second->flags & CKF_RW_SESSION) != 0)
@@ -335,8 +319,7 @@ bool CSession::ExistsSO_RW() {
 
 // Digest
 void CSession::DigestInit(CK_MECHANISM_PTR pMechanism) {
-  init_func if (pDigestMechanism !=
-                nullptr) throw p11_error(CKR_OPERATION_ACTIVE);
+  if (pDigestMechanism != nullptr) throw p11_error(CKR_OPERATION_ACTIVE);
 
   switch (pMechanism->mechanism) {
     case CKM_SHA_1: {
@@ -366,9 +349,7 @@ void CSession::DigestInit(CK_MECHANISM_PTR pMechanism) {
 }
 
 void CSession::Digest(ByteArray &Data, ByteArray &Digest) {
-  init_func
-
-      CK_ULONG ulReqLen = pDigestMechanism->DigestLength();
+  CK_ULONG ulReqLen = pDigestMechanism->DigestLength();
 
   if (!Digest.isNull() && Digest.size() < ulReqLen)
     throw p11_error(CKR_BUFFER_TOO_SMALL);
@@ -381,15 +362,15 @@ void CSession::Digest(ByteArray &Data, ByteArray &Digest) {
 }
 
 void CSession::DigestUpdate(ByteArray &Data) {
-  init_func if (pDigestMechanism ==
-                nullptr) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
+  if (pDigestMechanism == nullptr)
+    throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
 
   pDigestMechanism->DigestUpdate(Data);
 }
 
 void CSession::DigestFinal(ByteArray &Digest) {
-  init_func if (pDigestMechanism ==
-                nullptr) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
+  if (pDigestMechanism == nullptr)
+    throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
 
   auto mech = std::move(pDigestMechanism);
   CK_ULONG ulReqLen = mech->DigestLength();
@@ -409,8 +390,7 @@ void CSession::DigestFinal(ByteArray &Digest) {
 
 // Verify
 void CSession::VerifyInit(CK_MECHANISM_PTR pMechanism, CK_OBJECT_HANDLE hKey) {
-  init_func if (pVerifyMechanism !=
-                nullptr) throw p11_error(CKR_OPERATION_ACTIVE);
+  if (pVerifyMechanism != nullptr) throw p11_error(CKR_OPERATION_ACTIVE);
 
   std::shared_ptr<CP11Object> pObject = pSlot->GetObjectFromID(hKey);
   if (pObject == nullptr) throw p11_error(CKR_KEY_HANDLE_INVALID);
@@ -460,25 +440,23 @@ void CSession::VerifyInit(CK_MECHANISM_PTR pMechanism, CK_OBJECT_HANDLE hKey) {
 }
 
 void CSession::Verify(ByteArray &Data, ByteArray &Signature) {
-  init_func
-
-      if (pVerifyMechanism ==
-          nullptr) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
+  if (pVerifyMechanism == nullptr)
+    throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
 
   VerifyUpdate(Data);
   VerifyFinal(Signature);
 }
 
 void CSession::VerifyUpdate(ByteArray &Data) {
-  init_func if (pVerifyMechanism ==
-                nullptr) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
+  if (pVerifyMechanism == nullptr)
+    throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
 
   pVerifyMechanism->VerifyUpdate(Data);
 }
 
 void CSession::VerifyFinal(ByteArray &Signature) {
-  init_func if (pVerifyMechanism ==
-                nullptr) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
+  if (pVerifyMechanism == nullptr)
+    throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
 
   auto mech = make_resetter(pVerifyMechanism);
   pVerifyMechanism->VerifyFinal(Signature);
@@ -487,8 +465,7 @@ void CSession::VerifyFinal(ByteArray &Signature) {
 // VerifyRecover
 void CSession::VerifyRecoverInit(CK_MECHANISM_PTR pMechanism,
                                  CK_OBJECT_HANDLE hKey) {
-  init_func if (pVerifyRecoverMechanism !=
-                nullptr) throw p11_error(CKR_OPERATION_ACTIVE);
+  if (pVerifyRecoverMechanism != nullptr) throw p11_error(CKR_OPERATION_ACTIVE);
 
   std::shared_ptr<CP11Object> pObject = pSlot->GetObjectFromID(hKey);
   if (pObject == nullptr) throw p11_error(CKR_KEY_HANDLE_INVALID);
@@ -520,8 +497,8 @@ void CSession::VerifyRecoverInit(CK_MECHANISM_PTR pMechanism,
 }
 
 void CSession::VerifyRecover(ByteArray &Signature, ByteArray &Data) {
-  init_func if (pVerifyRecoverMechanism ==
-                nullptr) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
+  if (pVerifyRecoverMechanism == nullptr)
+    throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
 
   auto mech = std::move(pVerifyRecoverMechanism);
 
@@ -544,8 +521,7 @@ void CSession::VerifyRecover(ByteArray &Signature, ByteArray &Data) {
 
 // Sign
 void CSession::SignInit(CK_MECHANISM_PTR pMechanism, CK_OBJECT_HANDLE hKey) {
-  init_func if (pSignMechanism !=
-                nullptr) throw p11_error(CKR_OPERATION_ACTIVE);
+  if (pSignMechanism != nullptr) throw p11_error(CKR_OPERATION_ACTIVE);
 
   std::shared_ptr<CP11Object> pObject = pSlot->GetObjectFromID(hKey);
   if (pObject == nullptr) throw p11_error(CKR_KEY_HANDLE_INVALID);
@@ -595,8 +571,7 @@ void CSession::SignInit(CK_MECHANISM_PTR pMechanism, CK_OBJECT_HANDLE hKey) {
 }
 
 void CSession::Sign(ByteArray &Data, ByteArray &Signature) {
-  init_func if (pSignMechanism ==
-                nullptr) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
+  if (pSignMechanism == nullptr) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
 
   pSignMechanism->SignReset();
   SignUpdate(Data);
@@ -604,15 +579,13 @@ void CSession::Sign(ByteArray &Data, ByteArray &Signature) {
 }
 
 void CSession::SignUpdate(ByteArray &Data) {
-  init_func if (pSignMechanism ==
-                nullptr) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
+  if (pSignMechanism == nullptr) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
 
   pSignMechanism->SignUpdate(Data);
 }
 
 void CSession::SignFinal(ByteArray &Signature) {
-  init_func if (pSignMechanism ==
-                nullptr) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
+  if (pSignMechanism == nullptr) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
 
   auto mech = make_resetter(pSignMechanism);
 
@@ -655,8 +628,7 @@ void CSession::SignFinal(ByteArray &Signature) {
 // SignRecover
 void CSession::SignRecoverInit(CK_MECHANISM_PTR pMechanism,
                                CK_OBJECT_HANDLE hKey) {
-  init_func if (pSignRecoverMechanism !=
-                nullptr) throw p11_error(CKR_OPERATION_ACTIVE);
+  if (pSignRecoverMechanism != nullptr) throw p11_error(CKR_OPERATION_ACTIVE);
 
   std::shared_ptr<CP11Object> pObject = pSlot->GetObjectFromID(hKey);
   if (pObject == nullptr) throw p11_error(CKR_KEY_HANDLE_INVALID);
@@ -688,8 +660,8 @@ void CSession::SignRecoverInit(CK_MECHANISM_PTR pMechanism,
 }
 
 void CSession::SignRecover(ByteArray &Data, ByteArray &Signature) {
-  init_func if (pSignRecoverMechanism ==
-                nullptr) throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
+  if (pSignRecoverMechanism == nullptr)
+    throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
 
   auto mech = make_resetter(pSignRecoverMechanism);
 
@@ -728,32 +700,25 @@ void CSession::SignRecover(ByteArray &Data, ByteArray &Signature) {
 }
 
 void CSession::GenerateRandom(ByteArray &RandomData) {
-  init_func ByteDynArray baRandom(RandomData.size());
+  ByteDynArray baRandom(RandomData.size());
   pSlot->pTemplate->FunctionList.templateGenerateRandom(pSlot->pTemplateData,
                                                         baRandom);
   RandomData.copy(baRandom);
 }
 
 void CSession::InitPIN(ByteArray &Pin) {
-  init_func
-
-      if (pSlot->User != CKU_SO) throw p11_error(CKR_USER_NOT_LOGGED_IN);
+  if (pSlot->User != CKU_SO) throw p11_error(CKR_USER_NOT_LOGGED_IN);
 
   pSlot->pTemplate->FunctionList.templateInitPIN(pSlot->pTemplateData, Pin);
 }
 
 void CSession::SetPIN(ByteArray &OldPin, ByteArray &NewPin) {
-  init_func
-
-      pSlot->pTemplate->FunctionList.templateSetPIN(
-          pSlot->pTemplateData, OldPin, NewPin, pSlot->User);
+  pSlot->pTemplate->FunctionList.templateSetPIN(pSlot->pTemplateData, OldPin,
+                                                NewPin, pSlot->User);
 }
 
 CK_ULONG CSession::GetObjectSize(CK_OBJECT_HANDLE hObject) {
-  init_func
-
-      std::shared_ptr<CP11Object>
-          pObject = pSlot->GetObjectFromID(hObject);
+  std::shared_ptr<CP11Object> pObject = pSlot->GetObjectFromID(hObject);
   if (pObject == nullptr) throw p11_error(CKR_OBJECT_HANDLE_INVALID);
 
   if (pObject->IsPrivate() && pSlot->User != CKU_USER)
@@ -764,8 +729,7 @@ CK_ULONG CSession::GetObjectSize(CK_OBJECT_HANDLE hObject) {
 
 void CSession::SetAttributeValue(CK_OBJECT_HANDLE hObject,
                                  CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
-  init_func std::shared_ptr<CP11Object> pObject =
-      pSlot->GetObjectFromID(hObject);
+  std::shared_ptr<CP11Object> pObject = pSlot->GetObjectFromID(hObject);
   if (pObject == nullptr) throw p11_error(CKR_OBJECT_HANDLE_INVALID);
 
   if ((flags & CKF_RW_SESSION) == 0) throw p11_error(CKR_SESSION_READ_ONLY);
@@ -777,7 +741,7 @@ void CSession::SetAttributeValue(CK_OBJECT_HANDLE hObject,
 }
 
 void CSession::SetOperationState(ByteArray &OperationState) {
-  init_func CTLV Tlv(OperationState);
+  CTLV Tlv(OperationState);
 
   ByteArray Flags, User;
   Flags = Tlv.getValue(OS_Flags);
@@ -855,9 +819,7 @@ void CSession::SetOperationState(ByteArray &OperationState) {
 }
 
 void CSession::GetOperationState(ByteArray &OperationState) {
-  init_func
-
-      CTLVCreate Tlv;
+  CTLVCreate Tlv;
   ByteArray ba1(reinterpret_cast<BYTE *>(&flags), sizeof(flags));
   Tlv.setValue(OS_Flags, ba1);
   ByteArray ba2(reinterpret_cast<BYTE *>(&flags), sizeof(flags));

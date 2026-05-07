@@ -54,6 +54,12 @@ endif
 
 curl_dep = dependency('libcurl')
 
+# JPEG 2000 decoder for cie_read_photo (DG2 portrait decoding)
+openjp2_dep = dependency('libopenjp2', required: false)
+if openjp2_dep.found()
+  add_project_arguments('-DHAVE_LIBOPENJP2=1', language: 'cpp')
+endif
+
 # Sign SDK is available on all platforms (dependencies now built for Android too)
 build_sign_sdk = true
 
@@ -245,6 +251,7 @@ cie_pkcs11_sources = [
     'pkcs11/src/csp/pin_manager.cpp',
     'pkcs11/src/csp/cie_enable.cpp',
     'pkcs11/src/csp/cie_get_certificate.cpp',
+    'pkcs11/src/csp/cie_read_chip.cpp',
 ]
 
 # Sign-related sources (require sign SDK; skip on Android)
@@ -387,12 +394,12 @@ endif
 # Conditional link targets and dependencies based on platform
 if build_sign_sdk
   pkcs11_link_with = [libcie_sign_sdk, libcie_shared]
-  pkcs11_extra_deps = [libxml2_dep, fontconfig_dep, freetype_dep, png_dep, xml2_dep, lzma_dep]
+  pkcs11_extra_deps = [libxml2_dep, fontconfig_dep, freetype_dep, png_dep, xml2_dep, lzma_dep, openjp2_dep]
   # cie_timestamp_csp.cpp / cie_encrypt_csp.cpp need tsa_client.h from sign-sdk
   pkcs11_inc = [inc_so, include_directories('sign-sdk/include', 'sign-sdk/src')]
 else
   pkcs11_link_with = [libcie_shared]
-  pkcs11_extra_deps = []
+  pkcs11_extra_deps = [openjp2_dep]
   pkcs11_inc = [inc_so]
 endif
 

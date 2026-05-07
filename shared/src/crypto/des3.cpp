@@ -20,7 +20,7 @@
 extern CLog Log;
 
 void CDES3::Init(const ByteArray &key, const ByteArray &iv) {
-  init_func long KeySize = key.size();
+  long KeySize = key.size();
 
   switch (KeySize) {
     case 8:
@@ -34,8 +34,6 @@ void CDES3::Init(const ByteArray &key, const ByteArray &iv) {
       throw logged_error("Invalid 3DES key size");
   }
   this->iv = ByteDynArray(iv);
-
-  exit_func
 }
 
 CDES3::~CDES3(void) {}
@@ -55,11 +53,11 @@ ByteDynArray CDES3::Des3(const ByteArray &data, int encOp) {
 CDES3::CDES3(const ByteArray &key, const ByteArray &iv) { Init(key, iv); }
 
 ByteDynArray CDES3::Encode(const ByteArray &data) {
-  init_func return Des3(ISOPad(data), DES_ENCRYPT);
+  return Des3(ISOPad(data), DES_ENCRYPT);
 }
 
 ByteDynArray CDES3::RawEncode(const ByteArray &data) {
-  init_func ByteDynArray result;
+  ByteDynArray result;
   ER_ASSERT((data.size() % 8) == 0,
             "Data size to encrypt must be a multiple of 8");
 
@@ -67,13 +65,13 @@ ByteDynArray CDES3::RawEncode(const ByteArray &data) {
 }
 
 ByteDynArray CDES3::Decode(const ByteArray &data) {
-  init_func auto result = Des3(data, DES_DECRYPT);
+  auto result = Des3(data, DES_DECRYPT);
   result.resize(RemoveISOPad(result), true);
   return result;
 }
 
 ByteDynArray CDES3::RawDecode(const ByteArray &data) {
-  init_func ByteDynArray result;
+  ByteDynArray result;
   ER_ASSERT((data.size() % 8) == 0,
             "Data size to decrypt must be a multiple of 8");
 

@@ -53,6 +53,29 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
  */
 bool CacheRemove(const char *PAN);
 
+/**
+ * @brief Store the raw DER-encoded X.509 certificate for a given PAN.
+ *
+ * Writes the certificate as an unencrypted binary file (<PAN>.der).
+ * The certificate is public data so no encryption is required.
+ *
+ * @param PAN  Card Personal Account Number (cache key).
+ * @param der  Pointer to the DER certificate bytes.
+ * @param len  Length of the DER certificate in bytes.
+ */
+void CacheSetDer(const char *PAN, const uint8_t *der, size_t len);
+
+/**
+ * @brief Retrieve the raw DER-encoded X.509 certificate for a given PAN.
+ *
+ * Reads the certificate written by CacheSetDer().
+ *
+ * @param PAN          Card Personal Account Number.
+ * @param[out] certificate Buffer to receive the DER certificate bytes.
+ * @return true if the file was found and read, false otherwise.
+ */
+bool CacheGetDer(const char *PAN, std::vector<uint8_t> &certificate);
+
 #ifdef __ANDROID__
 #ifdef __cplusplus
 extern "C" {

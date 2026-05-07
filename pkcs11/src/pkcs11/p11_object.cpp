@@ -25,11 +25,11 @@ CP11Object::CP11Object(CK_OBJECT_CLASS objClass, void* TemplateData) {
 }
 
 void CP11Object::addAttribute(CK_ATTRIBUTE_TYPE type, ByteArray data) {
-  init_func attributes[type] = ByteDynArray(data);
+  attributes[type] = ByteDynArray(data);
 }
 
 ByteArray* CP11Object::getAttribute(CK_ATTRIBUTE_TYPE type) {
-  init_func AttributeMap::const_iterator pPair;
+  AttributeMap::const_iterator pPair;
   pPair = attributes.find(type);
   if (pPair == attributes.end()) {
     return nullptr;
@@ -39,9 +39,7 @@ ByteArray* CP11Object::getAttribute(CK_ATTRIBUTE_TYPE type) {
 
 CK_ULONG CP11Object::GetAttributeValue(CK_ATTRIBUTE_PTR pTemplate,
                                        CK_ULONG ulCount) {
-  init_func
-
-      bool attribInvalid = false;
+  bool attribInvalid = false;
 
   for (unsigned int i = 0; i < ulCount; i++) {
     CK_ULONG ulValLen = pTemplate[i].ulValueLen;
@@ -67,9 +65,8 @@ CK_ULONG CP11Object::GetAttributeValue(CK_ATTRIBUTE_PTR pTemplate,
 }
 
 CK_ULONG CP11Object::GetObjectSize() {
-  init_func
-      // I need to at least read it from the card to know its size
-      if (!bReadValue) {
+  // I need to at least read it from the card to know its size
+  if (!bReadValue) {
     pSlot->pTemplate->FunctionList.templateReadObjectAttributes(
         pSlot->pTemplateData, this);
   }
@@ -78,7 +75,7 @@ CK_ULONG CP11Object::GetObjectSize() {
 }
 
 void CP11Object::SetAttributes(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
-  init_func for (DWORD i = 0; i < ulCount; i++) {
+  for (DWORD i = 0; i < ulCount; i++) {
     addAttribute(pTemplate[i].type,
                  ByteArray(static_cast<BYTE*>(pTemplate[i].pValue),
                            pTemplate[i].ulValueLen));
@@ -91,14 +88,12 @@ CP11Certificate::CP11Certificate(void* TemplateData)
 
 void CP11Certificate::SetAttributes(CK_ATTRIBUTE_PTR pTemplate,
                                     CK_ULONG ulCount) {
-  init_func CP11Object::SetAttributes(pTemplate, ulCount);
+  CP11Object::SetAttributes(pTemplate, ulCount);
   bReadValue = true;
 }
 
 ByteArray* CP11Certificate::getAttribute(CK_ATTRIBUTE_TYPE type) {
-  init_func
-
-      AttributeMap::iterator it = attributes.find(type);
+  AttributeMap::iterator it = attributes.find(type);
   if (it == attributes.end() && !bReadValue) {
     pSlot->pTemplate->FunctionList.templateReadObjectAttributes(
         pSlot->pTemplateData, this);
@@ -112,7 +107,7 @@ CP11Data::CP11Data(void* TemplateData) : CP11Object(CKO_DATA, TemplateData) {
 }
 
 ByteArray* CP11Data::getAttribute(CK_ATTRIBUTE_TYPE type) {
-  init_func AttributeMap::iterator it = attributes.find(type);
+  AttributeMap::iterator it = attributes.find(type);
   if (it == attributes.end() && !bReadValue) {
     pSlot->pTemplate->FunctionList.templateReadObjectAttributes(
         pSlot->pTemplateData, this);
@@ -122,12 +117,12 @@ ByteArray* CP11Data::getAttribute(CK_ATTRIBUTE_TYPE type) {
 }
 
 void CP11Data::SetAttributes(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
-  init_func CP11Object::SetAttributes(pTemplate, ulCount);
+  CP11Object::SetAttributes(pTemplate, ulCount);
   bReadValue = true;
 }
 
 bool CP11Object::IsPrivate() {
-  init_func ByteArray* baVal = getAttribute(CKA_PRIVATE);
+  ByteArray* baVal = getAttribute(CKA_PRIVATE);
 
   if (baVal == nullptr)
     return false;
@@ -141,11 +136,9 @@ CP11PrivateKey::CP11PrivateKey(void* TemplateData)
 }
 
 ByteArray* CP11PrivateKey::getAttribute(CK_ATTRIBUTE_TYPE type) {
-  init_func
-
-      if (type == CKA_PRIME_1 || type == CKA_PRIME_2 ||
-          type == CKA_EXPONENT_1 || type == CKA_EXPONENT_2 ||
-          type == CKA_COEFFICIENT) throw p11_error(CKR_ATTRIBUTE_SENSITIVE);
+  if (type == CKA_PRIME_1 || type == CKA_PRIME_2 || type == CKA_EXPONENT_1 ||
+      type == CKA_EXPONENT_2 || type == CKA_COEFFICIENT)
+    throw p11_error(CKR_ATTRIBUTE_SENSITIVE);
 
   AttributeMap::iterator it = attributes.find(type);
   if (it == attributes.end() && !bReadValue) {
@@ -162,9 +155,7 @@ CP11PublicKey::CP11PublicKey(void* TemplateData)
 }
 
 ByteArray* CP11PublicKey::getAttribute(CK_ATTRIBUTE_TYPE type) {
-  init_func
-
-      AttributeMap::iterator it = attributes.find(type);
+  AttributeMap::iterator it = attributes.find(type);
   if (it == attributes.end() && !bReadValue) {
     pSlot->pTemplate->FunctionList.templateReadObjectAttributes(
         pSlot->pTemplateData, this);

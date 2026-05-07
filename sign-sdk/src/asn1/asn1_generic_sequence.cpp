@@ -212,7 +212,6 @@ void CASN1GenericSequence::removeElementAt(int nPos) {
   if (oldVal.size() == 0) {
     // do nothing
   } else if (nPos == 0) {
-    // elimina la prima
     int offset = m_pnOffsets[1];
 
     // copy the rest of the old val

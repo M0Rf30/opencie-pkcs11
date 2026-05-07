@@ -38,10 +38,10 @@ bool mainEnable = false;
 unsigned int GlobalCount;
 
 enum logMode {
-  LM_Single,        // un solo file
-  LM_Module,        // un file per modulo
-  LM_Thread,        // un file per thread
-  LM_Module_Thread  // un file per modulo e per thread
+  LM_Single,
+  LM_Module,
+  LM_Thread,
+  LM_Module_Thread
 } LogMode = LM_Module;
 
 void initLog(const char *moduleName, const char * /*iniFile*/,

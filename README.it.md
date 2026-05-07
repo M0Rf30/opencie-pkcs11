@@ -171,6 +171,7 @@ Containerfile     Build Linux portabile riproducibile (Ubuntu 22.04 / glibc 2.35
 | libcurl | ✓ | ✓ | ✓ | ✓ |
 | FreeType 2 | ✓ | ✓ | ✓ | ✓ |
 | libpng | ✓ | ✓ | ✓ | ✓ |
+| OpenJPEG (libopenjp2) | ✓ | ✓ | ✓ | ✓ |
 | PoDoFo ≥ 1.0 | ✓ | ✓ | ✓ | ✓ |
 | libxml2 | ✓ | ✓ | ✓ | ✓ |
 | zlib | ✓ | ✓ | ✓ | ✓ |
@@ -196,7 +197,7 @@ JNI; non vengono usati lettori smart card.
 ```bash
 sudo apt install -y \
     cmake g++ libcrypto++-dev libcurl4-openssl-dev \
-    libfontconfig1-dev libfreetype6-dev libpcsclite-dev \
+    libfontconfig1-dev libfreetype6-dev libopenjp2-7-dev libpcsclite-dev \
     libpng-dev libssl-dev libxml2-dev pkg-config
 pip install meson ninja
 
@@ -235,7 +236,7 @@ meson setup builddir-portable-${ARCH} \
 ### macOS
 
 ```bash
-brew install openssl cryptopp curl freetype libpng libxml2 podofo zlib
+brew install openssl cryptopp curl freetype libpng libxml2 openjpeg podofo zlib
 meson setup builddir
 meson compile -C builddir
 # Output: builddir/libopencie-pkcs11.dylib
@@ -247,7 +248,7 @@ Installare MinGW-w64 e [vcpkg](https://github.com/microsoft/vcpkg), poi:
 
 ```bash
 vcpkg install --triplet x64-mingw-dynamic \
-    cryptopp curl freetype libpng libxml2 openssl podofo zlib
+    cryptopp curl freetype libpng libxml2 openjpeg openssl podofo zlib
 
 PKG_CONFIG_LIBDIR=$VCPKG_ROOT/installed/x64-mingw-dynamic/lib/pkgconfig \
     meson setup builddir-win --cross-file toolchains/cross-mingw.ini
@@ -268,7 +269,7 @@ Richiede Android NDK r27c e vcpkg.
 ```bash
 # arm64-v8a
 vcpkg install --triplet arm64-android \
-    cryptopp curl freetype libpng libxml2 openssl zlib
+    cryptopp curl freetype libpng libxml2 openjpeg openssl zlib
 
 sed -i "s|/opt/android-ndk|$ANDROID_NDK_ROOT|g" toolchains/cross-android-arm64.ini
 sed -i "s|@SOURCE_ROOT@|$(pwd)|g"               toolchains/cross-android-arm64.ini

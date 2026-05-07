@@ -41,7 +41,6 @@ void SignedDataGeneratorEx::addSigners(CSignedDocument& sd) {
 
 void SignedDataGeneratorEx::addCounterSignature(
     CSignerInfo& signerInfoRef, CSignedDocument& counterSignature) {
-  // il signeddocument contiene solo un signerinfo ritornato dal webservice
   CSignerInfo signerInfoToAdd(counterSignature.getSignerInfos().elementAt(0));
 
   int size = m_signerInfos.size();
@@ -66,7 +65,6 @@ void SignedDataGeneratorEx::addCounterSignature(
 void SignedDataGeneratorEx::addCounterSignature(
     CSignerInfo& signerInfoRef, CSignedDocument& counterSignature,
     CTimeStampResponse& tsr) {
-  // il signeddocument contiene solo un signerinfo ritornato dal webservice
   CSignerInfo signerInfoToAdd(counterSignature.getSignerInfos().elementAt(0));
 
   CTimeStampToken tst(tsr.getTimeStampToken());

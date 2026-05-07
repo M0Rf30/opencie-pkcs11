@@ -30,7 +30,7 @@ jobs:
           sudo apt update;
           sudo apt install -y cmake g++ libcrypto++-dev
           libcurl4-openssl-dev libfontconfig1-dev
-          libfreetype6-dev libpcsclite-dev libpng-dev
+          libfreetype6-dev libopenjp2-7-dev libpcsclite-dev libpng-dev
           libssl-dev libxml2-dev
           pkg-config python3-pip
 
@@ -90,7 +90,7 @@ jobs:
           sudo apt update;
           sudo apt install -y cmake g++ libcrypto++-dev
           libcurl4-openssl-dev libfontconfig1-dev
-          libfreetype6-dev libpcsclite-dev libpng-dev
+          libfreetype6-dev libopenjp2-7-dev libpcsclite-dev libpng-dev
           libssl-dev libxml2-dev
           pkg-config python3-pip
 
@@ -133,7 +133,7 @@ jobs:
           sudo apt update;
           sudo apt install -y clang clang-tools cmake g++ libcrypto++-dev
           libcurl4-openssl-dev libfontconfig1-dev
-          libfreetype6-dev libpcsclite-dev libpng-dev
+          libfreetype6-dev libopenjp2-7-dev libpcsclite-dev libpng-dev
           libssl-dev libxml2-dev
           pkg-config python3-pip
 
@@ -215,6 +215,7 @@ jobs:
             libcurl4-openssl-dev:arm64 \
             libfontconfig1-dev:arm64 \
             libfreetype6-dev:arm64 \
+            libopenjp2-7-dev:arm64 \
             libpcsclite-dev:arm64 \
             libpng-dev:arm64 \
             libssl-dev:arm64 \
@@ -289,6 +290,7 @@ jobs:
             liblzma
             libpng
             libxml2
+            openjpeg
             openssl
             zlib
           triplet: x64-mingw-dynamic
@@ -347,7 +349,7 @@ jobs:
       - name: Install dependencies
         run: >
           brew install --quiet cryptopp curl fontconfig freetype
-          libpng libxml2 openssl
+          libpng libxml2 openjpeg openssl
 
       - uses: actions/setup-python@v6
         with:
@@ -420,6 +422,7 @@ jobs:
             freetype
             libpng
             libxml2
+            openjpeg
             openssl
             zlib
           triplet: arm64-android
@@ -500,6 +503,7 @@ jobs:
             freetype
             libpng
             libxml2
+            openjpeg
             openssl
             zlib
           triplet: x64-android

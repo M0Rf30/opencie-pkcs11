@@ -68,7 +68,7 @@ CSlot::CSlot(ISmartCardTransport &transport, const char *szReader)
 
 CSlot::~CSlot() { Final(); }
 
-CK_SLOT_ID CSlot::GetNewSlotID() { init_func return ++dwSlotCnt; }
+CK_SLOT_ID CSlot::GetNewSlotID() { return ++dwSlotCnt; }
 
 static DWORD slotMonitor(SlotMap *pSlotMap) {
   while (true) {
@@ -189,14 +189,14 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
 }
 
 CK_SLOT_ID CSlot::AddSlot(std::shared_ptr<CSlot> pSlot) {
-  init_func pSlot->hSlot = static_cast<CK_SLOT_ID>(pSlot->GetNewSlotID());
+  pSlot->hSlot = static_cast<CK_SLOT_ID>(pSlot->GetNewSlotID());
   auto id = pSlot->hSlot;
   g_mSlots.insert(std::make_pair(pSlot->hSlot, std::move(pSlot)));
   return id;
 }
 
 void CSlot::DeleteSlot(CK_SLOT_ID hSlotId) {
-  init_func std::shared_ptr<CSlot> pSlot = GetSlotFromID(hSlotId);
+  std::shared_ptr<CSlot> pSlot = GetSlotFromID(hSlotId);
 
   if (!pSlot) throw p11_error(CKR_SLOT_ID_INVALID);
 
@@ -205,7 +205,7 @@ void CSlot::DeleteSlot(CK_SLOT_ID hSlotId) {
 }
 
 std::shared_ptr<CSlot> CSlot::GetSlotFromReaderName(const char *name) {
-  init_func for (auto &[id, slot] : g_mSlots) {
+  for (auto &[id, slot] : g_mSlots) {
     if (strcmp(slot->szName.c_str(), name) == 0) {
       return slot;
     }
@@ -214,7 +214,7 @@ std::shared_ptr<CSlot> CSlot::GetSlotFromReaderName(const char *name) {
 }
 
 std::shared_ptr<CSlot> CSlot::GetSlotFromID(CK_SLOT_ID hSlotId) {
-  init_func auto pPair = g_mSlots.find(hSlotId);
+  auto pPair = g_mSlots.find(hSlotId);
   if (pPair == g_mSlots.end()) {
     return nullptr;
   }
@@ -222,9 +222,7 @@ std::shared_ptr<CSlot> CSlot::GetSlotFromID(CK_SLOT_ID hSlotId) {
 }
 
 void CSlot::DeleteSlotList() {
-  init_func
-
-      if (Thread.joinable()) Thread.join();
+  if (Thread.joinable()) Thread.join();
 
   for (auto &[id, slot] : CSlot::g_mSlots) {
     DeleteSlot(slot->hSlot);
@@ -235,7 +233,7 @@ void CSlot::InitSlotList(ISmartCardTransport &transport) {
   // InitSlotList must update the slot list;
   // i.e., it must add slots that weren't there before and
   // delete those that are no longer present
-  init_func bool bMapChanged = false;
+  bool bMapChanged = false;
   DWORD readersLen = 0;
 
   CCardContext Context(transport);
@@ -302,7 +300,7 @@ void CSlot::InitSlotList(ISmartCardTransport &transport) {
 }
 
 bool CSlot::IsTokenPresent() {
-  init_func SCARD_READERSTATE state;
+  SCARD_READERSTATE state;
   memset(&state, 0, sizeof(SCARD_READERSTATE));
   state.szReader = szName.c_str();
 
@@ -338,7 +336,7 @@ bool CSlot::IsTokenPresent() {
 }
 
 void CSlot::GetInfo(CK_SLOT_INFO_PTR pInfo) {
-  init_func pInfo->flags = CKF_REMOVABLE_DEVICE | CKF_HW_SLOT;
+  pInfo->flags = CKF_REMOVABLE_DEVICE | CKF_HW_SLOT;
   // verify that there is a card inserted
 
   if (IsTokenPresent()) pInfo->flags |= CKF_TOKEN_PRESENT;
@@ -361,9 +359,7 @@ void CSlot::GetInfo(CK_SLOT_INFO_PTR pInfo) {
 }
 
 void CSlot::GetTokenInfo(CK_TOKEN_INFO_PTR pInfo) {
-  init_func
-
-      if (pTemplate == nullptr) pTemplate = CCardTemplate::GetTemplate(*this);
+  if (pTemplate == nullptr) pTemplate = CCardTemplate::GetTemplate(*this);
 
   if (pTemplate == nullptr) throw p11_error(CKR_TOKEN_NOT_RECOGNIZED);
 
@@ -436,9 +432,7 @@ void CSlot::GetTokenInfo(CK_TOKEN_INFO_PTR pInfo) {
 }
 
 void CSlot::CloseAllSessions() {
-  init_func
-
-      auto it = CSession::g_mSessions.begin();
+  auto it = CSession::g_mSessions.begin();
   while (it != CSession::g_mSessions.end()) {
     if (it->second->pSlot.get() == this) {
       CSession *pSession = it->second.get();
@@ -450,7 +444,7 @@ void CSlot::CloseAllSessions() {
 }
 
 void CSlot::Init() {
-  init_func if (!bUpdated) {
+  if (!bUpdated) {
     if (pTemplate == nullptr) pTemplate = CCardTemplate::GetTemplate(*this);
 
     if (pTemplate == nullptr) throw p11_error(CKR_TOKEN_NOT_RECOGNIZED);
@@ -507,18 +501,18 @@ std::shared_ptr<CP11Object> CSlot::FindP11Object(CK_OBJECT_CLASS objClass,
 }
 
 void CSlot::AddP11Object(std::shared_ptr<CP11Object> p11obj) {
-  init_func p11obj->pSlot = this;
+  p11obj->pSlot = this;
   P11Objects.emplace_back(std::move(p11obj));
 }
 
 void CSlot::ClearP11Objects() {
-  init_func P11Objects.clear();
+  P11Objects.clear();
   ObjP11Map.clear();
   HandleP11Map.clear();
 }
 
 void CSlot::DelP11Object(const std::shared_ptr<CP11Object> &object) {
-  init_func bool bFound = false;
+  bool bFound = false;
   for (auto it = P11Objects.begin(); it != P11Objects.end(); ++it) {
     if (*it == object) {
       bFound = true;
@@ -536,10 +530,10 @@ void CSlot::DelP11Object(const std::shared_ptr<CP11Object> &object) {
   }
 }
 
-size_t CSlot::SessionCount() { init_func return dwSessionCount; }
+size_t CSlot::SessionCount() { return dwSessionCount; }
 
 size_t CSlot::RWSessionCount() {
-  init_func size_t dwRWSessCount = 0;
+  size_t dwRWSessCount = 0;
   for (auto &[handle, session] : CSession::g_mSessions) {
     if (session->pSlot.get() == this && (session->flags & CKF_RW_SESSION) != 0)
       dwRWSessCount++;
@@ -549,10 +543,8 @@ size_t CSlot::RWSessionCount() {
 
 CK_OBJECT_HANDLE CSlot::GetIDFromObject(
     const std::shared_ptr<CP11Object> &pObject) {
-  init_func
-
-      if (pObject->IsPrivate() &&
-          User != CKU_USER) throw p11_error(CKR_USER_NOT_LOGGED_IN);
+  if (pObject->IsPrivate() && User != CKU_USER)
+    throw p11_error(CKR_USER_NOT_LOGGED_IN);
 
   auto pPair = ObjP11Map.find(pObject);
   if (pPair == ObjP11Map.end()) {
@@ -569,7 +561,7 @@ CK_OBJECT_HANDLE CSlot::GetIDFromObject(
 }
 
 void CSlot::DelObjectHandle(const std::shared_ptr<CP11Object> &pObject) {
-  init_func auto pPair = ObjP11Map.find(pObject);
+  auto pPair = ObjP11Map.find(pObject);
   if (pPair != ObjP11Map.end()) {
     auto pPair2 = HandleP11Map.find(pPair->second);
     if (pPair2 != HandleP11Map.end()) HandleP11Map.erase(pPair2);
@@ -579,14 +571,14 @@ void CSlot::DelObjectHandle(const std::shared_ptr<CP11Object> &pObject) {
 
 std::shared_ptr<CP11Object> CSlot::GetObjectFromID(
     CK_OBJECT_HANDLE hObjectHandle) {
-  init_func auto pPair = HandleP11Map.find(hObjectHandle);
+  auto pPair = HandleP11Map.find(hObjectHandle);
   if (pPair == HandleP11Map.end()) return nullptr;
 
   return pPair->second;
 }
 
 void CSlot::Connect() {
-  init_func DWORD dwProtocol;
+  DWORD dwProtocol;
 
   Context.validate();
   bool retry = false;
@@ -626,9 +618,7 @@ void CSlot::Connect() {
 #endif
 
 ByteDynArray CSlot::GetATR() {
-  init_func
-
-      DWORD atrLen = 40;
+  DWORD atrLen = 40;
   char ATR[40];
   long ret = transport.GetAttrib(this->hCard, SCARD_ATTR_ATR_STRING,
                                  reinterpret_cast<uint8_t *>(ATR), &atrLen);
@@ -643,7 +633,7 @@ ByteDynArray CSlot::GetATR() {
 }
 
 void CSlot::GetATR(ByteArray &ATR) {
-  init_func if (baATR.size() != 0) {
+  if (baATR.size() != 0) {
     ATR = baATR;
     return;
   }

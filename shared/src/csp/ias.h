@@ -101,6 +101,9 @@ class IAS {
   void readfile_SM(uint16_t id, ByteDynArray &content);
   /** @brief Read an elementary file by ID (plaintext). */
   void readfile(uint16_t id, ByteDynArray &content);
+  /** @brief Read an ICAO 9303 data group using Short File Identifier (SFI)
+   *         in READ BINARY P1 (P1 = 0x80 | SFI). */
+  void readDGbySFI(uint8_t sfi, ByteDynArray &content);
 
   /** @brief Increment the Secure Messaging sequence counter. */
   static void increment(ByteArray &seq);
@@ -150,6 +153,12 @@ class IAS {
   /** @brief Read the service identifier from the card. */
   void ReadIdServizi(ByteDynArray &data);
 
+  /** @brief Read EF.DG1 (ICAO 9303 MRZ data group) via Secure Messaging. */
+  void ReadDG1(ByteDynArray &data);
+  /** @brief Read EF.DG2 (ICAO 9303 portrait photo data group) via Secure
+   * Messaging. */
+  void ReadDG2(ByteDynArray &data);
+
   /** @brief Initialize the card encryption key from cached data. */
   void InitEncKey();
   /** @brief Initialize the Diffie-Hellman parameters from the card. */
@@ -198,8 +207,6 @@ class IAS {
   static bool IsEnrolled(const char *szPAN);
   /** @brief Remove enrollment data for the given PAN from the local cache. */
   static bool Unenroll(const char *szPAN);
-  /** @brief Display the PIN unblock icon/dialog to the user. */
-  static void IconaSbloccoPIN();
 
   /** @brief Determine the digest algorithm used in the SOD signature. */
   static uint8_t GetSODDigestAlg(const ByteArray &SOD);

@@ -22,6 +22,7 @@
 #include <cryptopp/config_int.h>
 #include <cryptopp/cryptlib.h>
 #include <openssl/crypto.h>
+#include <time.h>
 
 #include <cmath>
 #include <cstdio>
@@ -42,6 +43,7 @@
 #include "pkcs11/slot.h"
 #include "sign/cie_sign.h"
 #include "sign/cie_verify.h"
+#include "util/cache_lib.h"
 #include "util/cryptopp_utils.h"
 #include "util/definitions.h"
 #include "util/module_info.h"
@@ -57,6 +59,20 @@ using namespace CryptoPP;
 #define ROLE_USER 1
 #define ROLE_ADMIN 2
 #define CARD_ALREADY_ENABLED 0x000000F0;
+
+/// Hex-encode arbitrary bytes so the result is safe as a UTF-8 string and
+/// as a filesystem filename.  Used to encode the binary EF.IdServizi PAN
+/// before passing it to the COMPLETED_CALLBACK (and ultimately to Dart).
+static std::string hexEncode(const uint8_t* data, size_t len) {
+  static const char kHex[] = "0123456789abcdef";
+  std::string out;
+  out.reserve(len * 2);
+  for (size_t i = 0; i < len; ++i) {
+    out += kHex[(data[i] >> 4) & 0xF];
+    out += kHex[data[i] & 0xF];
+  }
+  return out;
+}
 
 OID OID_SURNAME = ((OID(2) += 5) += 4) += 4;
 
@@ -225,8 +241,8 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
         LOG_INFO("cie_enable - CIE already enabled. Serial number: %s\n",
                  IdServizi2.data());
 
-        std::string sidServizi_already(
-            reinterpret_cast<char*>(IdServizi2.data()), IdServizi2.size());
+        // Use PAN.mid(5,6) — same key as IAS::IsEnrolled() / GetCertificate()
+        std::string sidServizi_already = hexEncode(ias.PAN.data() + 5, 6);
 
         completedCallBack(sidServizi_already.c_str(), "", "");
 
@@ -272,8 +288,8 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
       LONG rs =
           CardAuthenticateEx(&ias, ROLE_USER, FULL_PIN,
                              reinterpret_cast<BYTE*>(const_cast<char*>(szPIN)),
-                             static_cast<DWORD>(strnlen(szPIN, sizeof(szPIN))),
-                             nullptr, 0, progressCallBack, attempts);
+                             static_cast<DWORD>(strnlen(szPIN, 9)), nullptr, 0,
+                             progressCallBack, attempts);
       if (rs == static_cast<LONG>(SCARD_W_WRONG_CHV)) {
         LOG_ERROR("cie_enable - CardAuthenticateEx Wrong Pin");
         free(ATR);
@@ -337,9 +353,16 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
       std::string sidServizi(reinterpret_cast<char*>(IdServizi.data()),
                              IdServizi.size());
 
-      ias.SetCache(const_cast<char*>(sidServizi.c_str()), CertCIE2, pinBa);
+      // Use PAN.mid(5,6) as cache key — same as IAS::IsEnrolled() /
+      // GetCertificate() so lookups after enrollment succeed.
+      std::string span = hexEncode(ias.PAN.data() + 5, 6);
 
-      std::string span(const_cast<char*>(sidServizi.c_str()));
+      ias.SetCache(const_cast<char*>(span.c_str()), CertCIE2, pinBa);
+      // Also store the raw DER cert so cie_get_certificate() can return it
+      // without needing a live PACE session.
+      CacheSetDer(span.c_str(), CertCIE2.data(), CertCIE2.size());
+      // Zero the PIN buffer as soon as it is no longer needed.
+      OPENSSL_cleanse(pinBa.data(), pinBa.size());
       std::string name;
       std::string surname;
 
@@ -433,13 +456,17 @@ DWORD CardAuthenticateEx(IAS* ias, DWORD PinId, DWORD dwFlags, BYTE* pbPinData,
 
   progressCallBack(22, "init DH Param");
   LOG_INFO("CardAuthenticateEx - Reading DH parameters");
-
   ias->InitDHParam();
 
   progressCallBack(24, "read DappPubKey");
 
-  ByteDynArray dappData;
-  ias->ReadDappPubKey(dappData);
+  // Only read DappPubKey if not already populated by the caller (avoids a
+  // redundant SELECT FILE + chunk-read round-trip when the outer flow already
+  // called ReadDappPubKey before CardAuthenticateEx).
+  if (ias->DappPubKey.isEmpty()) {
+    ByteDynArray dappData;
+    ias->ReadDappPubKey(dappData);
+  }
 
   LOG_INFO("CardAuthenticateEx - Performing DH Exchange");
 

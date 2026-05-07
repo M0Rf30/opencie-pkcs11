@@ -284,6 +284,26 @@ CK_RV CK_ENTRY cie_decrypt(const char* inFilePath, const char* pin,
                            PROGRESS_CALLBACK progressCallBack);
 
 // ---------------------------------------------------------------------------
+// Chip data-group readers (ICAO 9303)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read DG1 (MRZ) and DG2 (portrait photo) in a single PACE session.
+ *
+ * Reads both data groups with a single DH key exchange and PIN verify.
+ * The photo is returned as PNG bytes (JPEG2000 decoded internally).
+ *
+ * @param pin       NUL-terminated 8-digit numeric PIN.
+ * @param mrzOut    Buffer for raw DG1 TLV bytes (≥ 4096 bytes recommended).
+ * @param mrzLen    In: capacity of mrzOut; out: bytes written.
+ * @param photoOut  Buffer for PNG photo bytes (≥ 524288 bytes recommended).
+ * @param photoLen  In: capacity of photoOut; out: bytes written.
+ * @return CKR_OK on success, a PKCS#11 error code otherwise.
+ */
+CK_RV CK_ENTRY cie_read_dgs(const char* pin, char* mrzOut, size_t* mrzLen,
+                            unsigned char* photoOut, size_t* photoLen);
+
+// ---------------------------------------------------------------------------
 // Low-level cryptographic helpers
 // ---------------------------------------------------------------------------
 

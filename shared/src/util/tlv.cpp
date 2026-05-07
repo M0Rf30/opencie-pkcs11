@@ -4,7 +4,7 @@
 CLog Log;
 
 CTLV::CTLV(const ByteArray &data) {
-  init_func uint32_t dwPtr = 0;
+  uint32_t dwPtr = 0;
   while (dwPtr < data.size()) {
     uint8_t btLen = data[dwPtr + 1];
     if (btLen < 255) {
@@ -19,13 +19,12 @@ CTLV::CTLV(const ByteArray &data) {
       dwPtr += dwLen + 2 + sizeof(uint32_t);
     }
   }
-  exit_func
 }
 
 CTLV::~CTLV(void) {}
 
 ByteArray *CTLV::getTAG(uint8_t Tag) {
-  init_func tlvMap::iterator it = map.find(Tag);
+  tlvMap::iterator it = map.find(Tag);
   if (it != map.end())
     return &it->second;
   else
@@ -33,7 +32,7 @@ ByteArray *CTLV::getTAG(uint8_t Tag) {
 }
 
 ByteArray CTLV::getValue(uint8_t Tag) {
-  init_func tlvMap::iterator it = map.find(Tag);
+  tlvMap::iterator it = map.find(Tag);
   if (it != map.end()) {
     if (it->second[0] < 0xFF)
       return it->second.mid(2);
@@ -48,7 +47,7 @@ CTLVCreate::CTLVCreate() {}
 CTLVCreate::~CTLVCreate(void) {}
 
 ByteDynArray *CTLVCreate::getValue(uint8_t Tag) {
-  init_func tlvCreateMap::iterator it = map.find(Tag);
+  tlvCreateMap::iterator it = map.find(Tag);
   if (it != map.end())
     return &it->second;
   else
@@ -56,16 +55,17 @@ ByteDynArray *CTLVCreate::getValue(uint8_t Tag) {
 }
 
 ByteDynArray *CTLVCreate::addValue(uint8_t Tag) {
-  init_func map[Tag].clear();
+  // cppcheck-suppress returnDanglingLifetime
+  map[Tag].clear();
   return &map[Tag];
 }
 
 void CTLVCreate::setValue(uint8_t Tag, const ByteArray &Value) {
-  init_func map[Tag] = ByteDynArray(Value);
+  map[Tag] = ByteDynArray(Value);
 }
 
 ByteDynArray CTLVCreate::getBuffer() {
-  init_func uint32_t dwSize = 0;
+  uint32_t dwSize = 0;
   tlvCreateMap::iterator it = map.begin();
   while (it != map.end()) {
     if (it->second.size() < 0xff)

@@ -20,7 +20,6 @@ std::string &CBase64::Encode(const ByteArray &data, std::string &encodedData) {
       new CryptoPP::Base64Encoder(new CryptoPP::StringSink(encoded), false));
   encodedData.append(encoded);
   return encodedData;
-  exit_func
 }
 
 ByteDynArray &CBase64::Decode(const char *encodedData, ByteDynArray &data) {
@@ -31,5 +30,4 @@ ByteDynArray &CBase64::Decode(const char *encodedData, ByteDynArray &data) {
   ByteArray decodedBa(reinterpret_cast<BYTE *>(decoded.data()), decoded.size());
   data.append(decodedBa);
   return data;
-  exit_func
 }

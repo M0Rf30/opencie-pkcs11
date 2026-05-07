@@ -41,10 +41,8 @@ ByteDynArray CAES::AES(const ByteArray &data, int encOp) {
   return perform_cipher_operation(data, encOp, cipher, AES_BLOCK_SIZE);
 }
 void CAES::Init(const ByteArray &key, const ByteArray &iv) {
-  init_func this->iv = ByteDynArray(iv);
+  this->iv = ByteDynArray(iv);
   this->key = ByteDynArray(key);
-
-  exit_func
 }
 
 CAES::CAES() {}
@@ -54,23 +52,23 @@ CAES::~CAES(void) {}
 CAES::CAES(const ByteArray &key, const ByteArray &iv) { Init(key, iv); }
 
 ByteDynArray CAES::Encode(const ByteArray &data) {
-  init_func return AES(ISOPad16(data), AES_ENCRYPT);
+  return AES(ISOPad16(data), AES_ENCRYPT);
 }
 
 ByteDynArray CAES::RawEncode(const ByteArray &data) {
-  init_func ER_ASSERT((data.size() % AES_BLOCK_SIZE) == 0,
-                      "Data size to encrypt must be a multiple of 16");
+  ER_ASSERT((data.size() % AES_BLOCK_SIZE) == 0,
+            "Data size to encrypt must be a multiple of 16");
   return AES(data, AES_ENCRYPT);
 }
 
 ByteDynArray CAES::Decode(const ByteArray &data) {
-  init_func ByteDynArray result = AES(data, AES_DECRYPT);
+  ByteDynArray result = AES(data, AES_DECRYPT);
   result.resize(RemoveISOPad(result), true);
   return result;
 }
 
 ByteDynArray CAES::RawDecode(const ByteArray &data) {
-  init_func ER_ASSERT((data.size() % AES_BLOCK_SIZE) == 0,
-                      "Data size to decrypt must be a multiple of 16");
+  ER_ASSERT((data.size() % AES_BLOCK_SIZE) == 0,
+            "Data size to decrypt must be a multiple of 16");
   return AES(data, AES_DECRYPT);
 }
