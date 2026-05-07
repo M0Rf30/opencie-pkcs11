@@ -123,8 +123,8 @@ if build_sign_sdk
       }
     endif
     podofo_opts.add_cmake_defines(podofo_cmake_defines)
-    podofo_opts.append_compile_args('cpp', '-fPIC')
-    podofo_opts.append_compile_args('c', '-fPIC')
+    podofo_opts.append_compile_args('cpp', '-fPIC', '-w')
+    podofo_opts.append_compile_args('c', '-fPIC', '-w')
 
     # Meson's cmake.subproject captures the subproject's own target include
     # directories but does not propagate INTERFACE_INCLUDE_DIRECTORIES of
@@ -262,8 +262,6 @@ if build_sign_sdk
       'pkcs11/src/csp/cie_verify_csp.cpp',
       'pkcs11/src/csp/cie_sign_csp.cpp',
       'pkcs11/src/csp/cie_timestamp_csp.cpp',
-      'pkcs11/src/csp/cie_encrypt_csp.cpp',
-      'pkcs11/src/csp/cie_decrypt_csp.cpp',
   ]
 endif
 
@@ -395,7 +393,7 @@ endif
 if build_sign_sdk
   pkcs11_link_with = [libcie_sign_sdk, libcie_shared]
   pkcs11_extra_deps = [libxml2_dep, fontconfig_dep, freetype_dep, png_dep, xml2_dep, lzma_dep, openjp2_dep]
-  # cie_timestamp_csp.cpp / cie_encrypt_csp.cpp need tsa_client.h from sign-sdk
+  # cie_timestamp_csp.cpp needs tsa_client.h from sign-sdk
   pkcs11_inc = [inc_so, include_directories('sign-sdk/include', 'sign-sdk/src')]
 else
   pkcs11_link_with = [libcie_shared]

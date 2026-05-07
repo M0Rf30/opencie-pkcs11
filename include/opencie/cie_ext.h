@@ -42,6 +42,33 @@
 typedef unsigned long CK_RV;
 #endif
 
+// Common PKCS#11 return codes — defined here so callers do not need to
+// include the full pkcs11t.h header.
+#ifndef CKR_OK
+#define CKR_OK 0x00000000UL
+#endif
+#ifndef CKR_GENERAL_ERROR
+#define CKR_GENERAL_ERROR 0x00000005UL
+#endif
+#ifndef CKR_ARGUMENTS_BAD
+#define CKR_ARGUMENTS_BAD 0x00000007UL
+#endif
+#ifndef CKR_HOST_MEMORY
+#define CKR_HOST_MEMORY 0x00000002UL
+#endif
+#ifndef CKR_FUNCTION_FAILED
+#define CKR_FUNCTION_FAILED 0x00000006UL
+#endif
+#ifndef CKR_DEVICE_ERROR
+#define CKR_DEVICE_ERROR 0x00000030UL
+#endif
+#ifndef CKR_TOKEN_NOT_PRESENT
+#define CKR_TOKEN_NOT_PRESENT 0x000000E0UL
+#endif
+#ifndef CKR_TOKEN_NOT_RECOGNIZED
+#define CKR_TOKEN_NOT_RECOGNIZED 0x000000E1UL
+#endif
+
 // ---------------------------------------------------------------------------
 // Callback typedefs
 // ---------------------------------------------------------------------------
@@ -226,7 +253,7 @@ CK_RV CK_ENTRY cie_get_certificate(const char* pan, unsigned char** outDer,
                                    unsigned long* outLen);
 
 // ---------------------------------------------------------------------------
-// Timestamp, encrypt, and decrypt functions
+// Timestamp functions
 // ---------------------------------------------------------------------------
 
 /**
@@ -248,40 +275,6 @@ CK_RV CK_ENTRY cie_timestamp(const char* inFilePath, const char* tsaUrl,
                              const char* tsaUsername, const char* tsaPassword,
                              const char* outTokenPath,
                              PROGRESS_CALLBACK progressCallBack);
-
-/**
- * Encrypt a file using the CIE card's RSA public key (RSA-OAEP / hybrid).
- *
- * Does not require the card to be present; reads the certificate from the
- * local enrolment cache. For files larger than the RSA key can encrypt
- * directly, uses AES-256-GCM with an RSA-OAEP-encrypted key.
- *
- * @param pan               PAN of the enrolled card.
- * @param inFilePath        Path to the plaintext input file.
- * @param outFilePath       Path where the encrypted output is written.
- * @param progressCallBack  Progress callback; must not be NULL.
- * @return CKR_OK on success.
- */
-CK_RV CK_ENTRY cie_encrypt(const char* pan, const char* inFilePath,
-                           const char* outFilePath,
-                           PROGRESS_CALLBACK progressCallBack);
-
-/**
- * Decrypt a file using the CIE card's RSA private key (RSA-OAEP / hybrid).
- *
- * Requires the physical card. Handles both direct RSA-OAEP and hybrid
- * AES-256-GCM+RSA-OAEP formats produced by cie_encrypt().
- *
- * @param inFilePath        Path to the encrypted input file.
- * @param pin               Card PIN (NUL-terminated).
- * @param pan               PAN of the enrolled card.
- * @param outFilePath       Path where the decrypted output is written.
- * @param progressCallBack  Progress callback; must not be NULL.
- * @return CKR_OK on success.
- */
-CK_RV CK_ENTRY cie_decrypt(const char* inFilePath, const char* pin,
-                           const char* pan, const char* outFilePath,
-                           PROGRESS_CALLBACK progressCallBack);
 
 // ---------------------------------------------------------------------------
 // Chip data-group readers (ICAO 9303)

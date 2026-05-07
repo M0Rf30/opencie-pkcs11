@@ -36,7 +36,6 @@ stacks, signing tools — can use them without any card-vendor middleware.
   12 unsupported operations return `CKR_FUNCTION_NOT_SUPPORTED`)
 - PIN management: verify, change, unblock
 - PDF signing and verification via an embedded sign SDK (PoDoFo-backed)
-- File encryption and decryption using the card's RSA key (RSA-OAEP / hybrid AES-256-GCM)
 - Standalone RFC 3161 timestamping via any TSA (no card required)
 - Portable builds with minimal glibc dependency for Linux
 - Native support on Linux, macOS, Windows, and Android (NFC transport on Android)
@@ -112,15 +111,10 @@ CK_RV cie_read_dgs       (const char *pin,
                            char *mrzOut, size_t *mrzLen,
                            unsigned char *photoOut, size_t *photoLen);
 
-// Timestamp / encrypt / decrypt
+// Timestamp
 CK_RV cie_timestamp      (const char *inFilePath, const char *tsaUrl,
                            const char *tsaUsername, const char *tsaPassword,
                            const char *outTokenPath, PROGRESS_CALLBACK);
-CK_RV cie_encrypt        (const char *pan, const char *inFilePath,
-                           const char *outFilePath, PROGRESS_CALLBACK);
-CK_RV cie_decrypt        (const char *inFilePath, const char *pin,
-                           const char *pan, const char *outFilePath,
-                           PROGRESS_CALLBACK);
 
 // Reader discovery (int return)
 int   cie_reader_count   (void);

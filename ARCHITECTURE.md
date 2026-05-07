@@ -31,7 +31,7 @@ Produces the final shared library. Implements the 69 standard `C_*` entry points
 | Subdirectory | Responsibility |
 |---|---|
 | `pkcs11/src/pkcs11/` | Slot, session, object, and mechanism management; `C_*` function dispatch |
-| `pkcs11/src/csp/` | CIE-specific operations: enrolment (`cie_enable`), certificate retrieval, PIN management, sign/verify/encrypt/decrypt CSP wrappers, standalone RFC 3161 timestamping |
+| `pkcs11/src/csp/` | CIE-specific operations: enrolment (`cie_enable`), certificate retrieval, PIN management, sign/verify/timestamp CSP wrappers, standalone RFC 3161 timestamping |
 | `pkcs11/src/sign/` | High-level `cie_sign` / `cie_verify` wrappers that delegate to `sign-sdk/` |
 | `pkcs11/src/logger/` | Internal structured logging |
 
@@ -136,40 +136,6 @@ pkcs11/pkcs11/pkcs11_functions.cpp  (dispatch table)
   │
   ▼
 pkcs11/csp/  →  shared/pcsc/  →  card
-```
-
-### Encryption (`cie_encrypt`)
-
-```
-Application
-  │  cie_encrypt(pan, inFilePath, outFilePath, ...)
-  ▼
-pkcs11/csp/cie_encrypt_csp.cpp
-  │  cie_get_certificate(pan) → AES-encrypted local cache
-  ▼
-OpenSSL: d2i_X509 → X509_get_pubkey → RSA_public_encrypt (RSA-OAEP)
-  │  Small file: direct RSA-OAEP ciphertext
-  │  Large file: RAND_bytes(aesKey, iv) → EVP AES-256-GCM → RSA-OAEP(aesKey)
-  ▼
-Output: [4B enc_key_len][enc_key][iv(12)][tag(16)][ciphertext]
-```
-
-### Decryption (`cie_decrypt`)
-
-```
-Application
-  │  cie_decrypt(inFilePath, pin, pan, outFilePath, ...)
-  ▼
-pkcs11/csp/cie_decrypt_csp.cpp
-  │  Establish PC/SC session, verify PAN matches card
-  ▼
-shared/pcsc/pcsc.cpp  →  smart card reader / Android NFC
-  │  APDU: INTERNAL AUTHENTICATE (raw RSA on ciphertext block)
-  ▼
-OpenSSL: RSA_padding_check_PKCS1_OAEP → plaintext AES key (hybrid) or data
-  │  Hybrid: EVP AES-256-GCM decrypt + tag verify
-  ▼
-Output plaintext file
 ```
 
 ### Timestamping (`cie_timestamp`)

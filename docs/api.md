@@ -251,7 +251,7 @@ CK_RV cie_extract_p7m(const char* inFilePath, const char* outFilePath);
 
 ---
 
-## Timestamp, Encrypt & Decrypt
+## Timestamp
 
 ### `cie_timestamp`
 
@@ -277,58 +277,6 @@ CK_RV cie_timestamp(const char* inFilePath,
 | `progressCallBack` | Progress callback; must not be `NULL` |
 
 **Returns:** `CKR_OK` on success, `CKR_ARGUMENTS_BAD` if required pointers are `NULL`, `CKR_FUNCTION_FAILED` on TSA error.
-
----
-
-### `cie_encrypt`
-
-Encrypt a file using the enrolled CIE card's RSA public key. Does not require the physical card.
-For files small enough to fit in one RSA block, uses direct RSA-OAEP (SHA-256).
-For larger files, generates a random AES-256 key, encrypts the file with AES-256-GCM,
-then RSA-OAEP-wraps the AES key.
-
-Output format (hybrid): `[4 bytes BE: enc_key_len][enc_key][iv(12)][tag(16)][ciphertext]`
-
-```c
-CK_RV cie_encrypt(const char* pan,
-                  const char* inFilePath,
-                  const char* outFilePath,
-                  PROGRESS_CALLBACK progressCallBack);
-```
-
-| Parameter | Description |
-|-----------|-------------|
-| `pan` | PAN of the enrolled card (used to look up the cached certificate) |
-| `inFilePath` | Path to the plaintext input file |
-| `outFilePath` | Path where the encrypted output is written |
-| `progressCallBack` | Progress callback; must not be `NULL` |
-
-**Returns:** `CKR_OK` on success, `CKR_ARGUMENTS_BAD` if required pointers are `NULL`, `CKR_FUNCTION_FAILED` on crypto error.
-
----
-
-### `cie_decrypt`
-
-Decrypt a file using the CIE card's RSA private key. Requires the physical card.
-Handles both direct RSA-OAEP and hybrid AES-256-GCM+RSA-OAEP formats produced by `cie_encrypt`.
-
-```c
-CK_RV cie_decrypt(const char* inFilePath,
-                  const char* pin,
-                  const char* pan,
-                  const char* outFilePath,
-                  PROGRESS_CALLBACK progressCallBack);
-```
-
-| Parameter | Description |
-|-----------|-------------|
-| `inFilePath` | Path to the encrypted input file |
-| `pin` | Card PIN (NUL-terminated) |
-| `pan` | PAN of the enrolled card |
-| `outFilePath` | Path where the decrypted output is written |
-| `progressCallBack` | Progress callback; must not be `NULL` |
-
-**Returns:** `CKR_OK` on success, `CKR_ARGUMENTS_BAD` if required pointers are `NULL`, `CKR_DEVICE_ERROR` on card/reader error.
 
 ---
 

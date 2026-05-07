@@ -99,15 +99,10 @@ CK_RV cie_get_sign_count (void);
 CK_RV cie_get_verify_info(int index, struct verifyInfo_t *out);
 CK_RV cie_extract_p7m    (const char *in_path, const char *out_path);
 
-// Marcatura temporale / cifratura / decifratura
+// Marcatura temporale
 CK_RV cie_timestamp      (const char *in_path, const char *tsa_url,
                            const char *tsa_user, const char *tsa_pass,
                            const char *out_token, PROGRESS_CALLBACK);
-CK_RV cie_encrypt        (const char *pan, const char *in_path,
-                           const char *out_path, PROGRESS_CALLBACK);
-CK_RV cie_decrypt        (const char *in_path, const char *pin,
-                           const char *pan, const char *out_path,
-                           PROGRESS_CALLBACK);
 
 // Rilevamento lettori (ritorno int)
 int cie_reader_count (void);

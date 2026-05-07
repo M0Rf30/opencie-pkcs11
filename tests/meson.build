@@ -14,7 +14,6 @@ test_sources = [
     'test_util.cpp',
     'test_properties.cpp',
     'test_ini_settings.cpp',
-    'test_cie_ext_api.cpp',
 ]
 
 # Sources needed by tests (no PCSC/hardware deps)

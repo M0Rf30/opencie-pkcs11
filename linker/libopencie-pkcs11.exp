@@ -91,5 +91,3 @@ _cie_reader_name
 _cie_get_certificate
 _cie_read_dgs
 _cie_timestamp
-_cie_encrypt
-_cie_decrypt

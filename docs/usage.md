@@ -137,9 +137,7 @@ if (rv == CKR_OK) {
 
 ---
 
-## 7. Timestamp, Encrypt & Decrypt
-
-### Timestamp a file
+## 7. Timestamp a File
 
 ```c
 static CK_RV on_progress(int p, const char* msg) {
@@ -152,30 +150,6 @@ CK_RV rv = cie_timestamp(
     "https://freetsa.org/tsr",         // TSA endpoint
     NULL, NULL,                        // no HTTP auth
     "document.pdf.tst",                // output token path
-    on_progress
-);
-```
-
-### Encrypt a file (no card needed)
-
-```c
-// Reads the certificate from the local enrolment cache.
-CK_RV rv = cie_encrypt(
-    "1234567890123456",   // PAN of the enrolled card
-    "secret.txt",         // plaintext input
-    "secret.txt.enc",     // encrypted output
-    on_progress
-);
-```
-
-### Decrypt a file (card required)
-
-```c
-CK_RV rv = cie_decrypt(
-    "secret.txt.enc",     // encrypted input
-    "12345678",           // card PIN
-    "1234567890123456",   // PAN
-    "secret.txt",         // decrypted output
     on_progress
 );
 ```
