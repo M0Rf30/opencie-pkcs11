@@ -182,7 +182,12 @@ void PutPaddingBT2(ByteArray &ba, unsigned long dwLen) {
 
   ba[0] = 0;
   ba[1] = 2;
-  ba.mid(2, ba.size() - dwLen - 3).random();
+  // RFC 8017 §7.2.1: the PS padding string must consist of NONZERO random
+  // bytes — a zero byte would act as a premature data separator.
+  ByteArray ps = ba.mid(2, ba.size() - dwLen - 3);
+  ps.random();
+  for (size_t i = 0; i < ps.size(); i++)
+    while (ps[i] == 0) ps.mid(i, 1).random();
   ba[ba.size() - dwLen - 1] = 0;
 }
 

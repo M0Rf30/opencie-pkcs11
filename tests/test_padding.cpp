@@ -74,6 +74,29 @@ TEST_CASE("RemovePaddingBT2 throws on wrong block type", "[padding][pkcs1]") {
   CHECK_THROWS(RemovePaddingBT2(ba));
 }
 
+TEST_CASE("PutPaddingBT2 PS bytes are all nonzero (RFC 8017 7.2.1)",
+          "[padding][pkcs1]") {
+  // Large PS region: with plain RAND_bytes a zero byte would appear with
+  // probability ~63% per run, so iterate to make regressions deterministic.
+  for (int run = 0; run < 8; run++) {
+    ByteDynArray ba(259);
+    uint8_t data[] = {0xAA, 0xBB, 0xCC};
+    ByteArray bdata(data, 3);
+    ba.right(3).copy(bdata);
+    PutPaddingBT2(ba, 3);
+
+    CHECK(ba[0] == 0x00);
+    CHECK(ba[1] == 0x02);
+    CHECK(ba[ba.size() - 4] == 0x00);  // separator
+    bool psHasZero = false;
+    for (size_t i = 2; i < ba.size() - 4; i++)
+      if (ba[i] == 0) psHasZero = true;
+    CHECK_FALSE(psHasZero);
+    // RemovePaddingBT2 must find the separator exactly before the data
+    CHECK(RemovePaddingBT2(ba) == ba.size() - 3);
+  }
+}
+
 // ── RemoveISOPad
 // ──────────────────────────────────────────────────────────────
 
