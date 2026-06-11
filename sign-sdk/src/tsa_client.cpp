@@ -39,7 +39,14 @@ void CTSAClient::SetPassword(const char* szPassword) {
 
 long CTSAClient::GetTimeStampToken(ByteDynArray& digest, const char* szPolicyID,
                                    CTimeStampToken** ppTimeStampToken) {
-  CASN1Integer nounce(1);
+  // RFC 3161 nonce: random 64-bit value so each request is unique and the
+  // response can be bound to it (replay protection). Constrain the first
+  // byte to [0x01, 0x7f] to keep the DER INTEGER positive and minimal.
+  ByteDynArray nonceBytes(8);
+  nonceBytes.random();
+  nonceBytes[0] = (nonceBytes[0] & 0x7f) | 0x01;
+  CASN1Integer nounce(nonceBytes.data(),
+                      static_cast<unsigned int>(nonceBytes.size()));
   CTimeStampRequest request(szSHA256OID, digest, szPolicyID, nounce);
 
   ByteDynArray tsaRequest;
@@ -73,12 +80,15 @@ long CTSAClient::GetTimeStampToken(ByteDynArray& digest, const char* szPolicyID,
   // we pass our 'chunk' struct to the callback function
   curl_easy_setopt(ctx, CURLOPT_WRITEDATA, static_cast<void*>(&tsdata));
 
-  curl_easy_setopt(ctx, CURLOPT_SSL_VERIFYPEER, false);
-  curl_easy_setopt(ctx, CURLOPT_SSL_VERIFYHOST, false);
+  // TLS server certificate verification is intentionally left at libcurl's
+  // secure defaults (CURLOPT_SSL_VERIFYPEER/VERIFYHOST enabled).
 
 #ifdef __ANDROID__
   curl_easy_setopt(ctx, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
   curl_easy_setopt(ctx, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+  // vcpkg-built curl+OpenSSL has no baked-in CA bundle on Android: point it
+  // at the system CA store (OpenSSL hashed-dir format) so verification works.
+  curl_easy_setopt(ctx, CURLOPT_CAPATH, "/system/etc/security/cacerts");
 #endif
 
   struct curl_slist* resolve_list = nullptr;

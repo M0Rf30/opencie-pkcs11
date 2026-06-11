@@ -777,11 +777,15 @@ long HTTPRequest(const ByteDynArray& data, const char* szUrl,
   // set URL
   curl_easy_setopt(ctx, CURLOPT_URL, szUrl);
 
-  curl_easy_setopt(ctx, CURLOPT_SSL_VERIFYPEER, false);
+  // TLS server certificate verification is intentionally left at libcurl's
+  // secure defaults (CURLOPT_SSL_VERIFYPEER/VERIFYHOST enabled).
 
 #ifdef __ANDROID__
   curl_easy_setopt(ctx, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
   curl_easy_setopt(ctx, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+  // vcpkg-built curl+OpenSSL has no baked-in CA bundle on Android: point it
+  // at the system CA store (OpenSSL hashed-dir format) so verification works.
+  curl_easy_setopt(ctx, CURLOPT_CAPATH, "/system/etc/security/cacerts");
 #endif
 
   struct curl_slist* resolve_list = nullptr;
