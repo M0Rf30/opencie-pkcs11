@@ -1,4 +1,8 @@
-catch2_dep = dependency('catch2-with-main', fallback: ['catch2', 'catch2_with_main_dep'])
+catch2_dep = dependency(
+    'catch2-with-main',
+    fallback: ['catch2', 'catch2_with_main_dep'],
+    default_options: ['tests=false'],
+)
 
 test_inc = include_directories('../shared/src/', '../pkcs11/src/', '../include')
 
