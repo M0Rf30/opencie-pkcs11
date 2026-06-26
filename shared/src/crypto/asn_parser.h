@@ -65,10 +65,10 @@ class CASNTag {
   /**
    * @brief Accesses a child tag by index, verifying its tag value.
    * @param num Zero-based child index.
-   * @param tag Expected tag byte value.
+   * @param expectedTag Expected tag byte value.
    * @return Reference to the matching child CASNTag.
    */
-  CASNTag &Child(std::size_t num, uint8_t tag);
+  CASNTag &Child(std::size_t num, uint8_t expectedTag);
 
   /**
    * @brief Verifies that the tag content matches the expected bytes.
@@ -124,10 +124,10 @@ class CASNParser {
   /**
    * @brief Parses DER-encoded data into the specified tag array.
    * @param data Input byte array containing DER-encoded data.
-   * @param tags Output tag array to populate.
+   * @param outTags Output tag array to populate.
    * @param startseq Starting byte offset for position tracking.
    */
-  void Parse(const ByteArray &data, CASNTagArray &tags, size_t startseq);
+  void Parse(const ByteArray &data, CASNTagArray &outTags, size_t startseq);
 
   CASNTagArray tags;  ///< Parsed ASN.1 tag tree.
 

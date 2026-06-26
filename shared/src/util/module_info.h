@@ -48,7 +48,7 @@ class CModuleInfo {
 
   /**
    * @brief Initialize with a module handle and resolve paths.
-   * @param module Platform-specific module handle.
+   * @param moduleHandle Platform-specific module handle.
    */
-  void init(HANDLE module);
+  void init(HANDLE moduleHandle);
 };

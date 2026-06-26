@@ -122,6 +122,15 @@ if build_sign_sdk
         'LibXml2_ROOT': cmake_prefix,
       }
     endif
+    # PoDoFo 1.1.1 makes Fontconfig a hard requirement of the font search
+    # mechanism (find_package(Fontconfig REQUIRED)). The Windows (mingw) and
+    # Android cross targets don't ship fontconfig, and pulling it via vcpkg
+    # drags in a host gperf/autotools chain unavailable on the CI runners.
+    # Disable the font manager for these targets; SearchFont() stays available
+    # and simply returns null when no search backend is compiled in.
+    if host_machine.system() == 'windows' or host_machine.system() == 'android'
+      podofo_cmake_defines += {'PODOFO_WITH_FONTMANAGER': false}
+    endif
     podofo_opts.add_cmake_defines(podofo_cmake_defines)
     podofo_opts.append_compile_args('cpp', '-fPIC', '-w')
     podofo_opts.append_compile_args('c', '-fPIC', '-w')

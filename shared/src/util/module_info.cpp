@@ -13,10 +13,10 @@ HANDLE CModuleInfo::getApplicationModule() {
   return (HANDLE)GetModuleHandle(nullptr);
 }
 
-void CModuleInfo::init(HANDLE module) {
-  this->module = module;
+void CModuleInfo::init(HANDLE moduleHandle) {
+  this->module = moduleHandle;
   char path[MAX_PATH];
-  if (GetModuleFileName((HMODULE)module, path, MAX_PATH) == 0)
+  if (GetModuleFileName((HMODULE)moduleHandle, path, MAX_PATH) == 0)
     throw windows_error(GetLastError());
 
   szModuleFullPath = path;
@@ -33,7 +33,7 @@ void CModuleInfo::init(HANDLE module) {
 
 HANDLE CModuleInfo::getApplicationModule() { return 0; }
 
-void CModuleInfo::init(HANDLE module) { this->module = module; }
+void CModuleInfo::init(HANDLE moduleHandle) { this->module = moduleHandle; }
 
 #endif  // _WIN32
 

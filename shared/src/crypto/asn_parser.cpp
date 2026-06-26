@@ -112,10 +112,10 @@ void CASNTag::Encode(ByteArray &data, size_t &len) {
   }
 }
 
-CASNTag &CASNTag::Child(std::size_t num, uint8_t tag) {
+CASNTag &CASNTag::Child(std::size_t num, uint8_t expectedTag) {
   if (num >= tags.size())
     throw logged_error("ASN.1 structure verification error");
-  if (tags[num]->tag.size() == 1 && tags[num]->tag[0] == tag)
+  if (tags[num]->tag.size() == 1 && tags[num]->tag[0] == expectedTag)
     return *tags[num];
   else
     throw logged_error("ASN.1 tag verification error");
@@ -165,7 +165,7 @@ void CASNParser::Parse(const ByteArray &data) {
   Parse(data, tags, 0);
 }
 
-void CASNParser::Parse(const ByteArray &data, CASNTagArray &tags,
+void CASNParser::Parse(const ByteArray &data, CASNTagArray &outTags,
                        size_t startseq) {
   init_func size_t l = 0;
   uint8_t *cur = data.data();
@@ -223,6 +223,6 @@ void CASNParser::Parse(const ByteArray &data, CASNTagArray &tags,
     l += len + llen + 1;
     cur += len + llen + 1;
     tag->endPos = tag->startPos + len + llen + 1;
-    tags.emplace_back(std::move(tag));
+    outTags.emplace_back(std::move(tag));
   }
 }
