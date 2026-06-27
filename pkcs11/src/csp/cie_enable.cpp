@@ -654,7 +654,10 @@ DWORD WINAPI mythread(LPVOID thr_data) {
   return 0;
 }
 #else
-void mythread(std::string cmd) { system(cmd.c_str()); }
+void mythread(std::string cmd) {
+  int rc = system(cmd.c_str());
+  (void)rc;
+}
 #endif
 
 int sendMessage(const char* szCommand, const char* /*szParam*/) {
