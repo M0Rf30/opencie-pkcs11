@@ -10,11 +10,6 @@
 #define CACHE_LOG(fmt, ...)
 #elif defined(__ANDROID__)
 #include <android/log.h>
-#include <cryptopp/aes.h>
-#include <cryptopp/filters.h>
-#include <cryptopp/misc.h>
-#include <cryptopp/modes.h>
-#include <cryptopp/sha.h>
 #include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -29,33 +24,20 @@ extern "C" __attribute__((visibility("default"))) void cie_set_data_dir(
   CACHE_LOG("cie_set_data_dir: %s", g_cie_data_dir.c_str());
 }
 #else
-#include <cryptopp/aes.h>
-#include <cryptopp/filters.h>
-#include <cryptopp/misc.h>
-#include <cryptopp/modes.h>
-#include <cryptopp/sha.h>
 #include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #define CACHE_LOG(fmt, ...)
 #endif
 
+#include <cstring>
 #include <fstream>
 #include <regex>
 #include <string>
 #include <vector>
 
+#include "crypto/crypto_util.h"
 #include "util/util.h"
-
-#ifndef _WIN32
-#include "keys.h"
-#endif
-
-#ifndef _WIN32
-using namespace CryptoPP;
-
-int decrypt(const std::string &ciphertext, std::string &message);
-#endif
 
 /// This PIN and certificate cache implementation is provided for demonstration
 /// purposes only. This version does NOT adequately protect the user's PIN,
@@ -171,44 +153,20 @@ void CacheSetDer(const char *PAN, const uint8_t *der, size_t len) {
   std::string sPath;
   GetDerPath(PAN, sPath);
 
-#ifdef _WIN32
-  std::ofstream file(sPath.c_str(), std::ofstream::out | std::ofstream::binary);
-  if (!file) throw logged_error("CacheSetDer: cannot open file for writing");
-  uint32_t certlen = static_cast<uint32_t>(len);
-  file.write(reinterpret_cast<const char *>(&certlen), sizeof(certlen));
-  file.write(reinterpret_cast<const char *>(der),
-             static_cast<std::streamsize>(len));
-#else
-  // Encrypt with the same static AES-CBC key used by CacheSetData so the
+  // Encrypt with the same key/format used by CacheSetData so the
   // certificate is not stored in plaintext (consistent with existing cache).
-  byte key[CryptoPP::AES::DEFAULT_KEYLENGTH], iv[CryptoPP::AES::BLOCKSIZE];
-  memset(key, 0x00, CryptoPP::AES::DEFAULT_KEYLENGTH);
-  memset(iv, 0x00, CryptoPP::AES::BLOCKSIZE);
-
-  std::string enckey = ENCRYPTION_KEY;
-  byte digest[SHA1::DIGESTSIZE];
-  SHA1().CalculateDigest(digest, reinterpret_cast<const byte *>(enckey.c_str()),
-                         enckey.length());
-  memcpy(key, digest, CryptoPP::AES::DEFAULT_KEYLENGTH);
-
   uint32_t certlen = static_cast<uint32_t>(len);
+  std::string plaintext;
+  plaintext.append(reinterpret_cast<const char *>(&certlen), sizeof(certlen));
+  plaintext.append(reinterpret_cast<const char *>(der), len);
+
   std::string ciphertext;
-  CryptoPP::AES::Encryption aesEncryption(key,
-                                          CryptoPP::AES::DEFAULT_KEYLENGTH);
-  CryptoPP::CBC_Mode_ExternalCipher::Encryption cbcEncryption(aesEncryption,
-                                                              iv);
-  CryptoPP::StreamTransformationFilter stfEncryptor(
-      cbcEncryption, new CryptoPP::StringSink(ciphertext));
-  stfEncryptor.Put(reinterpret_cast<const unsigned char *>(&certlen),
-                   sizeof(certlen));
-  stfEncryptor.Put(reinterpret_cast<const unsigned char *>(der),
-                   static_cast<size_t>(len));
-  stfEncryptor.MessageEnd();
+  encrypt(plaintext, ciphertext);
+  OPENSSL_cleanse(plaintext.data(), plaintext.size());
 
   std::ofstream file(sPath.c_str(), std::ofstream::out | std::ofstream::binary);
   if (!file) throw logged_error("CacheSetDer: cannot open file for writing");
   file.write(ciphertext.c_str(), ciphertext.length());
-#endif
   file.close();
 }
 
@@ -225,12 +183,6 @@ bool CacheGetDer(const char *PAN, std::vector<uint8_t> &certificate) {
     data.load(sPath.c_str());
     if (data.isEmpty()) return false;
 
-#ifdef _WIN32
-    uint8_t *ptr = data.data();
-    uint32_t len = *reinterpret_cast<uint32_t *>(ptr);
-    ptr += sizeof(uint32_t);
-    certificate.assign(ptr, ptr + len);
-#else
     std::string ciphertext(reinterpret_cast<const char *>(data.data()),
                            data.size());
     std::string plaintext;
@@ -238,10 +190,10 @@ bool CacheGetDer(const char *PAN, std::vector<uint8_t> &certificate) {
 
     uint8_t *ptr =
         reinterpret_cast<uint8_t *>(const_cast<char *>(plaintext.c_str()));
-    uint32_t len = *reinterpret_cast<uint32_t *>(ptr);
-    ptr += sizeof(uint32_t);
+    uint32_t len;
+    memcpy(&len, ptr, sizeof(len));
+    ptr += sizeof(len);
     certificate.assign(ptr, ptr + len);
-#endif
     return true;
   } catch (...) {
     return false;
@@ -258,25 +210,22 @@ void CacheGetCertificate(const char *PAN, std::vector<uint8_t> &certificate) {
     ByteDynArray data, Cert;
     data.load(sPath.c_str());
 
-#ifdef _WIN32
-    uint8_t *ptr = data.data();
-#else
     std::string ciphertext(reinterpret_cast<const char *>(data.data()),
                            data.size());
     std::string plaintext;
-
-    decrypt(ciphertext, plaintext);
+    if (decrypt(ciphertext, plaintext) != 0)
+      throw logged_error("CacheGetCertificate: failed to decrypt cache");
 
     uint8_t *ptr =
         reinterpret_cast<uint8_t *>(const_cast<char *>(plaintext.c_str()));
-#endif
 
-    uint32_t len = *reinterpret_cast<uint32_t *>(ptr);
-    ptr += sizeof(uint32_t);
+    uint32_t len;
+    memcpy(&len, ptr, sizeof(len));
+    ptr += sizeof(len);
     // salto il PIN
     ptr += len;
-    len = *reinterpret_cast<uint32_t *>(ptr);
-    ptr += sizeof(uint32_t);
+    memcpy(&len, ptr, sizeof(len));
+    ptr += sizeof(len);
     Cert.resize(len);
     Cert.copy(ByteArray(ptr, len));
 
@@ -297,20 +246,17 @@ void CacheGetPIN(const char *PAN, std::vector<uint8_t> &PIN) {
     ByteDynArray data, ClearPIN;
     data.load(sPath.c_str());
 
-#ifdef _WIN32
-    uint8_t *ptr = data.data();
-#else
     std::string ciphertext(reinterpret_cast<const char *>(data.data()),
                            data.size());
     std::string plaintext;
-
-    decrypt(ciphertext, plaintext);
+    if (decrypt(ciphertext, plaintext) != 0)
+      throw logged_error("CacheGetPIN: failed to decrypt cache");
 
     uint8_t *ptr =
         reinterpret_cast<uint8_t *>(const_cast<char *>(plaintext.c_str()));
-#endif
-    uint32_t len = *reinterpret_cast<uint32_t *>(ptr);
-    ptr += sizeof(uint32_t);
+    uint32_t len;
+    memcpy(&len, ptr, sizeof(len));
+    ptr += sizeof(len);
     ClearPIN.resize(len);
     ClearPIN.copy(ByteArray(ptr, len));
 
@@ -334,55 +280,8 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
   if (!PathFileExists(chDir)) {
     CreateDirectory(chDir, nullptr);
 
-    if (IsWindows8OrGreater()) {
-      PACL pOldDACL = nullptr, pNewDACL = nullptr;
-      PSECURITY_DESCRIPTOR pSD = nullptr;
-      EXPLICIT_ACCESS ea;
-      SECURITY_INFORMATION si = DACL_SECURITY_INFORMATION;
-
-      DWORD dwRes =
-          GetNamedSecurityInfo(chDir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
-                               nullptr, nullptr, &pOldDACL, nullptr, &pSD);
-      if (dwRes != ERROR_SUCCESS)
-        throw logged_error("Unable to activate CIE in the current process");
-
-      PSID TheSID = nullptr;
-      DWORD SidSize = SECURITY_MAX_SID_SIZE;
-      if (!(TheSID = LocalAlloc(LMEM_FIXED, SidSize))) {
-        if (pSD != nullptr) LocalFree((HLOCAL)pSD);
-        throw logged_error("Unable to activate CIE in the current process");
-      }
-
-      if (!CreateWellKnownSid(WinBuiltinAnyPackageSid, nullptr, TheSID,
-                              &SidSize)) {
-        if (TheSID != nullptr) LocalFree((HLOCAL)TheSID);
-        if (pSD != nullptr) LocalFree((HLOCAL)pSD);
-        throw logged_error("Unable to activate CIE in the current process");
-      }
-
-      ZeroMemory(&ea, sizeof(EXPLICIT_ACCESS));
-      ea.grfAccessPermissions = GENERIC_READ;
-      ea.grfAccessMode = SET_ACCESS;
-      ea.grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
-      ea.Trustee.TrusteeForm = TRUSTEE_IS_SID;
-      ea.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
-      ea.Trustee.ptstrName = (LPSTR)TheSID;
-
-      if (SetEntriesInAcl(1, &ea, pOldDACL, &pNewDACL) != ERROR_SUCCESS) {
-        if (TheSID != nullptr) LocalFree((HLOCAL)TheSID);
-        if (pSD != nullptr) LocalFree((HLOCAL)pSD);
-        if (pNewDACL != nullptr) LocalFree((HLOCAL)pNewDACL);
-        throw logged_error("Unable to activate CIE in the current process");
-      }
-
-      if (SetNamedSecurityInfo(chDir, SE_FILE_OBJECT, si, nullptr, nullptr,
-                               pNewDACL, nullptr) != ERROR_SUCCESS) {
-        if (pNewDACL != nullptr) LocalFree((HLOCAL)pNewDACL);
-        if (TheSID != nullptr) LocalFree((HLOCAL)TheSID);
-        if (pSD != nullptr) LocalFree((HLOCAL)pSD);
-        throw logged_error("Unable to activate CIE in the current process");
-      }
-    }
+    // Default ACL inherited from user profile is sufficient.
+    // Do NOT widen access to WinBuiltinAnyPackageSid.
   }
 #else
   struct stat st {};
@@ -398,55 +297,25 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
   ByteArray baCertificate(certificate, certificateSize);
   ByteArray baFirstPIN(FirstPIN, FirstPINSize);
 
-#ifdef _WIN32
-  std::ofstream file(sPath.c_str(), std::ofstream::out | std::ofstream::binary);
-
-  uint32_t len = (uint32_t)baFirstPIN.size();
-  file.write(reinterpret_cast<char *>(&len), sizeof(len));
-  file.write(reinterpret_cast<char *>(baFirstPIN.data()), len);
-
-  len = (uint32_t)baCertificate.size();
-  file.write(reinterpret_cast<char *>(&len), sizeof(len));
-  file.write(reinterpret_cast<char *>(baCertificate.data()), len);
-#else
+  // Build plaintext as [pinlen][pin][certlen][cert] and encrypt the whole
+  // buffer so the on-disk cache never holds the PIN or certificate in the
+  // clear, on any platform.
   uint32_t pinlen = static_cast<uint32_t>(baFirstPIN.size());
   uint32_t certlen = static_cast<uint32_t>(baCertificate.size());
 
-  byte key[CryptoPP::AES::DEFAULT_KEYLENGTH], iv[CryptoPP::AES::BLOCKSIZE];
-  memset(key, 0x00, CryptoPP::AES::DEFAULT_KEYLENGTH);
-  memset(iv, 0x00, CryptoPP::AES::BLOCKSIZE);
+  std::string plaintext;
+  plaintext.append(reinterpret_cast<const char *>(&pinlen), sizeof(pinlen));
+  plaintext.append(reinterpret_cast<const char *>(baFirstPIN.data()), pinlen);
+  plaintext.append(reinterpret_cast<const char *>(&certlen), sizeof(certlen));
+  plaintext.append(reinterpret_cast<const char *>(baCertificate.data()),
+                   certlen);
 
   std::string ciphertext;
-  std::string enckey = ENCRYPTION_KEY;
-
-  byte digest[SHA1::DIGESTSIZE];
-  SHA1().CalculateDigest(digest, reinterpret_cast<const byte *>(enckey.c_str()),
-                         enckey.length());
-  memcpy(key, digest, CryptoPP::AES::DEFAULT_KEYLENGTH);
-  //
-  // Create Cipher Text
-  //
-  CryptoPP::AES::Encryption aesEncryption(key,
-                                          CryptoPP::AES::DEFAULT_KEYLENGTH);
-  CryptoPP::CBC_Mode_ExternalCipher::Encryption cbcEncryption(aesEncryption,
-                                                              iv);
-
-  CryptoPP::StreamTransformationFilter stfEncryptor(
-      cbcEncryption, new CryptoPP::StringSink(ciphertext));
-  stfEncryptor.Put(reinterpret_cast<const unsigned char *>(&pinlen),
-                   sizeof(pinlen));
-  stfEncryptor.Put(reinterpret_cast<const unsigned char *>(baFirstPIN.data()),
-                   pinlen);
-
-  stfEncryptor.Put(reinterpret_cast<const unsigned char *>(&certlen),
-                   sizeof(certlen));
-  stfEncryptor.Put(
-      reinterpret_cast<const unsigned char *>(baCertificate.data()), certlen);
-
-  stfEncryptor.MessageEnd();
+  encrypt(plaintext, ciphertext);
+  OPENSSL_cleanse(plaintext.data(), plaintext.size());
 
   std::ofstream file(sPath.c_str(), std::ofstream::out | std::ofstream::binary);
+  if (!file) throw logged_error("CacheSetData: cannot open file for writing");
   file.write(ciphertext.c_str(), ciphertext.length());
   file.close();
-#endif
 }

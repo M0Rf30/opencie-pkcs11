@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <vector>
 
 #include "logger/logger.h"
 #include "pkcs11/card_template.h"
@@ -1027,8 +1028,9 @@ CK_RV CK_ENTRY C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType,
     if (userType != CKU_SO && userType != CKU_USER)
       throw p11_error(CKR_USER_TYPE_INVALID);
 
-    pSession->Login(userType, pPin, ulPinLen);
-    OPENSSL_cleanse(pPin, ulPinLen);
+    std::vector<CK_BYTE> pinCopy(pPin, pPin + ulPinLen);
+    pSession->Login(userType, pinCopy.data(), pinCopy.size());
+    OPENSSL_cleanse(pinCopy.data(), pinCopy.size());
 
     return CKR_OK;
   });
@@ -1494,9 +1496,10 @@ CK_RV CK_ENTRY C_InitPIN(CK_SESSION_HANDLE hSession, CK_CHAR_PTR pPin,
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
-    ByteArray input(pPin, ulPinLen);
+    std::vector<CK_BYTE> pinCopy(pPin, pPin + ulPinLen);
+    ByteArray input(pinCopy.data(), pinCopy.size());
     pSession->InitPIN(input);
-    OPENSSL_cleanse(pPin, ulPinLen);
+    OPENSSL_cleanse(pinCopy.data(), pinCopy.size());
 
     return CKR_OK;
   });
@@ -1517,11 +1520,13 @@ CK_RV CK_ENTRY C_SetPIN(CK_SESSION_HANDLE hSession, CK_CHAR_PTR pOldPin,
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
-    ByteArray inputOld(pOldPin, ulOldLen);
-    ByteArray inputNew(pNewPin, ulNewLen);
+    std::vector<CK_BYTE> oldCopy(pOldPin, pOldPin + ulOldLen);
+    std::vector<CK_BYTE> newCopy(pNewPin, pNewPin + ulNewLen);
+    ByteArray inputOld(oldCopy.data(), oldCopy.size());
+    ByteArray inputNew(newCopy.data(), newCopy.size());
     pSession->SetPIN(inputOld, inputNew);
-    OPENSSL_cleanse(pOldPin, ulOldLen);
-    OPENSSL_cleanse(pNewPin, ulNewLen);
+    OPENSSL_cleanse(oldCopy.data(), oldCopy.size());
+    OPENSSL_cleanse(newCopy.data(), newCopy.size());
 
     return CKR_OK;
   });
