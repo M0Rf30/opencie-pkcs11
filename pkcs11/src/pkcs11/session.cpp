@@ -11,6 +11,8 @@
 
 #include <openssl/crypto.h>
 
+#include <utility>
+
 #include "crypto/rsa.h"
 #include "pkcs11/card_template.h"
 #include "util/tlv.h"

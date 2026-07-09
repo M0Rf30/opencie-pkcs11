@@ -65,6 +65,19 @@ CK_RV pkcs11_guard(const char *funcName, F &&func) {
   }
 }
 
+// RAII helper: cleanses a PIN copy buffer on all exit paths, including
+// exceptions (e.g. CKR_PIN_INCORRECT thrown mid-operation). Mirrors the
+// cleanse-on-every-exit-path pattern used in pin_manager.cpp.
+struct PinCleanser {
+  explicit PinCleanser(std::vector<CK_BYTE> &buf) : buf_(buf) {}
+  ~PinCleanser() { OPENSSL_cleanse(buf_.data(), buf_.size()); }
+  PinCleanser(const PinCleanser &) = delete;
+  PinCleanser &operator=(const PinCleanser &) = delete;
+
+ private:
+  std::vector<CK_BYTE> &buf_;
+};
+
 std::mutex p11Mutex;
 auto_reset_event p11slotEvent /*("CardOS_P11_Event")*/;
 
@@ -1029,8 +1042,8 @@ CK_RV CK_ENTRY C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType,
       throw p11_error(CKR_USER_TYPE_INVALID);
 
     std::vector<CK_BYTE> pinCopy(pPin, pPin + ulPinLen);
+    PinCleanser pinCleanser(pinCopy);
     pSession->Login(userType, pinCopy.data(), pinCopy.size());
-    OPENSSL_cleanse(pinCopy.data(), pinCopy.size());
 
     return CKR_OK;
   });
@@ -1497,9 +1510,9 @@ CK_RV CK_ENTRY C_InitPIN(CK_SESSION_HANDLE hSession, CK_CHAR_PTR pPin,
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
     std::vector<CK_BYTE> pinCopy(pPin, pPin + ulPinLen);
+    PinCleanser pinCleanser(pinCopy);
     ByteArray input(pinCopy.data(), pinCopy.size());
     pSession->InitPIN(input);
-    OPENSSL_cleanse(pinCopy.data(), pinCopy.size());
 
     return CKR_OK;
   });
@@ -1522,11 +1535,11 @@ CK_RV CK_ENTRY C_SetPIN(CK_SESSION_HANDLE hSession, CK_CHAR_PTR pOldPin,
 
     std::vector<CK_BYTE> oldCopy(pOldPin, pOldPin + ulOldLen);
     std::vector<CK_BYTE> newCopy(pNewPin, pNewPin + ulNewLen);
+    PinCleanser oldCleanser(oldCopy);
+    PinCleanser newCleanser(newCopy);
     ByteArray inputOld(oldCopy.data(), oldCopy.size());
     ByteArray inputNew(newCopy.data(), newCopy.size());
     pSession->SetPIN(inputOld, inputNew);
-    OPENSSL_cleanse(oldCopy.data(), oldCopy.size());
-    OPENSSL_cleanse(newCopy.data(), newCopy.size());
 
     return CKR_OK;
   });

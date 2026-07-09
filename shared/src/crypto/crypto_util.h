@@ -3,7 +3,7 @@
 
 /**
  * @file crypto_util.h
- * @brief AES-CBC encryption and decryption utilities using Crypto++.
+ * @brief AES-CBC encryption and decryption utilities using OpenSSL EVP.
  *
  * Provides symmetric AES-128-CBC encrypt/decrypt functions with a
  * SHA-1-derived key from the application encryption key.
@@ -21,12 +21,10 @@
 
 #pragma once
 
-#include <cryptopp/aes.h>
-#include <cryptopp/filters.h>
-#include <cryptopp/modes.h>
-#include <cryptopp/osrng.h>
-#include <cryptopp/sha.h>
 #include <openssl/crypto.h>
+#include <openssl/evp.h>
+#include <openssl/rand.h>
+#include <openssl/sha.h>
 
 #include <cstring>
 #include <string>
@@ -38,52 +36,76 @@
 /// never starts with this sequence.
 inline constexpr char kCacheCryptoMagic[4] = {'C', 'I', 'E', '1'};
 
+/// AES-128 key size in bytes.
+inline constexpr size_t kAesKeyLength = 16;
+/// AES block size in bytes (also the CBC IV size).
+inline constexpr size_t kAesBlockSize = 16;
+
 /**
  * @brief Encrypts a plaintext message using AES-128-CBC with a random IV.
  *
  * Derives the AES key by computing SHA-1 of the application encryption key
  * and using the first 16 bytes as the AES key. A fresh random IV is
- * generated on every call (via CryptoPP::AutoSeededRandomPool) and
- * prepended to the ciphertext output, after a 4-byte "CIE1" magic header.
+ * generated on every call (via RAND_bytes) and prepended to the
+ * ciphertext output, after a 4-byte "CIE1" magic header.
  *
  * @param message Input plaintext string to encrypt.
  * @param ciphertext Output string receiving the encrypted data, formatted
  *        as magic(4) || iv(16) || AES-CBC(message).
- * @return 0 on success.
+ * @return 0 on success, -1 if the OpenSSL EVP context could not be
+ *         created or initialized.
  */
 inline int encrypt(const std::string& message, std::string& ciphertext) {
-  CryptoPP::byte key[CryptoPP::AES::DEFAULT_KEYLENGTH],
-      iv[CryptoPP::AES::BLOCKSIZE];
-  memset(key, 0x00, CryptoPP::AES::DEFAULT_KEYLENGTH);
+  unsigned char key[kAesKeyLength];
+  unsigned char iv[kAesBlockSize];
+  memset(key, 0x00, sizeof(key));
 
-  CryptoPP::AutoSeededRandomPool prng;
-  prng.GenerateBlock(iv, sizeof(iv));
+  // Random IV, fresh on every call.
+  if (RAND_bytes(iv, sizeof(iv)) != 1) {
+    OPENSSL_cleanse(key, sizeof(key));
+    return -1;
+  }
 
   std::string enckey = ENCRYPTION_KEY;
 
-  CryptoPP::byte digest[CryptoPP::SHA1::DIGESTSIZE];
-  CryptoPP::SHA1().CalculateDigest(
-      digest, reinterpret_cast<const CryptoPP::byte*>(enckey.c_str()),
-      enckey.length());
-  memcpy(key, digest, CryptoPP::AES::DEFAULT_KEYLENGTH);
+  unsigned char digest[SHA_DIGEST_LENGTH];
+  SHA1(reinterpret_cast<const unsigned char*>(enckey.c_str()), enckey.length(),
+       digest);
+  memcpy(key, digest, sizeof(key));
+
   //
   // Create Cipher Text
   //
-  CryptoPP::AES::Encryption aesEncryption(key,
-                                          CryptoPP::AES::DEFAULT_KEYLENGTH);
-  CryptoPP::CBC_Mode_ExternalCipher::Encryption cbcEncryption(aesEncryption,
-                                                              iv);
+  EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+  if (!ctx) {
+    OPENSSL_cleanse(key, sizeof(key));
+    OPENSSL_cleanse(digest, sizeof(digest));
+    return -1;
+  }
+  if (EVP_EncryptInit_ex(ctx, EVP_aes_128_cbc(), nullptr, key, iv) != 1) {
+    EVP_CIPHER_CTX_free(ctx);
+    OPENSSL_cleanse(key, sizeof(key));
+    OPENSSL_cleanse(digest, sizeof(digest));
+    return -1;
+  }
 
-  CryptoPP::StreamTransformationFilter stfEncryptor(
-      cbcEncryption, new CryptoPP::StringSink(ciphertext));
-  stfEncryptor.Put(reinterpret_cast<const unsigned char*>(message.c_str()),
-                   message.length() + 1);
-  stfEncryptor.MessageEnd();
+  // message.length() + 1 to include the trailing NUL (matches the
+  // pre-migration Crypto++ behavior).
+  int inLen = static_cast<int>(message.length() + 1);
+  int blockSize = EVP_CIPHER_block_size(EVP_aes_128_cbc());
+  std::string encBuf(inLen + blockSize, '\0');
+  int outLen = 0, finalLen = 0;
+  EVP_EncryptUpdate(
+      ctx, reinterpret_cast<unsigned char*>(encBuf.data()), &outLen,
+      reinterpret_cast<const unsigned char*>(message.c_str()), inLen);
+  EVP_EncryptFinal_ex(
+      ctx, reinterpret_cast<unsigned char*>(encBuf.data()) + outLen, &finalLen);
+  EVP_CIPHER_CTX_free(ctx);
+  encBuf.resize(outLen + finalLen);
 
   // Prepend the magic header and IV so decrypt() can recover them.
   ciphertext = std::string(kCacheCryptoMagic, sizeof(kCacheCryptoMagic)) +
-               std::string(reinterpret_cast<char*>(iv), sizeof(iv)) +
-               ciphertext;
+               std::string(reinterpret_cast<char*>(iv), sizeof(iv)) + encBuf;
 
   OPENSSL_cleanse(key, sizeof(key));
   OPENSSL_cleanse(digest, sizeof(digest));
@@ -102,12 +124,13 @@ inline int encrypt(const std::string& message, std::string& ciphertext) {
  *
  * @param ciphertext Input encrypted data string.
  * @param message Output string receiving the decrypted plaintext.
- * @return 0 on success, non-zero if ciphertext is too short to be valid.
+ * @return 0 on success, non-zero if ciphertext is too short to be valid
+ *         or if OpenSSL fails to initialize/finalize the cipher.
  */
 inline int decrypt(const std::string& ciphertext, std::string& message) {
-  CryptoPP::byte key[CryptoPP::AES::DEFAULT_KEYLENGTH],
-      iv[CryptoPP::AES::BLOCKSIZE];
-  memset(iv, 0x00, CryptoPP::AES::BLOCKSIZE);
+  unsigned char key[kAesKeyLength];
+  unsigned char iv[kAesBlockSize];
+  memset(iv, 0x00, sizeof(iv));
 
   const size_t headerLen = sizeof(kCacheCryptoMagic) + sizeof(iv);
   std::string body;
@@ -123,27 +146,52 @@ inline int decrypt(const std::string& ciphertext, std::string& message) {
   }
 
   // A valid AES-CBC ciphertext is never shorter than one block.
-  if (body.size() < CryptoPP::AES::BLOCKSIZE) return 1;
+  if (body.size() < kAesBlockSize) return 1;
 
   std::string enckey = ENCRYPTION_KEY;
 
-  CryptoPP::byte digest[CryptoPP::SHA1::DIGESTSIZE];
-  CryptoPP::SHA1().CalculateDigest(
-      digest, reinterpret_cast<const CryptoPP::byte*>(enckey.c_str()),
-      enckey.length());
-  memcpy(key, digest, CryptoPP::AES::DEFAULT_KEYLENGTH);
+  unsigned char digest[SHA_DIGEST_LENGTH];
+  SHA1(reinterpret_cast<const unsigned char*>(enckey.c_str()), enckey.length(),
+       digest);
+  memcpy(key, digest, sizeof(key));
 
   // Decrypt
-  CryptoPP::AES::Decryption aesDecryption(key,
-                                          CryptoPP::AES::DEFAULT_KEYLENGTH);
-  CryptoPP::CBC_Mode_ExternalCipher::Decryption cbcDecryption(aesDecryption,
-                                                              iv);
+  EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+  if (!ctx) {
+    OPENSSL_cleanse(key, sizeof(key));
+    OPENSSL_cleanse(digest, sizeof(digest));
+    return 1;
+  }
+  if (EVP_DecryptInit_ex(ctx, EVP_aes_128_cbc(), nullptr, key, iv) != 1) {
+    EVP_CIPHER_CTX_free(ctx);
+    OPENSSL_cleanse(key, sizeof(key));
+    OPENSSL_cleanse(digest, sizeof(digest));
+    return 1;
+  }
 
-  CryptoPP::StreamTransformationFilter stfDecryptor(
-      cbcDecryption, new CryptoPP::StringSink(message));
-  stfDecryptor.Put(reinterpret_cast<const unsigned char*>(body.c_str()),
-                   body.size());
-  stfDecryptor.MessageEnd();
+  int blockSize = EVP_CIPHER_block_size(EVP_aes_128_cbc());
+  std::string decBuf(body.size() + blockSize, '\0');
+  int outLen = 0, finalLen = 0;
+  if (EVP_DecryptUpdate(ctx, reinterpret_cast<unsigned char*>(decBuf.data()),
+                        &outLen,
+                        reinterpret_cast<const unsigned char*>(body.c_str()),
+                        static_cast<int>(body.size())) != 1) {
+    EVP_CIPHER_CTX_free(ctx);
+    OPENSSL_cleanse(key, sizeof(key));
+    OPENSSL_cleanse(digest, sizeof(digest));
+    return 1;
+  }
+  if (EVP_DecryptFinal_ex(
+          ctx, reinterpret_cast<unsigned char*>(decBuf.data()) + outLen,
+          &finalLen) != 1) {
+    EVP_CIPHER_CTX_free(ctx);
+    OPENSSL_cleanse(key, sizeof(key));
+    OPENSSL_cleanse(digest, sizeof(digest));
+    return 1;
+  }
+  EVP_CIPHER_CTX_free(ctx);
+  decBuf.resize(outLen + finalLen);
+  message = decBuf;
 
   OPENSSL_cleanse(key, sizeof(key));
   OPENSSL_cleanse(digest, sizeof(digest));

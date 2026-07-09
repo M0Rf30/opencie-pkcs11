@@ -9,8 +9,6 @@
 
 #include "crypto/mac.h"
 
-#include <cryptopp/hmac.h>
-
 #include <cstring>
 
 extern CLog Log;

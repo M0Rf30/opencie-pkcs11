@@ -191,8 +191,12 @@ bool CacheGetDer(const char *PAN, std::vector<uint8_t> &certificate) {
     uint8_t *ptr =
         reinterpret_cast<uint8_t *>(const_cast<char *>(plaintext.c_str()));
     uint32_t len;
+    if (plaintext.size() < sizeof(len))
+      throw logged_error("CacheGetDer: corrupted cache data");
     memcpy(&len, ptr, sizeof(len));
     ptr += sizeof(len);
+    if (len > plaintext.size() - sizeof(len))
+      throw logged_error("CacheGetDer: corrupted cache data (invalid length)");
     certificate.assign(ptr, ptr + len);
     return true;
   } catch (...) {
@@ -218,14 +222,29 @@ void CacheGetCertificate(const char *PAN, std::vector<uint8_t> &certificate) {
 
     uint8_t *ptr =
         reinterpret_cast<uint8_t *>(const_cast<char *>(plaintext.c_str()));
+    size_t remaining = plaintext.size();
 
     uint32_t len;
+    if (remaining < sizeof(len))
+      throw logged_error("CacheGetCertificate: corrupted cache data");
     memcpy(&len, ptr, sizeof(len));
     ptr += sizeof(len);
+    remaining -= sizeof(len);
+    if (len > remaining)
+      throw logged_error(
+          "CacheGetCertificate: corrupted cache data (invalid PIN length)");
     // salto il PIN
     ptr += len;
+    remaining -= len;
+    if (remaining < sizeof(len))
+      throw logged_error("CacheGetCertificate: corrupted cache data");
     memcpy(&len, ptr, sizeof(len));
     ptr += sizeof(len);
+    remaining -= sizeof(len);
+    if (len > remaining)
+      throw logged_error(
+          "CacheGetCertificate: corrupted cache data (invalid certificate "
+          "length)");
     Cert.resize(len);
     Cert.copy(ByteArray(ptr, len));
 
@@ -255,8 +274,12 @@ void CacheGetPIN(const char *PAN, std::vector<uint8_t> &PIN) {
     uint8_t *ptr =
         reinterpret_cast<uint8_t *>(const_cast<char *>(plaintext.c_str()));
     uint32_t len;
+    if (plaintext.size() < sizeof(len))
+      throw logged_error("CacheGetPIN: corrupted cache data");
     memcpy(&len, ptr, sizeof(len));
     ptr += sizeof(len);
+    if (len > plaintext.size() - sizeof(len))
+      throw logged_error("CacheGetPIN: corrupted cache data (invalid length)");
     ClearPIN.resize(len);
     ClearPIN.copy(ByteArray(ptr, len));
 

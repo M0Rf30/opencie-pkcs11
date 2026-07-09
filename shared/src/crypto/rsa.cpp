@@ -9,61 +9,115 @@
 #include "crypto/rsa.h"
 
 #include <openssl/bn.h>
+#include <openssl/core_names.h>
+#include <openssl/param_build.h>
+#include <openssl/rsa.h>
+
+#include <stdexcept>
 
 #include "util/func_call_info.h"
 #include "util/log.h"
 
 extern CLog Log;
-#if (CRYPTOPP_VERSION >= 600) && (__cplusplus >= 201103L)
-using byte = CryptoPP::byte;
-#else
-typedef unsigned char byte;
-#endif
-
-#include <cryptopp/pssr.h>
-#include <cryptopp/rsa.h>
-#include <cryptopp/secblock.h>
-
-using CryptoPP::PSS;
-using CryptoPP::RSASS;
-using CryptoPP::SecByteBlock;
-using CryptoPP::SHA512;
-
-ByteArray modulusBa;
-ByteArray exponentBa;
 
 CRSA::CRSA(const ByteArray &mod, const ByteArray &exp) {
-  modulusBa = mod;
-  exponentBa = exp;
+  BIGNUM *n = BN_bin2bn(mod.data(), static_cast<int>(mod.size()), nullptr);
+  BIGNUM *e = BN_bin2bn(exp.data(), static_cast<int>(exp.size()), nullptr);
+  if (!n || !e) {
+    BN_free(n);
+    BN_free(e);
+    throw logged_error("BN_bin2bn failed");
+  }
 
-  CryptoPP::Integer n(mod.data(), mod.size()), e(exp.data(), exp.size());
-  pubKey.Initialize(n, e);
+  OSSL_PARAM_BLD *bld = OSSL_PARAM_BLD_new();
+  if (!bld) {
+    BN_free(n);
+    BN_free(e);
+    throw logged_error("OSSL_PARAM_BLD_new failed");
+  }
+  OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_N, n);
+  OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_E, e);
+  OSSL_PARAM *params = OSSL_PARAM_BLD_to_param(bld);
+  OSSL_PARAM_BLD_free(bld);
+  BN_free(n);
+  BN_free(e);
+  if (!params) throw logged_error("OSSL_PARAM_BLD_to_param failed");
+
+  EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_from_name(nullptr, "RSA", nullptr);
+  if (!ctx) {
+    OSSL_PARAM_free(params);
+    throw logged_error("EVP_PKEY_CTX_new_from_name failed");
+  }
+  if (EVP_PKEY_fromdata_init(ctx) != 1 ||
+      EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params) != 1) {
+    EVP_PKEY_CTX_free(ctx);
+    OSSL_PARAM_free(params);
+    throw logged_error("EVP_PKEY_fromdata failed");
+  }
+  EVP_PKEY_CTX_free(ctx);
+  OSSL_PARAM_free(params);
 }
 
-CRSA::~CRSA(void) {}
+CRSA::~CRSA(void) {
+  if (pkey) EVP_PKEY_free(pkey);
+}
 
 ByteDynArray CRSA::RSA_PURE(const ByteArray &data) {
-  CryptoPP::Integer m(reinterpret_cast<const byte *>(data.data()), data.size());
-  CryptoPP::Integer c = pubKey.ApplyFunction(m);
+  BIGNUM *n = nullptr;
+  BIGNUM *e = nullptr;
+  if (EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_N, &n) != 1 ||
+      EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_E, &e) != 1) {
+    BN_free(n);
+    BN_free(e);
+    throw std::runtime_error("EVP_PKEY_get_bn_param failed");
+  }
 
-  size_t len = c.MinEncodedSize();
+  BIGNUM *m = BN_bin2bn(data.data(), static_cast<int>(data.size()), nullptr);
+  BIGNUM *c = BN_new();
+  BN_CTX *bnctx = BN_CTX_new();
+  if (BN_mod_exp(c, m, e, n, bnctx) != 1) {
+    BN_free(m);
+    BN_free(c);
+    BN_free(n);
+    BN_free(e);
+    BN_CTX_free(bnctx);
+    throw std::runtime_error("BN_mod_exp failed");
+  }
+
+  size_t len = BN_num_bytes(c);
   if (len == 0xff) len = 0x100;
 
   ByteDynArray resp(len);
+  BN_bn2binpad(c, resp.data(), static_cast<int>(len));
 
-  c.Encode(reinterpret_cast<byte *>(resp.data()), resp.size(),
-           CryptoPP::Integer::UNSIGNED);
+  BN_free(m);
+  BN_free(c);
+  BN_free(n);
+  BN_free(e);
+  BN_CTX_free(bnctx);
 
   return resp;
 }
 
 bool CRSA::RSA_PSS(const ByteArray &signatureData, const ByteArray &toSign) {
-  RSASS<PSS, SHA512>::Verifier verifier(pubKey);
-  SecByteBlock signatureBlock(
-      reinterpret_cast<const byte *>(signatureData.data()),
-      signatureData.size());
+  EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+  if (!mdctx) return false;
 
-  return verifier.VerifyMessage(reinterpret_cast<const byte *>(toSign.data()),
-                                toSign.size(), signatureBlock,
-                                signatureBlock.size());
+  EVP_PKEY_CTX *pctx = nullptr;
+  if (EVP_DigestVerifyInit(mdctx, &pctx, EVP_sha512(), nullptr, pkey) != 1) {
+    EVP_MD_CTX_free(mdctx);
+    return false;
+  }
+  EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PSS_PADDING);
+  EVP_PKEY_CTX_set_rsa_pss_saltlen(pctx, RSA_PSS_SALTLEN_AUTO);
+
+  if (EVP_DigestVerifyUpdate(mdctx, toSign.data(), toSign.size()) != 1) {
+    EVP_MD_CTX_free(mdctx);
+    return false;
+  }
+
+  int rc =
+      EVP_DigestVerifyFinal(mdctx, signatureData.data(), signatureData.size());
+  EVP_MD_CTX_free(mdctx);
+  return rc == 1;
 }

@@ -8,20 +8,19 @@
 
 #pragma once
 
-#include <cryptopp/rsa.h>
-#include <openssl/rsa.h>
+#include <openssl/evp.h>
 
 #include "util/array.h"
 #include "util/definitions.h"
 
 /**
- * @brief RSA public-key wrapper using Crypto++ for CIE card verification.
+ * @brief RSA public-key wrapper using OpenSSL for CIE card verification.
  *
  * Supports raw RSA encryption (textbook RSA) and RSA-PSS signature
  * verification with SHA-512, as required by the CIE authentication protocol.
  */
 class CRSA {
-  CryptoPP::RSA::PublicKey pubKey;  ///< Crypto++ RSA public key object.
+  EVP_PKEY *pkey = nullptr;  ///< OpenSSL RSA public key object.
 
   /**
    * @brief Generates an RSA key pair (currently not supported).
@@ -45,6 +44,9 @@ class CRSA {
 
   /** @brief Destructor. */
   ~CRSA(void);
+
+  CRSA(const CRSA &) = delete;
+  CRSA &operator=(const CRSA &) = delete;
 
   /**
    * @brief Performs raw (textbook) RSA public-key operation: data^e mod n.

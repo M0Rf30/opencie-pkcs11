@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #include "csp/ias.h"
 
-#include <cryptopp/asn.h>
-#include <cryptopp/cryptlib.h>
-#include <cryptopp/misc.h>
-#include <cryptopp/queue.h>
 #include <openssl/crypto.h>
 
 #include <algorithm>
@@ -36,10 +32,9 @@ extern CLog Log;
 extern CModuleInfo moduleInfo;
 extern ByteArray SkipZero(ByteArray &ba);
 
-void GetPublicKeyFromCert(CryptoPP::BufferedTransformation &certin,
-                          CryptoPP::BufferedTransformation &keyout,
-                          CryptoPP::BufferedTransformation &issuer,
-                          CryptoPP::Integer &serial);
+void GetPublicKeyFromCert(const uint8_t *certDer, size_t certLen,
+                          ByteDynArray &pubKeyOut, ByteDynArray &issuerOut,
+                          ByteDynArray &serialOut);
 
 void showUI(const char *szPAN);
 void notifyCardNotRegistered(const char *szPAN);
@@ -1326,16 +1321,9 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
       SOD.mid(static_cast<int>(signerCert.startPos),
               static_cast<int>(signerCert.endPos - signerCert.startPos));
 
-  CryptoPP::ByteQueue certin;
-  certin.Put(certRaw.data(), certRaw.size());
-  CryptoPP::ByteQueue pbKey;
-  CryptoPP::ByteQueue issuer;
-  CryptoPP::Integer serial;
-
-  GetPublicKeyFromCert(certin, pbKey, issuer, serial);
-
-  ByteDynArray pubKeyData(pbKey.CurrentSize());
-  pbKey.Get(pubKeyData.data(), pubKeyData.size());
+  ByteDynArray pubKeyData, issuerBa, serialBa;
+  GetPublicKeyFromCert(certRaw.data(), certRaw.size(), pubKeyData, issuerBa,
+                       serialBa);
 
   CASNParser pubKeyParser;
   pubKeyParser.Parse(pubKeyData);
@@ -1377,9 +1365,6 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
 
   issuerName.Reparse();
   CASNParser issuerParser;
-
-  ByteDynArray issuerBa(issuer.CurrentSize());
-  issuer.Get(issuerBa.data(), issuerBa.size());
 
   issuerParser.Parse(issuerBa);
 
@@ -1485,16 +1470,9 @@ void IAS::VerificaSOD(const ByteArray &SOD,
       SOD.mid(static_cast<int>(signerCert.startPos),
               static_cast<int>(signerCert.endPos - signerCert.startPos));
 
-  CryptoPP::ByteQueue certin;
-  certin.Put(certRaw.data(), certRaw.size());
-  CryptoPP::ByteQueue pbKey;
-  CryptoPP::ByteQueue issuer;
-  CryptoPP::Integer serial;
-
-  GetPublicKeyFromCert(certin, pbKey, issuer, serial);
-
-  ByteDynArray pubKeyData(pbKey.CurrentSize());
-  pbKey.Get(pubKeyData.data(), pubKeyData.size());
+  ByteDynArray pubKeyData, issuerBa, serialBa;
+  GetPublicKeyFromCert(certRaw.data(), certRaw.size(), pubKeyData, issuerBa,
+                       serialBa);
 
   CASNParser pubKeyParser;
   pubKeyParser.Parse(pubKeyData);
@@ -1551,9 +1529,6 @@ void IAS::VerificaSOD(const ByteArray &SOD,
 
   issuerName.Reparse();
   CASNParser issuerParser;
-
-  ByteDynArray issuerBa(issuer.CurrentSize());
-  issuer.Get(issuerBa.data(), issuerBa.size());
 
   issuerParser.Parse(issuerBa);
 
