@@ -677,7 +677,7 @@ int CK_ENTRY cie_reader_count(void) {
 #endif
 }
 
-int CK_ENTRY cie_reader_watch(int current_count) {
+int CK_ENTRY cie_reader_watch([[maybe_unused]] int current_count) {
 #if defined(__ANDROID__)
   return 0;
 #else

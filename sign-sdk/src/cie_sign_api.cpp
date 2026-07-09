@@ -5,7 +5,10 @@
 #include "sign/cie_sign_api.h"
 
 #ifdef _WIN32
+// clang-format off
+#include <winsock2.h>
 #include <shlwapi.h>
+// clang-format on
 #endif
 
 #include <libxml/tree.h>

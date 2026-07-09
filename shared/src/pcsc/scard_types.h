@@ -118,7 +118,10 @@ struct SCARD_READERSTATE {
 #endif
 
 #elif defined(_WIN32)
+// clang-format off
+#include <winsock2.h>
 #include <winscard.h>
+// clang-format on
 #else
 /* Linux / macOS — use platform PC/SC headers */
 #include <PCSC/winscard.h>

@@ -2,11 +2,14 @@
 #include "cache_lib.h"
 
 #ifdef _WIN32
+// clang-format off
+#include <winsock2.h>
 #include <aclapi.h>
 #include <sddl.h>
 #include <shlobj.h>
 #include <shlwapi.h>
 #include <versionhelpers.h>
+// clang-format on
 #define CACHE_LOG(fmt, ...)
 #elif defined(__ANDROID__)
 #include <android/log.h>
