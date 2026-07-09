@@ -54,10 +54,11 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
 bool CacheRemove(const char *PAN);
 
 /**
- * @brief Store the raw DER-encoded X.509 certificate for a given PAN.
+ * @brief Store the DER-encoded X.509 certificate for a given PAN.
  *
- * Writes the certificate as an unencrypted binary file (<PAN>.der).
- * The certificate is public data so no encryption is required.
+ * The certificate is encrypted at rest the same way as CacheSetData(),
+ * even though it is not secret itself, so the cache format stays
+ * consistent and the file cannot be tampered with unnoticed.
  *
  * @param PAN  Card Personal Account Number (cache key).
  * @param der  Pointer to the DER certificate bytes.

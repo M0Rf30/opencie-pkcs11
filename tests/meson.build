@@ -11,6 +11,8 @@ test_sources = [
     'test_array_extended.cpp',
     'test_tlv.cpp',
     'test_crypto.cpp',
+    'test_crypto_util.cpp',
+    'test_cache_lib.cpp',
     'test_md5.cpp',
     'test_asn_parser.cpp',
     'test_asn_tag.cpp',
@@ -23,6 +25,7 @@ test_sources = [
 # Sources needed by tests (no PCSC/hardware deps)
 test_shared_sources = [
     '../shared/src/util/array.cpp',
+    '../shared/src/util/cache_lib.cpp',
     '../shared/src/util/log.cpp',
     '../shared/src/util/func_call_info.cpp',
     '../shared/src/util/properties.cpp',

@@ -11,11 +11,19 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <spawn.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <thread>
+#endif
+
+#ifndef _WIN32
+// posix_spawn() needs the process environment; not every libc declares
+// this in <unistd.h> without _GNU_SOURCE, so declare it explicitly.
+extern char** environ;
 #endif
 
 #include <cryptopp/asn.h>
@@ -24,11 +32,11 @@
 #include <openssl/crypto.h>
 #include <time.h>
 
-#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -606,38 +614,40 @@ std::vector<word32> fromObjectIdentifier(const std::string& sObjId) {
 
   std::vector<char> oidBuf(sObjId.size() + 1);
   char* szOID = oidBuf.data();
-  memcpy(szOID, sObjId.c_str(), sObjId.size());
+  memcpy(szOID, sObjId.c_str(), sObjId.size() + 1);
   char* next = nullptr;
   const char* szTok = strtok_r(szOID, ".", &next);
+  if (!szTok) throw std::runtime_error("Invalid OID: empty");
 
-  UINT nFirst = 40 * strtol(szTok, nullptr, 10) +
-                strtol(strtok_r(nullptr, ".", &next), nullptr, 10);
+  unsigned long first = strtoul(szTok, nullptr, 10);
+  szTok = strtok_r(nullptr, ".", &next);
+  if (!szTok) throw std::runtime_error("Invalid OID: missing second arc");
+  unsigned long second = strtoul(szTok, nullptr, 10);
+
+  unsigned long nFirst = 40 * first + second;
   if (nFirst > 0xff) {
-    throw -1;
+    throw std::runtime_error("Invalid OID: first two arcs encode > 255");
   }
-
-  out.push_back(nFirst);
+  out.push_back(static_cast<word32>(nFirst));
 
   while ((szTok = strtok_r(nullptr, ".", &next)) != nullptr) {
-    int nVal = strtol(szTok, nullptr, 10);
-    if (nVal == 0) {
-      out.push_back(0x00);
-    } else if (nVal == 1) {
-      out.push_back(0x01);
+    unsigned long nVal = strtoul(szTok, nullptr, 10);
+    if (nVal < 0x80) {
+      out.push_back(static_cast<word32>(nVal));
     } else {
-      int i = static_cast<int>(ceil(
-          (log(static_cast<double>(abs(nVal))) / log(static_cast<double>(2))) /
-          7));  // base 128
-      while (nVal != 0) {
-        int nAux = static_cast<int>(floor(nVal / pow(128, i - 1)));
-        nVal = nVal - static_cast<int>(pow(128, i - 1) * nAux);
-
-        // next value (or with 0x80)
-        if (nVal != 0) nAux |= 0x80;
-
-        out.push_back(nAux);
-
-        i--;
+      // Base-128 encoding: collect bytes LSB-first, then emit MSB-first
+      // with the continuation bit (0x80) set on every byte but the last.
+      word32 bytes[5];  // max 5 bytes for a 32-bit value
+      int count = 0;
+      unsigned long tmp = nVal;
+      while (tmp > 0) {
+        bytes[count++] = static_cast<word32>(tmp & 0x7f);
+        tmp >>= 7;
+      }
+      for (int j = count - 1; j >= 0; j--) {
+        word32 b = bytes[j];
+        if (j > 0) b |= 0x80;
+        out.push_back(b);
       }
     }
   }
@@ -649,18 +659,40 @@ bool file_exists(const char* name);
 #ifdef _WIN32
 DWORD WINAPI mythread(LPVOID thr_data) {
   char* command = static_cast<char*>(thr_data);
-  system(command);
+  STARTUPINFOA si {};
+  si.cb = sizeof(si);
+  PROCESS_INFORMATION pi {};
+  CreateProcessA(nullptr, command, nullptr, nullptr, FALSE, 0, nullptr, nullptr,
+                 &si, &pi);
+  if (pi.hProcess) {
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    CloseHandle(pi.hProcess);
+  }
+  if (pi.hThread) CloseHandle(pi.hThread);
   delete[] command;
   return 0;
 }
 #else
 void mythread(std::string cmd) {
-  int rc = system(cmd.c_str());
-  (void)rc;
+  // Split cmd into program and arg; the program name itself is never
+  // trusted here (see the fixed absolute path below), it only forwards
+  // the argument built by sendMessage().
+  auto space = cmd.find(' ');
+  std::string arg = (space != std::string::npos) ? cmd.substr(space + 1) : "";
+  pid_t pid;
+  const char* argv[] = {"cieid", arg.c_str(), nullptr};
+  if (posix_spawn(&pid, "/usr/bin/cieid", nullptr, nullptr,
+                  const_cast<char* const*>(argv), environ) == 0) {
+    waitpid(pid, nullptr, 0);
+  }
 }
 #endif
 
 int sendMessage(const char* szCommand, const char* /*szParam*/) {
+  // NOTE: relative name; on POSIX mythread() ignores it in favor of a
+  // hardcoded /usr/bin/cieid. In production this should resolve to an
+  // absolute, trusted path on Windows too, rather than relying on
+  // CreateProcessA's default search order.
   const char* file = "cieid";
 
 #ifdef _WIN32
