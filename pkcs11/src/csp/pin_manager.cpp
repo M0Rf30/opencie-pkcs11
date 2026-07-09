@@ -3,7 +3,6 @@
 
 #include "csp/pin_manager.h"
 
-#include <cryptopp/misc.h>
 #include <openssl/crypto.h>
 
 #include <string>

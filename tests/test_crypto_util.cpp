@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-#include <cryptopp/aes.h>
-#include <cryptopp/filters.h>
-#include <cryptopp/modes.h>
-#include <cryptopp/sha.h>
+#include <openssl/evp.h>
+#include <openssl/sha.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <cstring>
@@ -18,26 +16,31 @@ namespace {
 // and the "CIE1" header were introduced, so decrypt() backward
 // compatibility can be verified against a realistic legacy ciphertext.
 std::string LegacyZeroIvEncrypt(const std::string& message) {
-  CryptoPP::byte key[CryptoPP::AES::DEFAULT_KEYLENGTH];
-  CryptoPP::byte iv[CryptoPP::AES::BLOCKSIZE];
+  unsigned char key[16];
+  unsigned char iv[16];
   memset(iv, 0x00, sizeof(iv));
 
   std::string enckey = ENCRYPTION_KEY;
-  CryptoPP::byte digest[CryptoPP::SHA1::DIGESTSIZE];
-  CryptoPP::SHA1().CalculateDigest(
-      digest, reinterpret_cast<const CryptoPP::byte*>(enckey.c_str()),
-      enckey.length());
+  unsigned char digest[SHA_DIGEST_LENGTH];
+  SHA1(reinterpret_cast<const unsigned char*>(enckey.c_str()), enckey.length(),
+       digest);
   memcpy(key, digest, sizeof(key));
 
-  CryptoPP::AES::Encryption aesEncryption(key, sizeof(key));
-  CryptoPP::CBC_Mode_ExternalCipher::Encryption cbcEncryption(aesEncryption,
-                                                              iv);
-  std::string ciphertext;
-  CryptoPP::StreamTransformationFilter stf(
-      cbcEncryption, new CryptoPP::StringSink(ciphertext));
-  stf.Put(reinterpret_cast<const unsigned char*>(message.data()),
-          message.size());
-  stf.MessageEnd();
+  EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+  EVP_EncryptInit_ex(ctx, EVP_aes_128_cbc(), nullptr, key, iv);
+
+  int inLen = static_cast<int>(message.size());
+  int blockSize = EVP_CIPHER_block_size(EVP_aes_128_cbc());
+  std::string ciphertext(inLen + blockSize, '\0');
+  int outLen = 0, finalLen = 0;
+  EVP_EncryptUpdate(
+      ctx, reinterpret_cast<unsigned char*>(ciphertext.data()), &outLen,
+      reinterpret_cast<const unsigned char*>(message.data()), inLen);
+  EVP_EncryptFinal_ex(
+      ctx, reinterpret_cast<unsigned char*>(ciphertext.data()) + outLen,
+      &finalLen);
+  EVP_CIPHER_CTX_free(ctx);
+  ciphertext.resize(outLen + finalLen);
   return ciphertext;
 }
 }  // namespace

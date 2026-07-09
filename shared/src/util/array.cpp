@@ -11,9 +11,6 @@
 
 #include "util/array.h"
 
-#include <cryptopp/cryptlib.h>
-#include <cryptopp/osrng.h>
-#include <cryptopp/secblock.h>
 #include <openssl/rand.h>
 
 #include <cstring>

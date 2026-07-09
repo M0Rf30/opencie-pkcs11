@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #include "crypto/sha256.h"
 
-#include <cryptopp/base64.h>
-#include <cryptopp/filters.h>
-#include <cryptopp/sha.h>
 #include <openssl/evp.h>
 
 CSHA256::CSHA256() : isInit(false), ctx(nullptr) {}
@@ -36,11 +33,16 @@ ByteDynArray CSHA256::Final() {
   return resp;
 }
 ByteDynArray CSHA256::Digest(const ByteArray& data) {
-  const BYTE* pbData = static_cast<const BYTE*>(data.data());
-  unsigned int nDataLen = data.size();
-  BYTE abDigest[CryptoPP::SHA256::DIGESTSIZE];
-  CryptoPP::SHA256().CalculateDigest(abDigest, pbData, nDataLen);
-  ByteArray resp(abDigest, CryptoPP::SHA256::DIGESTSIZE);
-
-  return ByteDynArray(resp);
+  ByteDynArray resp(SHA256_DIGEST_LENGTH);
+  unsigned int len = 0;
+  EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
+  if (!mdctx) throw logged_error("EVP_MD_CTX_new failed");
+  if (EVP_DigestInit_ex(mdctx, EVP_sha256(), nullptr) != 1 ||
+      EVP_DigestUpdate(mdctx, data.data(), data.size()) != 1 ||
+      EVP_DigestFinal_ex(mdctx, resp.data(), &len) != 1) {
+    EVP_MD_CTX_free(mdctx);
+    throw logged_error("SHA-256 digest error");
+  }
+  EVP_MD_CTX_free(mdctx);
+  return resp;
 }

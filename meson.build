@@ -13,12 +13,6 @@ project(
 
 if host_machine.system() != 'windows'
   add_project_arguments('-fPIC', language: 'cpp')
-else
-  # Force-include the byte ambiguity fix header for MinGW builds.
-  # This resolves the std::byte vs rpcndr.h byte conflict when
-  # "using namespace std;" is present in headers.
-  mingw_byte_fix = join_paths(meson.current_source_dir(), 'shared/src/mingw_byte_fix.h')
-  add_project_arguments('-include', mingw_byte_fix, language: 'cpp')
 endif
 
 cpp = meson.get_compiler('cpp')
@@ -26,16 +20,6 @@ libdir = meson.current_source_dir() + '/lib'
 
 crypto_dep = dependency('libcrypto')
 thread_dep = dependency('threads')
-
-# Crypto++ is packaged under different names depending on the distro/vcpkg.
-# Try all known names and use whichever is found.
-cryptopp_dep = dependency('libcrypto++', required: false)
-if not cryptopp_dep.found()
-  cryptopp_dep = dependency('libcryptopp', required: false)
-endif
-if not cryptopp_dep.found()
-  cryptopp_dep = dependency('cryptopp', required: false)
-endif
 
 if host_machine.system() == 'windows'
   pcsclite_dep = cpp.find_library('winscard')
@@ -186,7 +170,6 @@ inc_a = include_directories(
 # Common dependencies used by both targets
 common_deps = [
     crypto_dep,
-    cryptopp_dep,
     pcsclite_dep,
     thread_dep,
     curl_dep,
@@ -208,7 +191,7 @@ shared_sources = [
     'shared/src/util/syncro_event.cpp',
     'shared/src/util/module_info.cpp',
     'shared/src/util/ini_settings.cpp',
-    'shared/src/util/cryptopp_utils.cpp',
+    'shared/src/util/openssl_utils.cpp',
     'shared/src/util/cache_lib.cpp',
     'shared/src/util/array.cpp',
     'shared/src/util/util.cpp',
@@ -228,7 +211,6 @@ shared_sources = [
      'shared/src/crypto/base64.cpp',
     'shared/src/crypto/asn_parser.cpp',
     'shared/src/crypto/aes.cpp',
-    'shared/src/crypto/cryptopp_clang_shim.cpp',
     'shared/src/csp/atr.cpp',
     'shared/src/csp/ext_auth_key.cpp',
     'shared/src/csp/ias.cpp',
@@ -354,7 +336,7 @@ endif
 
 # Hide all internal symbols from statically linked libraries and only export
 # the PKCS#11 C_* functions + CIE-specific public API (cie_enable, etc.).
-# Without this, 1500+ CryptoPP/OpenSSL/PoDoFo symbols leak into the global
+# Without this, 1500+ OpenSSL/PoDoFo symbols leak into the global
 # namespace and collide with the host application's own imports (e.g. Firefox).
 pkcs11_link_args = []
 pkcs11_link_depends = []

@@ -8,7 +8,11 @@
 
 #include "pkcs11/cie_p11_template.h"
 
-#include <cryptopp/cryptlib.h>
+#include <openssl/bio.h>
+#include <openssl/bn.h>
+#include <openssl/core_names.h>
+#include <openssl/evp.h>
+#include <openssl/x509.h>
 
 #include <cstdio>
 #include <cstring>
@@ -19,25 +23,21 @@
 #include "csp/ias.h"
 #include "pcsc/card_locker.h"
 #include "pcsc/pcsc.h"
-#include "util/cryptopp_utils.h"
 
 extern CLog Log;
 
 #include "logger/logger.h"
 
-using namespace CryptoPP;
-using namespace lcp;
 using namespace CieIDLogger;
 using namespace p11;
 
 void notifyPINLocked();
 void notifyPINWrong(int trials);
 
-void GetCertInfo(CryptoPP::BufferedTransformation &certin, std::string &serial,
-                 CryptoPP::BufferedTransformation &issuer,
-                 CryptoPP::BufferedTransformation &subject,
+void GetCertInfo(const uint8_t *certDer, size_t certLen, std::string &serial,
+                 ByteDynArray &issuerOut, ByteDynArray &subjectOut,
                  std::string &notBefore, std::string &notAfter,
-                 CryptoPP::Integer &mod, CryptoPP::Integer &pubExp);
+                 ByteDynArray &modOut, ByteDynArray &pubExpOut);
 
 static HRESULT TokenTransmitCallback(void *data, BYTE *apdu, DWORD apduSize,
                                      BYTE *resp, DWORD *respSize) {
@@ -203,25 +203,16 @@ void CIEtemplateInitSession(void *pTemplateData) {
     CK_CERTIFICATE_TYPE certx509 = CKC_X_509;
     cie->cert->addAttribute(CKA_CERTIFICATE_TYPE, VarToByteArray(certx509));
 
-    CryptoPP::ByteQueue certin;
-    certin.Put(certRaw.data(), certRaw.size());
-
     std::string serial;
-    CryptoPP::ByteQueue issuer;
-    CryptoPP::ByteQueue subject;
+    ByteDynArray issuerBa;
+    ByteDynArray subjectBa;
     std::string notBefore;
     std::string notAfter;
-    CryptoPP::Integer mod;
-    CryptoPP::Integer pubExp;
+    ByteDynArray modulus;
+    ByteDynArray publicExponent;
 
-    GetCertInfo(certin, serial, issuer, subject, notBefore, notAfter, mod,
-                pubExp);
-
-    ByteDynArray modulus(mod.ByteCount());
-    mod.Encode(modulus.data(), modulus.size());
-
-    ByteDynArray publicExponent(pubExp.ByteCount());
-    pubExp.Encode(publicExponent.data(), publicExponent.size());
+    GetCertInfo(certRaw.data(), certRaw.size(), serial, issuerBa, subjectBa,
+                notBefore, notAfter, modulus, publicExponent);
 
     CK_LONG keySizeBits = static_cast<CK_LONG>(modulus.size()) * 8;
 
@@ -231,12 +222,6 @@ void CIEtemplateInitSession(void *pTemplateData) {
 
     cie->privKey->addAttribute(CKA_MODULUS, modulus);
     cie->privKey->addAttribute(CKA_PUBLIC_EXPONENT, publicExponent);
-
-    ByteDynArray issuerBa(issuer.CurrentSize());
-    issuer.Get(issuerBa.data(), issuerBa.size());
-
-    ByteDynArray subjectBa(subject.CurrentSize());
-    subject.Get(subjectBa.data(), subjectBa.size());
 
     cie->cert->addAttribute(CKA_ISSUER, issuerBa);
     cie->cert->addAttribute(
@@ -569,114 +554,119 @@ void CIEtemplateGenerateKeyPair(void * /*pCardTemplateData*/,
 }
 
 /**
- * Reads an X.509 v3 certificate from certin, extracts the subjectPublicKeyInfo
- * structure (which is one way PK_Verifiers can get their key material) and
- * writes it to keyout
+ * Reads an X.509 v3 certificate from certDer, extracts the
+ * subjectPublicKeyInfo structure (which is one way PK_Verifiers can get
+ * their key material) plus the issuer and serial number.
  *
- * @throws CryptoPP::BERDecodeError
+ * @throws logged_error if the certificate cannot be parsed
  */
 
-void GetPublicKeyFromCert(CryptoPP::BufferedTransformation &certin,
-                          CryptoPP::BufferedTransformation &keyout,
-                          CryptoPP::BufferedTransformation &issuer,
+void GetPublicKeyFromCert(const uint8_t *certDer, size_t certLen,
+                          ByteDynArray &pubKeyOut, ByteDynArray &issuerOut,
+                          ByteDynArray &serialOut) {
+  const unsigned char *p = certDer;
+  X509 *x509 = d2i_X509(nullptr, &p, static_cast<long>(certLen));
+  if (!x509) throw logged_error("Failed to parse X.509 certificate");
 
-                          Integer &serial) {
-  BERSequenceDecoder x509Cert(certin);
-  BERSequenceDecoder tbsCert(x509Cert);
-
-  // consume the context tag on the version
-  BERGeneralDecoder context(tbsCert, 0xa0);
-  word32 ver;
-
-  // only want a v3 cert
-  BERDecodeUnsigned<word32>(context, ver, INTEGER, 2, 2);
-
-  // serialNumber         CertificateSerialNumber,
-  serial.BERDecode(tbsCert);
-
-  // signature            AlgorithmIdentifier,
-  BERSequenceDecoder signature(tbsCert);
-  signature.SkipAll();
-
-  // issuer               Name,
-  BERSequenceDecoder issuerName(tbsCert);
-  issuerName.CopyTo(issuer);
-  issuerName.SkipAll();
-
-  // validity             Validity,
-  BERSequenceDecoder validity(tbsCert);
-  validity.SkipAll();
-
-  // subject              Name,
-  BERSequenceDecoder subjectName(tbsCert);
-  subjectName.SkipAll();
-
-  // subjectPublicKeyInfo SubjectPublicKeyInfo,
-  BERSequenceDecoder spki(tbsCert);
-  DERSequenceEncoder spkiEncoder(keyout);
-
-  spki.CopyTo(spkiEncoder);
-  spkiEncoder.MessageEnd();
-
-  spki.SkipAll();
-  tbsCert.SkipAll();
-  x509Cert.SkipAll();
-}
-
-void GetCertInfo(CryptoPP::BufferedTransformation &certin, std::string &serial,
-                 CryptoPP::BufferedTransformation &issuer,
-                 CryptoPP::BufferedTransformation &subject,
-                 std::string &notBefore, std::string &notAfter,
-                 CryptoPP::Integer &mod, CryptoPP::Integer &pubExp) {
-  BERSequenceDecoder cert(certin);
-
-  BERSequenceDecoder toBeSignedCert(cert);
-
-  // consume the context tag on the version
-  BERGeneralDecoder context(toBeSignedCert, 0xa0);
-  word32 ver;
-
-  // only want a v3 cert
-  BERDecodeUnsigned<word32>(context, ver, INTEGER, 2, 2);
-
-  serial = CryptoppUtils::Cert::ReadIntegerAsString(toBeSignedCert);
-
-  // algorithmId
-  CryptoppUtils::Cert::SkipNextSequence(toBeSignedCert);
-
-  // issuer               Name,
-  BERSequenceDecoder issuerName(toBeSignedCert);
-  DERSequenceEncoder issuerEncoder(issuer);
-  issuerName.CopyTo(issuerEncoder);
-  issuerEncoder.MessageEnd();
-  issuerName.SkipAll();
-
-  // validity
-  CryptoppUtils::Cert::ReadDateTimeSequence(toBeSignedCert, notBefore,
-                                            notAfter);
-
-  // subject
-  BERSequenceDecoder subjectName(toBeSignedCert);
-  DERSequenceEncoder subjectEncoder(subject);
-  subjectName.CopyTo(subjectEncoder);
-  subjectEncoder.MessageEnd();
-
-  subjectName.SkipAll();
-
-  // Public key
-  CryptoPP::BERSequenceDecoder publicKey(toBeSignedCert);
-  {
-    CryptoPP::BERSequenceDecoder ident(publicKey);
-    ident.SkipAll();
-    CryptoPP::BERGeneralDecoder key(publicKey, CryptoPP::BIT_STRING);
-    key.Skip(1);  // Must skip (possibly a bug in Crypto++)
-    CryptoPP::BERSequenceDecoder keyPair(key);
-
-    mod.BERDecode(keyPair);
-    pubExp.BERDecode(keyPair);
+  // Subject Public Key Info (DER)
+  unsigned char *spki = nullptr;
+  int spkiLen = i2d_X509_PUBKEY(X509_get_X509_PUBKEY(x509), &spki);
+  if (spkiLen > 0 && spki) {
+    pubKeyOut.resize(spkiLen);
+    pubKeyOut.copy(ByteArray(spki, spkiLen));
+    OPENSSL_free(spki);
   }
 
-  publicKey.SkipAll();
-  toBeSignedCert.SkipAll();
-  cert.SkipAll();
+  // Issuer (DER)
+  unsigned char *issuerDer = nullptr;
+  int issuerLen = i2d_X509_NAME(X509_get_issuer_name(x509), &issuerDer);
+  if (issuerLen > 0 && issuerDer) {
+    issuerOut.resize(issuerLen);
+    issuerOut.copy(ByteArray(issuerDer, issuerLen));
+    OPENSSL_free(issuerDer);
+  }
+
+  // Serial
+  const ASN1_INTEGER *serial = X509_get0_serialNumber(x509);
+  BIGNUM *bn = ASN1_INTEGER_to_BN(serial, nullptr);
+  if (bn) {
+    int sLen = BN_num_bytes(bn);
+    serialOut.resize(sLen);
+    BN_bn2bin(bn, serialOut.data());
+    BN_free(bn);
+  }
+
+  X509_free(x509);
+}
+
+void GetCertInfo(const uint8_t *certDer, size_t certLen, std::string &serial,
+                 ByteDynArray &issuerOut, ByteDynArray &subjectOut,
+                 std::string &notBefore, std::string &notAfter,
+                 ByteDynArray &modOut, ByteDynArray &pubExpOut) {
+  const unsigned char *p = certDer;
+  X509 *x509_raw = d2i_X509(nullptr, &p, static_cast<long>(certLen));
+  if (!x509_raw) throw logged_error("Failed to parse X.509 certificate");
+  std::unique_ptr<X509, decltype(&X509_free)> x509_guard(x509_raw, &X509_free);
+  X509 *x509 = x509_guard.get();
+
+  // Serial (decimal string, matching pre-existing consumer expectations)
+  BIGNUM *bn = ASN1_INTEGER_to_BN(X509_get0_serialNumber(x509), nullptr);
+  if (!bn) {
+    throw logged_error("Failed to read certificate serial number");
+  }
+  char *dec = BN_bn2dec(bn);
+  serial = dec;
+  OPENSSL_free(dec);
+  BN_free(bn);
+
+  // Issuer / subject (DER)
+  unsigned char *issuerDer = nullptr;
+  int issuerLen = i2d_X509_NAME(X509_get_issuer_name(x509), &issuerDer);
+  if (issuerLen > 0 && issuerDer) {
+    issuerOut.resize(issuerLen);
+    issuerOut.copy(ByteArray(issuerDer, issuerLen));
+    OPENSSL_free(issuerDer);
+  }
+
+  unsigned char *subjectDer = nullptr;
+  int subjectLen = i2d_X509_NAME(X509_get_subject_name(x509), &subjectDer);
+  if (subjectLen > 0 && subjectDer) {
+    subjectOut.resize(subjectLen);
+    subjectOut.copy(ByteArray(subjectDer, subjectLen));
+    OPENSSL_free(subjectDer);
+  }
+
+  // Validity — keep the YYYYMMDD... GeneralizedTime layout callers expect.
+  auto timeToStr = [](const ASN1_TIME *t) -> std::string {
+    ASN1_GENERALIZEDTIME *gt = ASN1_TIME_to_generalizedtime(t, nullptr);
+    if (!gt) throw logged_error("Failed to convert certificate time");
+    std::string s(reinterpret_cast<const char *>(ASN1_STRING_get0_data(gt)),
+                  static_cast<size_t>(ASN1_STRING_length(gt)));
+    ASN1_STRING_free(gt);
+    return s;
+  };
+  notBefore = timeToStr(X509_get0_notBefore(x509));
+  notAfter = timeToStr(X509_get0_notAfter(x509));
+
+  // RSA modulus / public exponent
+  EVP_PKEY *pkey = X509_get0_pubkey(x509);
+  if (pkey && EVP_PKEY_base_id(pkey) == EVP_PKEY_RSA) {
+    BIGNUM *n = nullptr;
+    BIGNUM *e = nullptr;
+    EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_N, &n);
+    EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_E, &e);
+
+    if (n) {
+      int nLen = BN_num_bytes(n);
+      modOut.resize(nLen);
+      BN_bn2bin(n, modOut.data());
+      BN_free(n);
+    }
+    if (e) {
+      int eLen = BN_num_bytes(e);
+      pubExpOut.resize(eLen);
+      BN_bn2bin(e, pubExpOut.data());
+      BN_free(e);
+    }
+  }
 }

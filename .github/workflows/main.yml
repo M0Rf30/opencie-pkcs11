@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: >
           sudo apt update;
-          sudo apt install -y cmake g++ libcrypto++-dev
+          sudo apt install -y cmake g++
           libcurl4-openssl-dev libfontconfig1-dev
           libfreetype6-dev libopenjp2-7-dev libpcsclite-dev libpng-dev
           libssl-dev libxml2-dev
@@ -88,7 +88,7 @@ jobs:
       - name: Install dependencies
         run: >
           sudo apt update;
-          sudo apt install -y cmake g++ libcrypto++-dev
+          sudo apt install -y cmake g++
           libcurl4-openssl-dev libfontconfig1-dev
           libfreetype6-dev libopenjp2-7-dev libpcsclite-dev libpng-dev
           libssl-dev libxml2-dev
@@ -131,7 +131,7 @@ jobs:
       - name: Install dependencies
         run: >
           sudo apt update;
-          sudo apt install -y clang clang-tools cmake g++ libcrypto++-dev
+          sudo apt install -y clang clang-tools cmake g++
           libcurl4-openssl-dev libfontconfig1-dev
           libfreetype6-dev libopenjp2-7-dev libpcsclite-dev libpng-dev
           libssl-dev libxml2-dev
@@ -211,7 +211,6 @@ jobs:
           sudo apt install -y \
             cmake \
             g++-aarch64-linux-gnu \
-            libcrypto++-dev:arm64 \
             libcurl4-openssl-dev:arm64 \
             libfontconfig1-dev:arm64 \
             libfreetype6-dev:arm64 \
@@ -285,7 +284,6 @@ jobs:
         with:
           pkgs: >-
             curl
-            cryptopp
             freetype
             liblzma
             libpng
@@ -348,7 +346,7 @@ jobs:
 
       - name: Install dependencies
         run: >
-          brew install --quiet cryptopp curl fontconfig freetype
+          brew install --quiet curl fontconfig freetype
           libpng libxml2 openjpeg openssl
 
       - uses: actions/setup-python@v6
@@ -417,7 +415,6 @@ jobs:
         uses: johnwason/vcpkg-action@v8
         with:
           pkgs: >-
-            cryptopp
             curl
             freetype
             libpng
@@ -498,7 +495,6 @@ jobs:
         uses: johnwason/vcpkg-action@v8
         with:
           pkgs: >-
-            cryptopp
             curl
             freetype
             libpng

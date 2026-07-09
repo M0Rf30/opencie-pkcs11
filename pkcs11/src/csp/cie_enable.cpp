@@ -26,10 +26,8 @@
 extern char** environ;
 #endif
 
-#include <cryptopp/asn.h>
-#include <cryptopp/config_int.h>
-#include <cryptopp/cryptlib.h>
 #include <openssl/crypto.h>
+#include <openssl/x509.h>
 #include <time.h>
 
 #include <cstdio>
@@ -52,7 +50,6 @@ extern char** environ;
 #include "sign/cie_sign.h"
 #include "sign/cie_verify.h"
 #include "util/cache_lib.h"
-#include "util/cryptopp_utils.h"
 #include "util/definitions.h"
 #include "util/module_info.h"
 #if defined(__ANDROID__)
@@ -62,7 +59,6 @@ extern char** environ;
 #endif
 
 using namespace CieIDLogger;
-using namespace CryptoPP;
 
 #define ROLE_USER 1
 #define ROLE_ADMIN 2
@@ -82,19 +78,7 @@ static std::string hexEncode(const uint8_t* data, size_t len) {
   return out;
 }
 
-OID OID_SURNAME = ((OID(2) += 5) += 4) += 4;
-
-OID OID_GIVENNAME = ((OID(2) += 5) += 4) += 42;
-
 extern CModuleInfo moduleInfo;
-
-void GetCertInfo(CryptoPP::BufferedTransformation& certin, std::string& serial,
-                 CryptoPP::BufferedTransformation& issuer,
-                 CryptoPP::BufferedTransformation& subject,
-                 std::string& notBefore, std::string& notAfter,
-                 CryptoPP::Integer& mod, CryptoPP::Integer& pubExp);
-
-std::vector<word32> fromObjectIdentifier(std::string sObjId);
 
 DWORD CardAuthenticateEx(IAS* ias, DWORD PinId, DWORD dwFlags, BYTE* pbPinData,
                          DWORD cbPinData, BYTE** ppbSessionPin,
@@ -374,45 +358,35 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
       std::string name;
       std::string surname;
 
-      CryptoPP::ByteQueue certin;
-      certin.Put(CertCIE2.data(), CertCIE2.size());
+      // Parse cert with OpenSSL to extract name/surname
+      const unsigned char* p = CertCIE2.data();
+      X509* x509 = d2i_X509(nullptr, &p, static_cast<long>(CertCIE2.size()));
+      if (!x509) throw logged_error("Failed to parse CIE certificate");
 
-      std::string serial;
-      CryptoPP::ByteQueue issuer;
-      CryptoPP::ByteQueue subject;
-      std::string notBefore;
-      std::string notAfter;
-      CryptoPP::Integer mod;
-      CryptoPP::Integer pubExp;
-
-      GetCertInfo(certin, serial, issuer, subject, notBefore, notAfter, mod,
-                  pubExp);
-
-      CryptoPP::BERSequenceDecoder subjectEncoder(subject);
-      {
-        while (!subjectEncoder.EndReached()) {
-          CryptoPP::BERSetDecoder item(subjectEncoder);
-          CryptoPP::BERSequenceDecoder attributes(item);
-          {
-            OID oid(attributes);
-            if (oid == OID_GIVENNAME) {
-              CryptoPP::byte tag = 0;
-              attributes.Peek(tag);
-
-              CryptoPP::BERDecodeTextString(attributes, name, tag);
-            } else if (oid == OID_SURNAME) {
-              CryptoPP::byte tag = 0;
-              attributes.Peek(tag);
-
-              CryptoPP::BERDecodeTextString(attributes, surname, tag);
-            }
-
-            item.SkipAll();
-          }
+      X509_NAME* subj = X509_get_subject_name(x509);
+      int idx = X509_NAME_get_index_by_NID(subj, NID_givenName, -1);
+      if (idx >= 0) {
+        X509_NAME_ENTRY* entry = X509_NAME_get_entry(subj, idx);
+        ASN1_STRING* val = X509_NAME_ENTRY_get_data(entry);
+        unsigned char* utf8 = nullptr;
+        int nameLen = ASN1_STRING_to_UTF8(&utf8, val);
+        if (nameLen > 0) {
+          name.assign(reinterpret_cast<char*>(utf8), nameLen);
+          OPENSSL_free(utf8);
         }
       }
-
-      subjectEncoder.SkipAll();
+      idx = X509_NAME_get_index_by_NID(subj, NID_surname, -1);
+      if (idx >= 0) {
+        X509_NAME_ENTRY* entry = X509_NAME_get_entry(subj, idx);
+        ASN1_STRING* val = X509_NAME_ENTRY_get_data(entry);
+        unsigned char* utf8 = nullptr;
+        int nameLen = ASN1_STRING_to_UTF8(&utf8, val);
+        if (nameLen > 0) {
+          surname.assign(reinterpret_cast<char*>(utf8), nameLen);
+          OPENSSL_free(utf8);
+        }
+      }
+      X509_free(x509);
 
       std::string fullname = name + " " + surname;
       completedCallBack(span.c_str(), fullname.c_str(), st_serial.c_str());
@@ -609,61 +583,25 @@ HRESULT TokenTransmitCallback(void* data, BYTE* apdu, DWORD apduSize,
   return ris;
 }
 
-std::vector<word32> fromObjectIdentifier(const std::string& sObjId) {
-  std::vector<word32> out;
-
-  std::vector<char> oidBuf(sObjId.size() + 1);
-  char* szOID = oidBuf.data();
-  memcpy(szOID, sObjId.c_str(), sObjId.size() + 1);
-  char* next = nullptr;
-  const char* szTok = strtok_r(szOID, ".", &next);
-  if (!szTok) throw std::runtime_error("Invalid OID: empty");
-
-  unsigned long first = strtoul(szTok, nullptr, 10);
-  szTok = strtok_r(nullptr, ".", &next);
-  if (!szTok) throw std::runtime_error("Invalid OID: missing second arc");
-  unsigned long second = strtoul(szTok, nullptr, 10);
-
-  unsigned long nFirst = 40 * first + second;
-  if (nFirst > 0xff) {
-    throw std::runtime_error("Invalid OID: first two arcs encode > 255");
-  }
-  out.push_back(static_cast<word32>(nFirst));
-
-  while ((szTok = strtok_r(nullptr, ".", &next)) != nullptr) {
-    unsigned long nVal = strtoul(szTok, nullptr, 10);
-    if (nVal < 0x80) {
-      out.push_back(static_cast<word32>(nVal));
-    } else {
-      // Base-128 encoding: collect bytes LSB-first, then emit MSB-first
-      // with the continuation bit (0x80) set on every byte but the last.
-      word32 bytes[5];  // max 5 bytes for a 32-bit value
-      int count = 0;
-      unsigned long tmp = nVal;
-      while (tmp > 0) {
-        bytes[count++] = static_cast<word32>(tmp & 0x7f);
-        tmp >>= 7;
-      }
-      for (int j = count - 1; j >= 0; j--) {
-        word32 b = bytes[j];
-        if (j > 0) b |= 0x80;
-        out.push_back(b);
-      }
-    }
-  }
-
-  return out;
-}
 bool file_exists(const char* name);
 
 #ifdef _WIN32
+// Resolve cieid to an absolute path under ProgramFiles to avoid
+// PATH/CWD-based binary hijack via CreateProcessA's search order.
+static std::string getCieidPath() {
+  const char* pf = std::getenv("ProgramFiles");
+  if (!pf) pf = "C:\\Program Files";
+  return std::string(pf) + "\\CIE\\cieid.exe";
+}
+
 DWORD WINAPI mythread(LPVOID thr_data) {
   char* command = static_cast<char*>(thr_data);
   STARTUPINFOA si {};
   si.cb = sizeof(si);
   PROCESS_INFORMATION pi {};
-  CreateProcessA(nullptr, command, nullptr, nullptr, FALSE, 0, nullptr, nullptr,
-                 &si, &pi);
+  std::string app = getCieidPath();
+  CreateProcessA(app.c_str(), command, nullptr, nullptr, FALSE, 0, nullptr,
+                 nullptr, &si, &pi);
   if (pi.hProcess) {
     WaitForSingleObject(pi.hProcess, INFINITE);
     CloseHandle(pi.hProcess);
@@ -689,10 +627,6 @@ void mythread(std::string cmd) {
 #endif
 
 int sendMessage(const char* szCommand, const char* /*szParam*/) {
-  // NOTE: relative name; on POSIX mythread() ignores it in favor of a
-  // hardcoded /usr/bin/cieid. In production this should resolve to an
-  // absolute, trusted path on Windows too, rather than relying on
-  // CreateProcessA's default search order.
   const char* file = "cieid";
 
 #ifdef _WIN32

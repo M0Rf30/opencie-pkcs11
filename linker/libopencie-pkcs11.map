@@ -2,7 +2,7 @@
  * Symbol version script for libopencie-pkcs11.so
  *
  * Only PKCS#11 standard functions (C_*) and CIE-specific public API
- * functions are exported. Everything else (OpenSSL, Crypto++, libcurl,
+ * functions are exported. Everything else (OpenSSL, libcurl,
  * podofo, libxml2, internal C++ symbols) is hidden.
  *
  * This prevents symbol clashes when the library is dlopen'd by

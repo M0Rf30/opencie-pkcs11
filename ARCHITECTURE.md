@@ -165,19 +165,18 @@ Output: DER-encoded TimeStampToken (.tst)
 | Symbol visibility | `--version-script` (`.map`) | `.def` file (`.exp`) | `--version-script` + `--undefined-version` |
 | C++ stdlib | system `libstdc++` (or static for portable) | MinGW-w64 | NDK `libc++` |
 | Portable build | `Containerfile` (Ubuntu 22.04, glibc 2.35) | vcpkg | NDK r27c + vcpkg |
-| `std::byte` conflict | n/a | `mingw_byte_fix.h` force-included | n/a |
 
 ---
 
 ## Symbol Visibility
 
-Only the public API symbols are exported from the shared library. All internal symbols from statically linked archives (Crypto++, OpenSSL, PoDoFo, etc.) are hidden using:
+Only the public API symbols are exported from the shared library. All internal symbols from statically linked archives (OpenSSL, PoDoFo, etc.) are hidden using:
 
 - **Linux/Android:** `--version-script=linker/libopencie-pkcs11.map` + `--exclude-libs,ALL`
 - **macOS:** `-exported_symbols_list linker/libopencie-pkcs11.exp`
 - **Windows:** implicit via `.def` export list
 
-This prevents symbol collisions when the library is loaded into a host process (e.g. Firefox) that already links its own OpenSSL or Crypto++.
+This prevents symbol collisions when the library is loaded into a host process (e.g. Firefox) that already links its own OpenSSL.
 
 ---
 
@@ -186,7 +185,6 @@ This prevents symbol collisions when the library is loaded into a host process (
 | Library | Role |
 |---|---|
 | OpenSSL (`libcrypto`) | RSA, AES, SHA primitives; certificate parsing |
-| Crypto++ (`libcryptopp`) | Additional symmetric/asymmetric primitives |
 | PC/SC Lite / WinSCard | Smart-card reader transport |
 | libcurl | TSA HTTP client, OCSP/CRL fetching |
 | PoDoFo ≥ 1.0 | PDF manipulation for signature embedding |

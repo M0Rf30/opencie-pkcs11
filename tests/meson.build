@@ -42,7 +42,6 @@ test_shared_sources = [
     '../shared/src/crypto/sha512.cpp',
     '../shared/src/crypto/md5.cpp',
     '../shared/src/crypto/asn_parser.cpp',
-    '../shared/src/crypto/cryptopp_clang_shim.cpp',
 ]
 
 test_exe = executable(
@@ -52,7 +51,6 @@ test_exe = executable(
     dependencies: [
         catch2_dep,
         crypto_dep,
-        cryptopp_dep,
         thread_dep,
         pcsclite_dep,
     ] + (host_machine.system() == 'windows' ? [shlwapi_dep] : []),
