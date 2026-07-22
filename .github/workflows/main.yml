@@ -34,7 +34,7 @@ jobs:
           libssl-dev libxml2-dev
           pkg-config python3-pip
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
 
@@ -94,7 +94,7 @@ jobs:
           libssl-dev libxml2-dev
           pkg-config python3-pip
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
 
@@ -137,7 +137,7 @@ jobs:
           libssl-dev libxml2-dev
           pkg-config python3-pip
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
 
@@ -221,7 +221,7 @@ jobs:
             libxml2-dev:arm64 \
             pkg-config python3-pip zlib1g-dev:arm64
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
 
@@ -269,7 +269,7 @@ jobs:
           sudo apt install -y cmake clang lld mingw-w64
           pkg-config python3-pip
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
 
@@ -349,7 +349,7 @@ jobs:
           brew install --quiet curl fontconfig freetype
           libpng libxml2 openjpeg openssl
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
 
@@ -396,7 +396,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
 
@@ -476,7 +476,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
 
