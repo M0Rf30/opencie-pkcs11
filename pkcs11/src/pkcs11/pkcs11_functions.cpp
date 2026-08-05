@@ -342,9 +342,13 @@ CK_RV CK_ENTRY C_Initialize(CK_VOID_PTR pReserved) {
   g_transport = std::make_shared<PCSCTransport>();
 #endif
 
-    CSlot::InitSlotList(*g_transport);
-
     bP11Initialized = true;
+    try {
+      CSlot::InitSlotList(*g_transport);
+    } catch (...) {
+      bP11Initialized = false;
+      throw;
+    }
 
     LOG_INFO("[PKCS11] C_Initialize success");
 
@@ -382,6 +386,7 @@ CK_RV CK_ENTRY C_Finalize(CK_VOID_PTR pReserved) {
     for (auto &[id, slot] : CSlot::g_mSlots) {
       slot->CloseAllSessions();
     }
+    CSlot::g_mSlots.clear();
 
     return CKR_OK;
   });
