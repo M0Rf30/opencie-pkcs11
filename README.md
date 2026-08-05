@@ -27,6 +27,7 @@ stacks, signing tools — can use them without any card-vendor middleware.
 |---|---|---|
 | Go | [opencie-pkcs11-go](https://github.com/M0Rf30/opencie-pkcs11-go) | `go get github.com/M0Rf30/opencie-pkcs11-go` |
 | Rust | [opencie-pkcs11-rs](https://github.com/M0Rf30/opencie-pkcs11-rs) | `cargo add opencie-pkcs11` |
+| Python | [opencie-pkcs11-py](https://github.com/M0Rf30/opencie-pkcs11-py) | `pip install opencie-pkcs11` |
 
 ---
 
