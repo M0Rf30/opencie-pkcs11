@@ -392,6 +392,14 @@ else
   pkcs11_inc = [inc_so]
 endif
 
+library_version = {}
+if host_machine.system() != 'windows'
+  library_version = {
+    'version': meson.project_version(),
+    'soversion': '1',
+  }
+endif
+
 libopencie_pkcs11 = library(
     'opencie-pkcs11',
     cie_pkcs11_sources,
@@ -400,8 +408,7 @@ libopencie_pkcs11 = library(
     dependencies: common_deps + pkcs11_extra_deps,
     link_args: pkcs11_link_args,
     link_depends: pkcs11_link_depends,
-    version: meson.project_version(),
-    soversion: '1',
+    kwargs: library_version,
     install: true,
 )
 
