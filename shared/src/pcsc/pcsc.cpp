@@ -106,22 +106,28 @@ readerMonitor::readerMonitor(ISmartCardTransport &transport,
         std::vector<std::string> readerList;
         std::vector<SCARD_READERSTATE> states;
 
-        auto loadReaderList = [&]() -> void {
-          char *readers = nullptr;
+        auto loadReaderList = [&](bool initial = false) -> void {
           DWORD len = 0;
-
-          if (rm->transport.ListReaders(rm->hContext, nullptr, &len))
-            throw logged_error("Nessun lettore installato");
-
-          readers = static_cast<char *>(calloc(len, sizeof(char)));
-          rm->transport.ListReaders(rm->hContext, readers, &len);
-
-          const char *curReader = readers;
           readerList.clear();
-          for (; curReader[0] != 0; curReader += strnlen(curReader, len) + 1)
-            readerList.push_back(std::string(curReader));
 
-          free(readers);
+          LONG lret = rm->transport.ListReaders(rm->hContext, nullptr, &len);
+          if (lret != SCARD_S_SUCCESS) {
+            if (lret != static_cast<LONG>(SCARD_E_NO_READERS_AVAILABLE))
+              throw logged_error("Nessun lettore installato");
+          } else {
+            char *readers = static_cast<char *>(calloc(len, sizeof(char)));
+            if (readers == nullptr)
+              throw logged_error("Allocazione lettori fallita");
+            if (rm->transport.ListReaders(rm->hContext, readers, &len) !=
+                SCARD_S_SUCCESS) {
+              free(readers);
+              throw logged_error("Nessun lettore installato");
+            }
+            const char *curReader = readers;
+            for (; curReader[0] != 0; curReader += strnlen(curReader, len) + 1)
+              readerList.push_back(std::string(curReader));
+            free(readers);
+          }
 
           states.resize(static_cast<DWORD>(readerList.size()) + 1);
           for (DWORD i = 0; i < readerList.size(); i++) {
@@ -134,36 +140,45 @@ readerMonitor::readerMonitor(ISmartCardTransport &transport,
 
           rm->transport.GetStatusChange(rm->hContext, 0, states.data(),
                                         states.size());
-          for (DWORD i = 0; i < states.size(); i++)
-            states[i].dwCurrentState = states[i].dwEventState;
-        };
-        loadReaderList();
-
-        while (!rm->stopMonitor) {
-          if (rm->transport.GetStatusChange(rm->hContext, INFINITE,
-                                            states.data(), states.size()) ==
-              static_cast<LONG>(SCARD_E_CANCELLED))
-            break;
           for (DWORD i = 0; i < states.size(); i++) {
-            auto &state = states[i];
-            if (state.pvUserData != nullptr &&
-                (state.dwEventState & SCARD_STATE_CHANGED) ==
-                    SCARD_STATE_CHANGED) {
-              loadReaderList();
-              break;
-            }
-            if (((state.dwCurrentState & SCARD_STATE_PRESENT) ==
-                 SCARD_STATE_PRESENT) &&
-                ((state.dwEventState & SCARD_STATE_PRESENT) == 0))
-              rm->readerEvent(readerList[i], false, rm->appData);
-
-            else if (((state.dwCurrentState & SCARD_STATE_PRESENT) == 0) &&
-                     ((state.dwEventState & SCARD_STATE_PRESENT) ==
-                      SCARD_STATE_PRESENT))
+            if (initial && i < readerList.size() &&
+                (states[i].dwEventState & SCARD_STATE_PRESENT) ==
+                    SCARD_STATE_PRESENT)
               rm->readerEvent(readerList[i], true, rm->appData);
-
-            state.dwCurrentState = state.dwEventState;
+            states[i].dwCurrentState = states[i].dwEventState;
           }
+        };
+
+        try {
+          loadReaderList(true);
+
+          while (!rm->stopMonitor) {
+            if (rm->transport.GetStatusChange(rm->hContext, INFINITE,
+                                              states.data(), states.size()) ==
+                static_cast<LONG>(SCARD_E_CANCELLED))
+              break;
+            for (DWORD i = 0; i < states.size(); i++) {
+              auto &state = states[i];
+              if (state.pvUserData != nullptr &&
+                  (state.dwEventState & SCARD_STATE_CHANGED) ==
+                      SCARD_STATE_CHANGED) {
+                loadReaderList();
+                break;
+              }
+              if (((state.dwCurrentState & SCARD_STATE_PRESENT) ==
+                   SCARD_STATE_PRESENT) &&
+                  ((state.dwEventState & SCARD_STATE_PRESENT) == 0))
+                rm->readerEvent(readerList[i], false, rm->appData);
+
+              else if (((state.dwCurrentState & SCARD_STATE_PRESENT) == 0) &&
+                       ((state.dwEventState & SCARD_STATE_PRESENT) ==
+                        SCARD_STATE_PRESENT))
+                rm->readerEvent(readerList[i], true, rm->appData);
+
+              state.dwCurrentState = state.dwEventState;
+            }
+          }
+        } catch (const std::exception &) {
         }
         return 0;
       },

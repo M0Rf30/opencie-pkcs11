@@ -400,12 +400,23 @@ libopencie_pkcs11 = library(
     dependencies: common_deps + pkcs11_extra_deps,
     link_args: pkcs11_link_args,
     link_depends: pkcs11_link_depends,
+    version: meson.project_version(),
+    soversion: '1',
     install: true,
 )
 
 install_headers(
     'include/opencie/cie_ext.h',
     subdir: 'opencie',
+)
+
+pkg = import('pkgconfig')
+pkg.generate(
+    libopencie_pkcs11,
+    name: 'opencie-pkcs11',
+    filebase: 'opencie-pkcs11',
+    description: 'PKCS#11 module for the Italian electronic ID card (CIE)',
+    version: meson.project_version(),
 )
 
 if get_option('tests')
