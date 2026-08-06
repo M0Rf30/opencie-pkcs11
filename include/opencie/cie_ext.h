@@ -319,6 +319,42 @@ int CK_ENTRY make_digest_info(int algid, const unsigned char* pbtDigest,
                               size_t btDigestLen, unsigned char* pbtDigestInfo,
                               size_t* pbtDigestInfoLen);
 
+// ---------------------------------------------------------------------------
+// Error classification
+// ---------------------------------------------------------------------------
+
+/**
+ * Semantic classification of a CIE card failure, derived from the ISO 7816
+ * status word returned by the card.
+ */
+typedef enum cie_error_kind {
+  CIE_ERR_NONE = 0,                   /* no error recorded */
+  CIE_ERR_WRONG_PIN = 1,              /* 0x63Cx, 0x6300, 0x6700 */
+  CIE_ERR_PIN_BLOCKED = 2,            /* 0x6983 */
+  CIE_ERR_PIN_NOT_SET = 3,            /* 0x6984 */
+  CIE_ERR_SECURITY_NOT_SATISFIED = 4, /* 0x6982 */
+  CIE_ERR_FILE_NOT_FOUND = 5,         /* 0x6A82 */
+  CIE_ERR_WRONG_PARAMS = 6,           /* 0x6A80, 0x6A86, 0x6A88, 0x6B00 */
+  CIE_ERR_INS_NOT_SUPPORTED = 7,      /* 0x6D00, 0x6E00 */
+  CIE_ERR_CARD_COMMUNICATION = 8,     /* transport/SM failure, no usable SW */
+  CIE_ERR_UNKNOWN = 9                 /* a status word we do not classify */
+} cie_error_kind;
+
+/**
+ * Classify an ISO 7816 status word. Pure function, no card required.
+ */
+cie_error_kind CK_ENTRY cie_classify_sw(uint16_t sw);
+
+/**
+ * Detail for the most recent failed cie_* call on the CALLING THREAD.
+ *
+ * @param outKind receives the classification; may be NULL.
+ * @param outSw   receives the raw status word, or 0 when the failure carried
+ *                no status word; may be NULL.
+ * @return CKR_OK always.
+ */
+CK_RV CK_ENTRY cie_last_error(cie_error_kind* outKind, uint16_t* outSw);
+
 #ifdef __cplusplus
 }
 #endif

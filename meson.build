@@ -157,7 +157,7 @@ if build_sign_sdk
   zlib_dep = dependency('zlib')
 endif
 
-inc_shared = include_directories('shared/src/')
+inc_shared = include_directories('shared/src/', 'include/')
 inc_so = include_directories('pkcs11/src/.', 'shared/src/', 'include/')
 
 inc_a = include_directories(
@@ -243,6 +243,11 @@ cie_pkcs11_sources = [
     'pkcs11/src/csp/cie_enable.cpp',
     'pkcs11/src/csp/cie_get_certificate.cpp',
     'pkcs11/src/csp/cie_read_chip.cpp',
+    # Public C entry points must be compiled into the shared library itself:
+    # -Wl,--exclude-libs,ALL demotes every symbol coming from a static
+    # archive to local, so cie_classify_sw/cie_last_error would not be
+    # exported if this lived in the cie-shared static library.
+    'shared/src/csp/cie_error.cpp',
 ]
 
 # Sign-related sources (require sign SDK; skip on Android)

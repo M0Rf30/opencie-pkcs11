@@ -91,3 +91,5 @@ _cie_reader_name
 _cie_get_certificate
 _cie_read_dgs
 _cie_timestamp
+_cie_classify_sw
+_cie_last_error

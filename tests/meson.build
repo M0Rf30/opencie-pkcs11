@@ -21,6 +21,7 @@ test_sources = [
     'test_properties.cpp',
     'test_ini_settings.cpp',
     'test_pcsc_reader_monitor.cpp',
+    'test_cie_error.cpp',
 ]
 
 # Sources needed by tests (no PCSC/hardware deps)
@@ -34,6 +35,7 @@ test_shared_sources = [
     '../shared/src/util/ini_settings.cpp',
     '../shared/src/util/util.cpp',
     '../shared/src/util/util_exception.cpp',
+    '../shared/src/csp/cie_error.cpp',
     '../shared/src/util/tlv.cpp',
     '../shared/src/util/crashlytics_stub.cpp',
     '../shared/src/pcsc/pcsc.cpp',
