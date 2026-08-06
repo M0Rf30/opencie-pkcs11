@@ -43,6 +43,7 @@ extern char** environ;
 #include "crypto/crypto_util.h"
 #include "crypto/sha256.h"
 #include "crypto/sha512.h"
+#include "csp/cie_error.h"
 #include "csp/ias.h"
 #include "logger/logger.h"
 #include "pkcs11/pkcs11_functions.h"
@@ -244,6 +245,7 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
         ATR = nullptr;
 
         progressCallBack(100, "OK!");
+        cie_clear_error();
         return SCARD_S_SUCCESS;
       }
 
@@ -399,13 +401,25 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
       return CKR_TOKEN_NOT_RECOGNIZED;
     }
 
+  } catch (scard_error& e) {
+    LOG_ERROR("cie_enable - Smart card error: 0x%04X", e.sw);
+    cie_record_sw_error(e.sw);
+    if (ATR) free(ATR);
+    if (readers) free(readers);
+    cie_error_kind kind = cie_classify_sw(e.sw);
+    if (kind == CIE_ERR_PIN_BLOCKED) return CKR_PIN_LOCKED;
+    if (kind == CIE_ERR_WRONG_PIN) return CKR_PIN_INCORRECT;
+    if (kind == CIE_ERR_CARD_COMMUNICATION) return CKR_DEVICE_ERROR;
+    return CKR_GENERAL_ERROR;
   } catch (std::exception& ex) {
     LOG_ERROR("cie_enable - Exception %s ", ex.what());
+    cie_record_transport_error();
     if (ATR) free(ATR);
     if (readers) free(readers);
     return CKR_GENERAL_ERROR;
   } catch (...) {
     LOG_ERROR("cie_enable - Unknown exception");
+    cie_record_transport_error();
     if (ATR) free(ATR);
     if (readers) free(readers);
     return CKR_GENERAL_ERROR;
@@ -418,6 +432,7 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
   progressCallBack(100, "OK!");
   LOG_INFO("***** cie_enable Ended *****");
 
+  cie_clear_error();
   return SCARD_S_SUCCESS;
 }
 

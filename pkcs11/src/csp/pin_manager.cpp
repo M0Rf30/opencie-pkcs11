@@ -8,6 +8,7 @@
 #include <string>
 
 #include "csp/cie_enable.h"
+#include "csp/cie_error.h"
 #include "csp/ias.h"
 #include "logger/logger.h"
 #include "pcsc/pcsc.h"
@@ -229,7 +230,17 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
       free(ATR);
       return CKR_TOKEN_NOT_RECOGNIZED;
     }
+  } catch (scard_error& e) {
+    cie_record_sw_error(e.sw);
+    if (readers) free(readers);
+    if (ATR) free(ATR);
+    cie_error_kind kind = cie_classify_sw(e.sw);
+    if (kind == CIE_ERR_PIN_BLOCKED) return CKR_PIN_LOCKED;
+    if (kind == CIE_ERR_WRONG_PIN) return CKR_PIN_INCORRECT;
+    if (kind == CIE_ERR_CARD_COMMUNICATION) return CKR_DEVICE_ERROR;
+    return CKR_GENERAL_ERROR;
   } catch (...) {
+    cie_record_transport_error();
     if (readers) free(readers);
     if (ATR) free(ATR);
     return CKR_GENERAL_ERROR;
@@ -238,6 +249,7 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
   if (readers) free(readers);
   if (ATR) free(ATR);
 
+  cie_clear_error();
   return CKR_OK;
 }
 
@@ -432,11 +444,19 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
     }
 
     LOG_INFO("******** PINManager::cie_unblock_pin Completed ********");
-  } catch (...) {
+  } catch (scard_error& e) {
+    cie_record_sw_error(e.sw);
     if (ATR) free(ATR);
-
     if (readers) free(readers);
-
+    cie_error_kind kind = cie_classify_sw(e.sw);
+    if (kind == CIE_ERR_PIN_BLOCKED) return CKR_PIN_LOCKED;
+    if (kind == CIE_ERR_WRONG_PIN) return CKR_PIN_INCORRECT;
+    if (kind == CIE_ERR_CARD_COMMUNICATION) return CKR_DEVICE_ERROR;
+    return CKR_GENERAL_ERROR;
+  } catch (...) {
+    cie_record_transport_error();
+    if (ATR) free(ATR);
+    if (readers) free(readers);
     return CKR_GENERAL_ERROR;
   }
 
@@ -444,5 +464,6 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
 
   if (readers) free(readers);
 
+  cie_clear_error();
   return CKR_OK;
 }

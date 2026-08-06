@@ -100,6 +100,8 @@
     cie_get_certificate;
     cie_read_dgs;
     cie_timestamp;
+    cie_classify_sw;
+    cie_last_error;
 
     /* Android JNI bridge (NFC transport + data dir) */
     cie_set_nfc_tag;
