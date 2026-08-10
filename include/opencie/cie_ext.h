@@ -173,10 +173,10 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
  * @param pin               Card PIN (NUL-terminated).
  * @param pan               PAN of the enrolled card.
  * @param page              Page index (0-based) for the signature widget.
- * @param x                 X position of the signature widget (points).
- * @param y                 Y position of the signature widget (points).
- * @param w                 Width of the signature widget (points).
- * @param h                 Height of the signature widget (points).
+ * @param x                 Left position fraction (0.0-1.0) of crop box.
+ * @param y                 Bottom position fraction (0.0-1.0) of crop box.
+ * @param w                 Width fraction (0.0-1.0); 0 hides visible widget.
+ * @param h                 Height fraction (0.0-1.0); 0 hides visible part.
  * @param imageData         PNG image bytes for the signature stamp; may be
  * NULL.
  * @param imageDataLen      Length of imageData in bytes; 0 if imageData is
