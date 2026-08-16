@@ -341,7 +341,15 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
     pCACert = CCertStore::GetCertificate(*pCACert);
   }
 
-  if (!pCACert) {
+  // The chain bit only means something if at least one issuer signature was
+  // actually verified AND the walk terminated at a self-signed trust anchor
+  // that is itself present in the store. Terminating early because no
+  // issuer certificate could be found at all (bitmask has no
+  // VERIFIED_CACERT_FOUND, pCACert null from the first lookup) must not be
+  // reported as a verified chain.
+  if ((bitmask & VERIFIED_CACERT_FOUND) && !pCACert &&
+      pCert->getIssuer() == pCert->getSubject() &&
+      pCert->verifySignature(*pCert)) {
     bitmask |= VERIFIED_CERT_CHAIN;
   }
 
@@ -363,24 +371,22 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
   const ByteDynArray* pEncDigest = encryptedDigest.getValue();
 
   try {
-    BYTE decrypted[MAX_RSA_MODULUS_LEN];
-    unsigned int len = MAX_RSA_MODULUS_LEN;
+    int nModulusLen = evp_pubkey ? EVP_PKEY_get_size(evp_pubkey) : 0;
+    ByteDynArray decrypted(nModulusLen > 0 ? static_cast<size_t>(nModulusLen)
+                                           : 0);
+    unsigned int len = 0;
 
-    {
+    if (nModulusLen > 0) {
       EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new(evp_pubkey, nullptr);
       if (pctx && EVP_PKEY_verify_recover_init(pctx) > 0 &&
           EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PADDING) > 0) {
         const BYTE* encrypted = pEncDigest->data();
         const int encrypted_len = static_cast<int>(pEncDigest->size());
-        size_t outlen = MAX_RSA_MODULUS_LEN;
-        if (EVP_PKEY_verify_recover(pctx, decrypted, &outlen, encrypted,
+        size_t outlen = static_cast<size_t>(nModulusLen);
+        if (EVP_PKEY_verify_recover(pctx, decrypted.data(), &outlen, encrypted,
                                     encrypted_len) > 0) {
           len = static_cast<unsigned int>(outlen);
-        } else {
-          len = 0;
         }
-      } else {
-        len = 0;
       }
       EVP_PKEY_CTX_free(pctx);
     }
@@ -392,9 +398,35 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
       LOG_DBG((0, "CSignerInfo::verifySignature", "RSAPublicDecrypt OK"));
 
       {
-        ByteDynArray dec(ByteArray(decrypted, len));
+        ByteDynArray dec(ByteArray(decrypted.data(), len));
         BufferedReader reader(dec);
         CDigestInfo digestInfo(reader);
+
+        // RSA_public_decrypt/EVP_PKEY_verify_recover only strip the
+        // PKCS#1 v1.5 padding (00 01 FF..FF 00); nothing otherwise checks
+        // that the DigestInfo SEQUENCE consumed the whole recovered block.
+        // An attacker could shorten the FF run and append arbitrary
+        // trailing bytes after a valid DigestInfo, so require exact
+        // consumption here.
+        if (reader.getPosition() != dec.size()) {
+          throw logged_error(
+              "DigestInfo does not consume the entire recovered signature "
+              "block");
+        }
+
+        // Cross-check the recovered signature's digest algorithm against
+        // the digest algorithm declared in the SignerInfo itself; without
+        // this a signature computed with one hash could be reinterpreted
+        // under a different declared algorithm.
+        CAlgorithmIdentifier digestAlgo(digestInfo.getDigestAlgorithm());
+        CAlgorithmIdentifier declaredDigestAlgo(
+            signerInfo.getDigestAlgorithn());
+        if (digestAlgo.elementAt(0) != declaredDigestAlgo.elementAt(0)) {
+          throw logged_error(
+              "Recovered signature digest algorithm does not match the "
+              "declared SignerInfo digest algorithm");
+        }
+
         CASN1OctetString digest = digestInfo.getDigest();
         const ByteDynArray* pDigestValue = digest.getValue();
 
@@ -457,7 +489,6 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
           bufflen = content2.size();
         }
 
-        CAlgorithmIdentifier digestAlgo(digestInfo.getDigestAlgorithm());
         CAlgorithmIdentifier sha256Algo(szSHA256OID);
         CAlgorithmIdentifier sha1Algo(szSHA1OID);
         if (digestAlgo.elementAt(0) == sha256Algo.elementAt(0)) {

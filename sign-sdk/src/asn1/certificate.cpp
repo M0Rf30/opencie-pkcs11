@@ -150,7 +150,10 @@ bool CCertificate::isNonRepudiation() {
   BufferedReader reader(content);
   CASN1BitString val(reader);
 
-  const BYTE* pKeyUsageFlags = val.getValue()->data();
+  const ByteDynArray* pVal = val.getValue();
+  if (!pVal || pVal->size() < 2) return false;
+
+  const BYTE* pKeyUsageFlags = pVal->data();
   BYTE unusedbits = pKeyUsageFlags[0];
   {
     BYTE flags = pKeyUsageFlags[1];
@@ -164,14 +167,7 @@ bool CCertificate::isNonRepudiation() {
 }
 
 bool CCertificate::isQualified() {
-  CASN1Sequence keyUsage(getExtension(CASN1ObjectIdentifier("2.5.29.15")));
-  if (keyUsage.size() == 0)  // not found
-    return false;
-
-  CASN1OctetString val(keyUsage.elementAt(1));
-  const BYTE* pKeyUsageFlags = val.getValue()->data();
-  if (!(pKeyUsageFlags[0] & 0x01))  // non repudiation
-    return false;
+  if (!isNonRepudiation()) return false;
 
   CASN1Sequence qcStatement(
       getExtension(CASN1ObjectIdentifier("1.3.6.1.5.5.7.1.3")));
@@ -191,7 +187,8 @@ bool CCertificate::isSHA256() {
 bool CCertificate::isValid() {
   char szTime[20];
   time_t now = time(nullptr);
-  strftime(szTime, 20, "%y%m%d%H%M%SZ", localtime(&now));
+  struct tm tmNow;
+  strftime(szTime, sizeof(szTime), "%y%m%d%H%M%SZ", gmtime_r(&now, &tmNow));
 
   return isValid(szTime);
 }
@@ -318,6 +315,137 @@ CASN1OctetString CCertificate::getSubjectKeyIdentifier() {
 // the length of the response. Other HTTP headers MAY be present and MAY
 // be ignored if not understood by the requestor.
 
+namespace {
+
+// Extended Key Usage extension OID (2.5.29.37) and the id-kp-OCSPSigning
+// purpose OID (RFC 6960 SS4.2.2.2) that a delegated OCSP responder
+// certificate must carry.
+constexpr const char* szExtKeyUsageOID = "2.5.29.37";
+constexpr const char* szOCSPSigningOID = "1.3.6.1.5.5.7.3.9";
+
+// Returns true if `cert` carries the given Extended Key Usage OID. Mirrors
+// the OCTET STRING unwrapping already used by CCertificate::isNonRepudiation.
+bool HasExtendedKeyUsage(CCertificate& cert, const char* szOid) {
+  CASN1Sequence eku(cert.getExtension(CASN1ObjectIdentifier(szExtKeyUsageOID)));
+  int n = eku.size();
+  if (n == 0) return false;
+
+  CASN1OctetString octetString(eku.elementAt(n - 1));
+
+  ByteDynArray content;
+  if (octetString.getTag() == 0x24) {  // constructed octet string
+    CASN1Sequence contentArray(octetString);
+    int size = contentArray.size();
+    for (int i = 0; i < size; i++) {
+      CASN1OctetString part(contentArray.elementAt(i));
+      content.append(ByteArray(part.getValue()->data(), part.getLength()));
+    }
+  } else {
+    content.append(
+        ByteArray(octetString.getValue()->data(), octetString.getLength()));
+  }
+
+  try {
+    BufferedReader reader(content);
+    CASN1Sequence purposes(reader);
+    CASN1ObjectIdentifier target(szOid);
+    int count = purposes.size();
+    for (int i = 0; i < count; i++) {
+      CASN1ObjectIdentifier purpose(purposes.elementAt(i));
+      if (purpose.equals(target)) return true;
+    }
+  } catch (const CASN1Exception&) {
+    return false;
+  }
+
+  return false;
+}
+
+// Verifies that `basicOCSPResponse` (BasicOCSPResponse SEQUENCE, which has
+// the same { content, signatureAlgorithm, signature } shape as Certificate)
+// is signed either directly by `subject`'s issuer, or by a delegated
+// responder certificate embedded in the response that is itself signed by
+// the issuer and carries the id-kp-OCSPSigning EKU. Fails closed: a missing
+// issuer or any parsing problem yields false.
+bool VerifyOCSPResponderSignature(CCertificate& subject,
+                                  CASN1Sequence& basicOCSPResponse) {
+  CCertificate* pIssuer = CCertStore::GetCertificate(subject);
+  if (!pIssuer) return false;
+
+  CCertificate responseAsCert(basicOCSPResponse);
+  if (responseAsCert.verifySignature(*pIssuer)) return true;
+
+  if (!basicOCSPResponse.isPresent(3)) return false;
+
+  try {
+    CASN1Object certsObj(basicOCSPResponse.elementAt(3));
+    if (certsObj.getTag() != 0xA0) return false;  // certs [0] EXPLICIT
+
+    CASN1Sequence certsWrapper(certsObj);
+    CASN1Sequence certsSeq(certsWrapper.elementAt(0));
+
+    int nCerts = certsSeq.size();
+    for (int i = 0; i < nCerts; i++) {
+      CCertificate responderCert(certsSeq.elementAt(i));
+      if (responderCert.verifySignature(*pIssuer) &&
+          HasExtendedKeyUsage(responderCert, szOCSPSigningOID) &&
+          responseAsCert.verifySignature(responderCert)) {
+        return true;
+      }
+    }
+  } catch (const CASN1Exception&) {
+    return false;
+  }
+
+  return false;
+}
+
+// Verifies that `certIDObj` (the CertID SEQUENCE from a SingleResponse)
+// identifies `subject`: same issuerNameHash/issuerKeyHash/serialNumber this
+// SDK would have placed in the OCSP request for it. Only SHA-1 CertIDs are
+// supported, matching the only hash algorithm this SDK ever requests with.
+bool MatchesCertID(CCertificate& subject, const CASN1Object& certIDObj) {
+  try {
+    CASN1Sequence certID(certIDObj);
+    if (certID.size() < 4) return false;
+
+    CAlgorithmIdentifier hashAlgo(certID.elementAt(0));
+    if (!hashAlgo.getOID().equals(CASN1ObjectIdentifier(szSHA1OID)))
+      return false;
+
+    ByteDynArray expectedIssuerNameHash;
+    ByteDynArray expectedIssuerKeyHash;
+    COCSPRequest::ComputeCertID(subject, expectedIssuerNameHash,
+                                expectedIssuerKeyHash);
+
+    CASN1OctetString issuerNameHash(certID.elementAt(1));
+    CASN1OctetString issuerKeyHash(certID.elementAt(2));
+    CASN1Integer serial(certID.elementAt(3));
+
+    const ByteDynArray* pIssuerNameHash = issuerNameHash.getValue();
+    if (!pIssuerNameHash ||
+        pIssuerNameHash->size() != expectedIssuerNameHash.size() ||
+        CRYPTO_memcmp(pIssuerNameHash->data(), expectedIssuerNameHash.data(),
+                      expectedIssuerNameHash.size()) != 0)
+      return false;
+
+    const ByteDynArray* pIssuerKeyHash = issuerKeyHash.getValue();
+    if (!pIssuerKeyHash ||
+        pIssuerKeyHash->size() != expectedIssuerKeyHash.size() ||
+        CRYPTO_memcmp(pIssuerKeyHash->data(), expectedIssuerKeyHash.data(),
+                      expectedIssuerKeyHash.size()) != 0)
+      return false;
+
+    if (!(serial == subject.getSerialNumber())) return false;
+
+    return true;
+  } catch (const CASN1Exception&) {
+    return false;
+  }
+}
+
+}  // namespace
+
 int CCertificate::verifyStatus(REVOCATION_INFO* pRevocationInfo) {
   return verifyStatus(nullptr, pRevocationInfo);
 }
@@ -416,8 +544,23 @@ int CCertificate::verifyStatus(const char* szTime,
 
             CASN1Sequence singleResponse(responses.elementAt(0));
 
-            // NSLog(@"%s",
-            // ((ByteDynArray*)singleResponse.getValue())->toHexString());
+            // Fail closed: never consult certStatus before the responder's
+            // signature and the CertID binding have been verified.
+            if (!VerifyOCSPResponderSignature(*this, basicOCSPResponse)) {
+              LOG_ERR((0, "CCertificate::verifyStatus",
+                       "OCSP response signature could not be verified "
+                       "against the issuer or a delegated responder; "
+                       "ignoring response"));
+              throw CASN1BadObjectIdException(
+                  "OCSP responder signature invalid");
+            }
+
+            if (!MatchesCertID(*this, singleResponse.elementAt(0))) {
+              LOG_ERR((0, "CCertificate::verifyStatus",
+                       "OCSP response CertID does not match the certificate "
+                       "under test; ignoring response"));
+              throw CASN1BadObjectIdException("OCSP response CertID mismatch");
+            }
 
             CASN1Object certStatus(singleResponse.elementAt(1));
             CASN1UTCTime thisUpdate(singleResponse.elementAt(2));
@@ -457,9 +600,11 @@ int CCertificate::verifyStatus(const char* szTime,
                       btRevocationTime =
                           const_cast<BYTE*>(revocationTime.getValue()->data()) +
                           revocationTime.getValue()->size() - 13;
-                    } else {
+                    } else if (revocationTime.getValue()->size() == 13) {
                       btRevocationTime =
                           const_cast<BYTE*>(revocationTime.getValue()->data());
+                    } else {
+                      throw CASN1ParsingException();
                     }
 
                     if (pRevocationInfo) {
@@ -478,6 +623,9 @@ int CCertificate::verifyStatus(const char* szTime,
 
                     CASN1OctetString reasonCode(clrReason.elementAt(1));
                     const ByteDynArray* pVal2 = reasonCode.getValue();
+                    if (!pVal2 || pVal2->size() < 3) {
+                      throw CASN1ParsingException();
+                    }
 
                     BYTE reason =
                         pVal2->data()[2];  // reasonCode.getTag() & 0x0F;
@@ -492,10 +640,9 @@ int CCertificate::verifyStatus(const char* szTime,
                     }
                     if (pRevocationInfo)
                       pRevocationInfo->nRevocationStatus = inner_status;
-                  } catch (CASN1Exception* ex) {
+                  } catch (const CASN1Exception&) {
                     LOG_DBG((0, "CCertificate::verifyStatus",
                              "Unexpected Exception"));
-                    delete ex;
                     inner_status = REVOCATION_STATUS_REVOKED;
                   }
                 }
@@ -516,9 +663,8 @@ int CCertificate::verifyStatus(const char* szTime,
         }
       }
     }
-  } catch (CASN1Exception* ex) {
+  } catch (const CASN1Exception&) {
     LOG_ERR((0, "CCertificate::verifyStatus", "Unexpected ASN1 Exception"));
-    delete ex;
   } catch (long r) {
     LOG_MSG((0, "CCertificate::verifyStatus",
              "authorityInfoAccess OCSP not present. Error: %x", r));
@@ -574,6 +720,28 @@ int CCertificate::verifyStatus(const char* szTime,
           BufferedReader reader4(response.data(), response.size());
           CCrl crl(reader4);
 
+          // Fail closed: never consult revokedCertificates before the CRL
+          // is confirmed to be signed by the issuing CA and current.
+          CCertificate* pCRLIssuer = CCertStore::GetCertificate(*this);
+          if (!pCRLIssuer) {
+            LOG_ERR((0, "CCertificate::verifyStatus",
+                     "CRL issuer certificate not found; cannot verify CRL"));
+            return REVOCATION_STATUS_NOTLOADED;
+          }
+
+          if (!crl.verifySignature(*pCRLIssuer)) {
+            LOG_ERR((0, "CCertificate::verifyStatus",
+                     "CRL signature verification failed; rejecting CRL"));
+            return REVOCATION_STATUS_NOTLOADED;
+          }
+
+          if (!crl.isCurrent(szTime)) {
+            LOG_ERR((0, "CCertificate::verifyStatus",
+                     "CRL is not current (expired or not yet valid); "
+                     "rejecting CRL"));
+            return REVOCATION_STATUS_NOTLOADED;
+          }
+
           int revstatus = 0;
           if (!crl.isRevoked(serialNumber, szTime, &revstatus,
                              pRevocationInfo)) {
@@ -591,9 +759,8 @@ int CCertificate::verifyStatus(const char* szTime,
         }
       }
     }
-  } catch (CASN1Exception* ex) {
+  } catch (const CASN1Exception&) {
     LOG_ERR((0, "CCertificate::verifyStatus", "Unexpected ASN1 Exception"));
-    delete ex;
   } catch (...) {
     LOG_ERR((0, "CCertificate::verifyStatus", "Unexpected Exception"));
   }
@@ -615,7 +782,12 @@ int CCertificate::verify() {
     pCACert = CCertStore::GetCertificate(*pCACert);
   }
 
-  if (!pCACert) {
+  // pCACert becomes null both when a self-signed trust anchor matched
+  // itself in the store and when the issuer of pCert simply could not be
+  // found. Only the former is a validated chain; fail closed otherwise.
+  if (!pCACert && (bitmask & VERIFIED_CACERT_FOUND) &&
+      pCert->getIssuer() == pCert->getSubject() &&
+      pCert->verifySignature(*pCert)) {
     bitmask |= VERIFIED_CERT_CHAIN;
   }
 
@@ -637,9 +809,14 @@ bool CCertificate::verifySignature(CCertificate& cert) {
   evp_pubkey = X509_get_pubkey(x509);
 
   CASN1BitString encryptedDigest(elementAt(2));
-  ByteDynArray encDigest(
-      *const_cast<ByteDynArray*>(encryptedDigest.getValue()));
-  encDigest.clear();
+  const ByteDynArray* pEncryptedDigest = encryptedDigest.getValue();
+  if (!pEncryptedDigest || pEncryptedDigest->size() < 2 ||
+      pEncryptedDigest->data()[0] != 0) {
+    EVP_PKEY_free(evp_pubkey);
+    X509_free(x509);
+    return false;
+  }
+  ByteDynArray encDigest(pEncryptedDigest->mid(1));
 
   BYTE decrypted[MAX_RSA_MODULUS_LEN];
   unsigned int len = MAX_RSA_MODULUS_LEN;
@@ -670,6 +847,26 @@ bool CCertificate::verifySignature(CCertificate& cert) {
     try {
       BufferedReader reader(decrypted, len);
       CDigestInfo digestInfo(reader);
+
+      // EVP_PKEY_verify_recover only strips the PKCS#1 v1.5 padding
+      // (00 01 FF..FF 00); nothing otherwise checks that the DigestInfo
+      // SEQUENCE consumed the whole recovered block. An attacker could
+      // shorten the FF run and append arbitrary trailing bytes after a
+      // valid DigestInfo, so require exact consumption here.
+      if (reader.getPosition() != len) {
+        return false;
+      }
+
+      // Cross-check the recovered signature's digest algorithm against
+      // the algorithm declared in the certificate's own signatureAlgorithm
+      // field; without this a signature computed with one hash could be
+      // reinterpreted under a different declared algorithm.
+      CAlgorithmIdentifier digestAlgo(digestInfo.getDigestAlgorithm());
+      CAlgorithmIdentifier declaredSigAlgo(elementAt(1));
+      if (digestAlgo.elementAt(0) != declaredSigAlgo.elementAt(0)) {
+        return false;
+      }
+
       CASN1OctetString digest = digestInfo.getDigest();
       ByteDynArray* pDigestValue = const_cast<ByteDynArray*>(digest.getValue());
 
@@ -683,7 +880,6 @@ bool CCertificate::verifySignature(CCertificate& cert) {
       buff = const_cast<BYTE*>(content2.data());
       bufflen = content2.size();
 
-      CAlgorithmIdentifier digestAlgo(digestInfo.getDigestAlgorithm());
       CAlgorithmIdentifier sha256Algo(szSHA256OID);
       CAlgorithmIdentifier sha1Algo(szSHA1OID);
       if (digestAlgo.elementAt(0) == sha256Algo.elementAt(0)) {
@@ -706,8 +902,7 @@ bool CCertificate::verifySignature(CCertificate& cert) {
           return true;
         }
       }
-    } catch (CASN1Exception* ex) {
-      delete ex;
+    } catch (const CASN1Exception&) {
       return false;
     } catch (...) {
       return false;
