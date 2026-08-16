@@ -20,6 +20,8 @@
 #include "asn1_octet_string.h"
 #include "cert_store.h"
 #include "crypto/base64.h"
+#include "crypto/sha1.h"
+#include "crypto/sha256.h"
 #include "digest_info.h"
 #include "ldap_crl.h"
 #include "ocsp_request.h"
@@ -685,68 +687,23 @@ bool CCertificate::verifySignature(CCertificate& cert) {
       CAlgorithmIdentifier sha256Algo(szSHA256OID);
       CAlgorithmIdentifier sha1Algo(szSHA1OID);
       if (digestAlgo.elementAt(0) == sha256Algo.elementAt(0)) {
-        unsigned char hash[SHA256_DIGEST_LENGTH];
-        unsigned char hash2[SHA256_DIGEST_LENGTH];
-        EVP_MD_CTX* sha256_ctx = nullptr;
+        ByteDynArray hash = CSHA256::Digest(ByteArray(buff, bufflen));
 
-        sha256_ctx = EVP_MD_CTX_new();
-        EVP_DigestInit(sha256_ctx, EVP_sha256());
-        EVP_DigestUpdate(sha256_ctx, buff, bufflen);
-        EVP_DigestFinal(sha256_ctx, hash, nullptr);
-        EVP_MD_CTX_free(sha256_ctx);
-
-        sha256_ctx = EVP_MD_CTX_new();
-        EVP_DigestUpdate(sha256_ctx, content2.data(), content2.size());
-        EVP_DigestFinal(sha256_ctx, hash2, nullptr);
-        EVP_MD_CTX_free(sha256_ctx);
-
-        if (CRYPTO_memcmp(hash, pDigestValue->data(), 32) == 0) {
-          // verify the content hash
-          if (CRYPTO_memcmp(hash2, hash, 32) == 0) {
-            return true;
-          }
+        if (hash.size() == SHA256_DIGEST_LENGTH &&
+            pDigestValue->size() == SHA256_DIGEST_LENGTH &&
+            CRYPTO_memcmp(hash.data(), pDigestValue->data(),
+                          SHA256_DIGEST_LENGTH) == 0) {
+          return true;
         }
 
       } else if (digestAlgo.elementAt(0) == sha1Algo.elementAt(0)) {
-        // compute SHA1 hash
-        char szAux[100];
-        unsigned char hash[SHA_DIGEST_LENGTH];
-        EVP_MD_CTX* sha1_ctx = nullptr;
+        ByteDynArray hash = CSHA1().Digest(ByteArray(buff, bufflen));
 
-        sha1_ctx = EVP_MD_CTX_new();
-        EVP_DigestInit(sha1_ctx, EVP_sha1());
-        EVP_DigestUpdate(sha1_ctx, buff, bufflen);
-        EVP_DigestFinal(sha1_ctx, hash, nullptr);
-        EVP_MD_CTX_free(sha1_ctx);
-
-        // Reinterpret the hash as five unsigned 32-bit words.
-        unsigned* word = reinterpret_cast<unsigned*>(hash);
-
-        snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
-                 __builtin_bswap32(word[0]), __builtin_bswap32(word[1]),
-                 __builtin_bswap32(word[2]), __builtin_bswap32(word[3]),
-                 __builtin_bswap32(word[4]));
-
-        ByteDynArray hashaux(szAux);
-
-        sha1_ctx = EVP_MD_CTX_new();
-        EVP_DigestInit(sha1_ctx, EVP_sha1());
-        EVP_DigestUpdate(sha1_ctx, content2.data(), content2.size());
-        EVP_DigestFinal(sha1_ctx, hash, nullptr);
-        EVP_MD_CTX_free(sha1_ctx);
-        snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
-                 __builtin_bswap32(word[0]), __builtin_bswap32(word[1]),
-                 __builtin_bswap32(word[2]), __builtin_bswap32(word[3]),
-                 __builtin_bswap32(word[4]));
-        ByteDynArray contentHash(szAux);
-
-        if (CRYPTO_memcmp(hashaux.data(), pDigestValue->data(),
-                          hashaux.size()) == 0) {
-          // verify the content hash
-          if (CRYPTO_memcmp(contentHash.data(), hashaux.data(),
-                            contentHash.size()) == 0) {
-            return true;
-          }
+        if (hash.size() == SHA_DIGEST_LENGTH &&
+            pDigestValue->size() == SHA_DIGEST_LENGTH &&
+            CRYPTO_memcmp(hash.data(), pDigestValue->data(),
+                          SHA_DIGEST_LENGTH) == 0) {
+          return true;
         }
       }
     } catch (CASN1Exception* ex) {

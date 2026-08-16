@@ -2,9 +2,6 @@
 
 #include "signature_generator.h"
 
-#include <openssl/evp.h>
-#include <openssl/sha.h>
-
 #include <cstddef>
 #include <ctime>
 #include <vector>
@@ -17,6 +14,7 @@
 #include "asn1/certificate.h"
 #include "asn1/digest_info.h"
 #include "cert_store.h"
+#include "crypto/sha1.h"
 #include "crypto/sha256.h"
 #include "util/array.h"
 #include "util/definitions.h"
@@ -210,30 +208,12 @@ long CSignatureGenerator::Generate(ByteDynArray& pkcs7SignedData,
       LOG_DBG((0, "CSignatureGenerator::Generate",
                "CertificateHash: CKM_SHA1_RSA_PKCS"));
 
-      hashBuf.resize(24);
-      hashlen = 24;
-
       {
-        char szAux[50];
-
-        EVP_MD_CTX* sha1_ctx = EVP_MD_CTX_new();
-        EVP_DigestInit(sha1_ctx, EVP_sha1());
-        EVP_DigestUpdate(sha1_ctx, const_cast<BYTE*>(m_data.data()),
-                         m_data.size());
-        EVP_DigestFinal(sha1_ctx, hashBuf.data(), nullptr);
-        EVP_MD_CTX_free(sha1_ctx);
-
-        // Reinterpret the hash as five unsigned 32-bit words.
-        unsigned* word = reinterpret_cast<unsigned*>(hashBuf.data());
-
-        snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
-                 __builtin_bswap32(word[0]), __builtin_bswap32(word[1]),
-                 __builtin_bswap32(word[2]), __builtin_bswap32(word[3]),
-                 __builtin_bswap32(word[4]));
-
-        ByteDynArray hashaux(szAux);
-
-        memcpy(hashBuf.data(), hashaux.data(), hashlen);
+        ByteArray baData(m_data.data(), m_data.size());
+        ByteDynArray h = CSHA1().Digest(baData);
+        hashlen = h.size();
+        hashBuf.resize(hashlen);
+        memcpy(hashBuf.data(), h.data(), hashlen);
 
         m_signerInfoGenerator.setContentHash(hashBuf.data(), hashlen);
 
@@ -242,21 +222,9 @@ long CSignatureGenerator::Generate(ByteDynArray& pkcs7SignedData,
                                                   !bDetached);
 
         // compute total digest
-        EVP_MD_CTX* sha1_1_ctx = EVP_MD_CTX_new();
-        EVP_DigestInit(sha1_1_ctx, EVP_sha1());
-        EVP_DigestUpdate(sha1_1_ctx, signedAttributes.data(),
-                         signedAttributes.size());
-        EVP_DigestFinal(sha1_1_ctx, hashBuf.data(), nullptr);
-        EVP_MD_CTX_free(sha1_1_ctx);
-
-        snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
-                 __builtin_bswap32(word[0]), __builtin_bswap32(word[1]),
-                 __builtin_bswap32(word[2]), __builtin_bswap32(word[3]),
-                 __builtin_bswap32(word[4]));
-
-        ByteDynArray hashaux1(szAux);
-
-        memcpy(hashBuf.data(), hashaux1.data(), hashlen);
+        ByteArray baSA(signedAttributes.data(), signedAttributes.size());
+        ByteDynArray h1 = CSHA1().Digest(baSA);
+        memcpy(hashBuf.data(), h1.data(), hashlen);
       }
     } break;
   }
