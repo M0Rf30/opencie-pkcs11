@@ -15,6 +15,8 @@
 #include "asn1/asn1_sequence.h"
 #include "sign/cie_sign_api.h"
 
+class CCertificate;
+
 /**
  * @brief X.509 CRL (RFC 5280 Section 5).
  *
@@ -46,4 +48,20 @@ class CCrl : public CASN1Sequence {
    */
   bool isRevoked(const CASN1Integer& serialNumber, const char* szDateTime,
                  int* pReason, REVOCATION_INFO* pRevocationInfo);
+
+  /**
+   * @brief Verifies this CRL's signature against the issuing CA certificate.
+   * @param issuer The CA certificate that allegedly issued this CRL.
+   * @return true if the signature is valid.
+   */
+  bool verifySignature(CCertificate& issuer);
+
+  /**
+   * @brief Checks whether the CRL's validity window covers a reference time.
+   * @param szDateTime Reference date/time ("YYMMDDHHMMSSZ"), or nullptr for
+   *                   the current time.
+   * @return true if thisUpdate <= reference <= nextUpdate (nextUpdate is
+   *         only enforced when present).
+   */
+  bool isCurrent(const char* szDateTime);
 };
