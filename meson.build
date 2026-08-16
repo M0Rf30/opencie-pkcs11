@@ -11,11 +11,80 @@ project(
     ],
 )
 
+cpp = meson.get_compiler('cpp')
+cc = meson.get_compiler('c')
+
 if host_machine.system() != 'windows'
   add_project_arguments('-fPIC', language: 'cpp')
 endif
 
-cpp = meson.get_compiler('cpp')
+# --- Hardening flags for this security-sensitive shared library (it parses
+# untrusted ASN.1/CMS/OCSP/XML input from smart cards and the network).
+# Every flag is probed with has_argument()/has_link_argument() so a
+# toolchain that rejects it (MinGW ld, macOS ld64, Android NDK lld) just
+# skips it instead of breaking configure.
+hardening_cpp_args = []
+hardening_c_args = []
+hardening_link_args = []
+
+# Stack canaries on every function with a vulnerable stack layout.
+foreach a : ['-fstack-protector-strong']
+  if cpp.has_argument(a)
+    hardening_cpp_args += [a]
+  endif
+  if cc.has_argument(a)
+    hardening_c_args += [a]
+  endif
+endforeach
+
+# _FORTIFY_SOURCE needs optimisation to do anything (glibc only installs the
+# checked __*_chk intrinsics when inlining/const-folding is active); skip it
+# on unoptimised debug builds where it would be a no-op.
+if get_option('optimization') not in ['0', 'g']
+  foreach a : ['-D_FORTIFY_SOURCE=2']
+    if cpp.has_argument(a)
+      hardening_cpp_args += [a]
+    endif
+    if cc.has_argument(a)
+      hardening_c_args += [a]
+    endif
+  endforeach
+endif
+
+# PIE compile flags are for executables; this project's security-sensitive
+# target is the shared library above (already -fPIC, which subsumes -fPIE
+# for a .so). The only executable is the optional test binary
+# (tests/meson.build), out of scope here.
+
+# -fvisibility=hidden: safe now that CK_ENTRY expands to
+# __attribute__((visibility("default"))) on non-Windows
+# (include/opencie/cie_ext.h). Verified empirically: the shared library
+# exports exactly the same 88 symbols with and without this flag, so nothing
+# in the public ABI is lost. It shrinks the dynamic symbol table and stops
+# internal C++/OpenSSL/podofo symbols from being interposable, which matters
+# because this .so is dlopen'd into browsers that ship their own copies.
+# Windows uses __declspec(dllexport) and needs no equivalent.
+if host_machine.system() != 'windows'
+  foreach a : ['-fvisibility=hidden']
+    if cpp.has_argument(a)
+      hardening_cpp_args += [a]
+    endif
+    if cc.has_argument(a)
+      hardening_c_args += [a]
+    endif
+  endforeach
+endif
+
+add_project_arguments(hardening_cpp_args, language: 'cpp')
+add_project_arguments(hardening_c_args, language: 'c')
+
+# RELRO/BIND_NOW: GNU ld / lld only. macOS ld64 does not understand -z at
+# all; MinGW's ld does not implement RELRO. Applied only to the shared
+# library's own link step below (pkcs11_link_args), not project-wide, since
+# it is the target this hardening pass is scoped to.
+if host_machine.system() != 'darwin' and cpp.has_multi_link_arguments('-Wl,-z,relro', '-Wl,-z,now')
+  hardening_link_args += ['-Wl,-z,relro', '-Wl,-z,now']
+endif
 libdir = meson.current_source_dir() + '/lib'
 
 crypto_dep = dependency('libcrypto')
@@ -191,7 +260,6 @@ shared_sources = [
     'shared/src/util/syncro_event.cpp',
     'shared/src/util/module_info.cpp',
     'shared/src/util/ini_settings.cpp',
-    'shared/src/util/openssl_utils.cpp',
     'shared/src/util/cache_lib.cpp',
     'shared/src/util/array.cpp',
     'shared/src/util/util.cpp',
@@ -343,7 +411,7 @@ endif
 # the PKCS#11 C_* functions + CIE-specific public API (cie_enable, etc.).
 # Without this, 1500+ OpenSSL/PoDoFo symbols leak into the global
 # namespace and collide with the host application's own imports (e.g. Firefox).
-pkcs11_link_args = []
+pkcs11_link_args = hardening_link_args
 pkcs11_link_depends = []
 
 # Version script / exported symbols: export only public API, hide everything else

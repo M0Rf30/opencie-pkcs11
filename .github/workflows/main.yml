@@ -5,6 +5,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
   contents: write
   security-events: write
@@ -16,7 +20,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install system tools required by pre-commit hooks
-        run: sudo apt update && sudo apt install -y clang-format cppcheck
+        run: sudo apt update && sudo apt install -y clang-format-19 cppcheck
 
       - uses: pre-commit/action@v3.0.1
 
@@ -36,9 +40,9 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.x"
+          python-version: "3.12"
 
-      - run: pip install meson ninja
+      - run: pip install "meson==1.12.0" "ninja==1.13.0"
 
       - uses: hendrikmuhs/ccache-action@v1.2.23
         with:
@@ -96,9 +100,9 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.x"
+          python-version: "3.12"
 
-      - run: pip install meson ninja
+      - run: pip install "meson==1.12.0" "ninja==1.13.0"
 
       - uses: hendrikmuhs/ccache-action@v1.2.23
         with:
@@ -139,9 +143,9 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.x"
+          python-version: "3.12"
 
-      - run: pip install meson ninja
+      - run: pip install "meson==1.12.0" "ninja==1.13.0"
 
       - uses: hendrikmuhs/ccache-action@v1.2.23
         with:
@@ -164,7 +168,6 @@ jobs:
           meson setup builddir-scan -Dtests=false --wipe 2>/dev/null || meson setup builddir-scan -Dtests=false
           mkdir -p scan-results
           scan-build --status-bugs -o scan-results meson compile -C builddir-scan
-        continue-on-error: true
 
       - uses: actions/upload-artifact@v7
         if: always()
@@ -223,9 +226,9 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.x"
+          python-version: "3.12"
 
-      - run: pip install meson ninja
+      - run: pip install "meson==1.12.0" "ninja==1.13.0"
 
       - uses: hendrikmuhs/ccache-action@v1.2.23
         with:
@@ -271,9 +274,9 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.x"
+          python-version: "3.12"
 
-      - run: pip install meson ninja
+      - run: pip install "meson==1.12.0" "ninja==1.13.0"
 
       - uses: hendrikmuhs/ccache-action@v1.2.23
         with:
@@ -351,9 +354,9 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.x"
+          python-version: "3.12"
 
-      - run: pip install meson ninja
+      - run: pip install "meson==1.12.0" "ninja==1.13.0"
 
       - uses: hendrikmuhs/ccache-action@v1.2.23
         with:
@@ -398,9 +401,9 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.x"
+          python-version: "3.12"
 
-      - run: pip install meson ninja
+      - run: pip install "meson==1.12.0" "ninja==1.13.0"
 
       - name: Install cmake
         run: sudo apt-get update && sudo apt-get install -y cmake
@@ -478,9 +481,9 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.x"
+          python-version: "3.12"
 
-      - run: pip install meson ninja
+      - run: pip install "meson==1.12.0" "ninja==1.13.0"
 
       - name: Install cmake
         run: sudo apt-get update && sudo apt-get install -y cmake
@@ -615,6 +618,12 @@ jobs:
           cp dist/android-arm64/libopencie-pkcs11.so       release/libopencie-pkcs11-${TAG}-android-arm64.so
           cp dist/android-x86_64/libopencie-pkcs11.so      release/libopencie-pkcs11-${TAG}-android-x86_64.so
           ls -lh release/
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
 
       - name: Create GitHub release
         env:

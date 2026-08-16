@@ -56,7 +56,6 @@ ByteDynArray CDES3::Encode(const ByteArray &data) {
 }
 
 ByteDynArray CDES3::RawEncode(const ByteArray &data) {
-  ByteDynArray result;
   ER_ASSERT((data.size() % 8) == 0,
             "Data size to encrypt must be a multiple of 8");
 
@@ -70,7 +69,6 @@ ByteDynArray CDES3::Decode(const ByteArray &data) {
 }
 
 ByteDynArray CDES3::RawDecode(const ByteArray &data) {
-  ByteDynArray result;
   ER_ASSERT((data.size() % 8) == 0,
             "Data size to decrypt must be a multiple of 8");
 

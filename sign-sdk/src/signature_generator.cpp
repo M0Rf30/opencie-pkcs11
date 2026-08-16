@@ -184,7 +184,7 @@ long CSignatureGenerator::Generate(ByteDynArray& pkcs7SignedData,
 
       hashBuf.resize(32);
       hashlen = 32;
-      // sha2((BYTE*)m_data.data(), m_data.size(), hash, 0);
+
       {
         ByteArray baData(m_data.data(), m_data.size());
         ByteDynArray h = CSHA256().Digest(baData);
@@ -200,8 +200,6 @@ long CSignatureGenerator::Generate(ByteDynArray& pkcs7SignedData,
         ByteDynArray h = CSHA256().Digest(baSA);
         memcpy(hashBuf.data(), h.data(), 32);
       }
-      // sha2(signedAttributes.data(), signedAttributes.size(), hash,
-      //      0);
     } break;
 
     case CKM_SHA1_RSA_PKCS: {
@@ -283,7 +281,6 @@ long CSignatureGenerator::Generate(ByteDynArray& pkcs7SignedData,
     hashBuf.resize(32);
     hashlen = 32;
 
-    // sha2((BYTE*)content.data(), content.size(), hash, 0);
     {
       ByteArray baContent(content.data(), content.size());
       ByteDynArray h = CSHA256().Digest(baContent);
