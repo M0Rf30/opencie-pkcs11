@@ -84,11 +84,17 @@ ByteDynArray CRSA::RSA_PURE(const ByteArray &data) {
     throw std::runtime_error("BN_mod_exp failed");
   }
 
-  size_t len = BN_num_bytes(c);
-  if (len == 0xff) len = 0x100;
+  size_t len = static_cast<size_t>(BN_num_bytes(n));
 
   ByteDynArray resp(len);
-  BN_bn2binpad(c, resp.data(), static_cast<int>(len));
+  if (BN_bn2binpad(c, resp.data(), static_cast<int>(len)) < 0) {
+    BN_free(m);
+    BN_free(c);
+    BN_free(n);
+    BN_free(e);
+    BN_CTX_free(bnctx);
+    throw std::runtime_error("BN_bn2binpad failed");
+  }
 
   BN_free(m);
   BN_free(c);

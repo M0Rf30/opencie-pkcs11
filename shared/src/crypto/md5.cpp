@@ -5,12 +5,19 @@
 
 CMD5::CMD5() : isInit(false), ctx {} {}
 
-CMD5::~CMD5() {}
+CMD5::~CMD5() {
+  if (ctx) {
+    EVP_MD_CTX_free(ctx);
+    ctx = nullptr;
+  }
+}
 
 void CMD5::Init() {
-  // throw logged_error("A hash operation is already in progress");
+  if (ctx) EVP_MD_CTX_free(ctx);
   ctx = EVP_MD_CTX_new();
-  EVP_DigestInit_ex(ctx, EVP_md5(), nullptr);
+  if (!ctx) throw logged_error("EVP_MD context allocation error");
+  if (EVP_DigestInit_ex(ctx, EVP_md5(), nullptr) != 1)
+    throw logged_error("MD5 initialization error");
   isInit = true;
 }
 void CMD5::Update(ByteArray data) {

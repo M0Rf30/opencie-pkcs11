@@ -10,6 +10,12 @@
 #include "crypto/mac.h"
 
 #include <cstring>
+#include <memory>
+
+namespace {
+using EvpCipherCtxPtr =
+    std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)>;
+}
 
 extern CLog Log;
 
@@ -79,27 +85,26 @@ ByteDynArray CMAC::Mac(const ByteArray &data) {
     memcpy(singleDesKey + 8, key.data(), 8);
     memcpy(singleDesKey + 16, key.data(), 8);
 
-    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    int rc = EVP_EncryptInit_ex(ctx, EVP_des_ede3_cbc(), nullptr, singleDesKey,
-                                ivBuf);
+    EvpCipherCtxPtr ctx(EVP_CIPHER_CTX_new(), EVP_CIPHER_CTX_free);
+    ER_ASSERT(ctx != nullptr, "EVP context allocation error");
+    int rc = EVP_EncryptInit_ex(ctx.get(), EVP_des_ede3_cbc(), nullptr,
+                                singleDesKey, ivBuf);
     ER_ASSERT(rc == 1, "Error initializing MAC step 1");
-    EVP_CIPHER_CTX_set_padding(ctx, 0);
+    EVP_CIPHER_CTX_set_padding(ctx.get(), 0);
 
     ByteDynArray baOutTmp(ANSILen - 8);
     int outLen = 0;
-    rc = EVP_EncryptUpdate(ctx, baOutTmp.data(), &outLen, data.data(),
+    rc = EVP_EncryptUpdate(ctx.get(), baOutTmp.data(), &outLen, data.data(),
                            static_cast<int>(ANSILen - 8));
     ER_ASSERT(rc == 1, "Error in MAC encryption step 1");
 
     int finalLen = 0;
-    rc = EVP_EncryptFinal_ex(ctx, baOutTmp.data() + outLen, &finalLen);
+    rc = EVP_EncryptFinal_ex(ctx.get(), baOutTmp.data() + outLen, &finalLen);
     ER_ASSERT(rc == 1, "Error finalizing MAC step 1");
     outLen += finalLen;
 
     // The chained IV for step 2 is the last 8 bytes of ciphertext output
     memcpy(ivBuf, baOutTmp.data() + outLen - 8, 8);
-
-    EVP_CIPHER_CTX_free(ctx);
   }
 
   // Step 2: 3DES-CBC encrypt the final block using full key
@@ -118,23 +123,24 @@ ByteDynArray CMAC::Mac(const ByteArray &data) {
       fullKey = key;
     }
 
-    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    int rc = EVP_EncryptInit_ex(ctx, cipher, nullptr, fullKey.data(), ivBuf);
+    EvpCipherCtxPtr ctx(EVP_CIPHER_CTX_new(), EVP_CIPHER_CTX_free);
+    ER_ASSERT(ctx != nullptr, "EVP context allocation error");
+    int rc =
+        EVP_EncryptInit_ex(ctx.get(), cipher, nullptr, fullKey.data(), ivBuf);
     ER_ASSERT(rc == 1, "Error initializing MAC step 2");
-    EVP_CIPHER_CTX_set_padding(ctx, 0);
+    EVP_CIPHER_CTX_set_padding(ctx.get(), 0);
 
     size_t remaining = (data.size() - ANSILen) + 8;
     uint8_t dest[8];
     int outLen = 0;
-    rc = EVP_EncryptUpdate(ctx, dest, &outLen, data.mid(ANSILen - 8).data(),
+    rc = EVP_EncryptUpdate(ctx.get(), dest, &outLen,
+                           data.mid(ANSILen - 8).data(),
                            static_cast<int>(remaining));
     ER_ASSERT(rc == 1, "Error in MAC encryption step 2");
 
     int finalLen = 0;
-    rc = EVP_EncryptFinal_ex(ctx, dest + outLen, &finalLen);
+    rc = EVP_EncryptFinal_ex(ctx.get(), dest + outLen, &finalLen);
     ER_ASSERT(rc == 1, "Error finalizing MAC step 2");
-
-    EVP_CIPHER_CTX_free(ctx);
 
     resp.copy(ByteArray(dest, 8));
   }

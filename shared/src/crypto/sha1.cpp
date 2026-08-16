@@ -5,11 +5,19 @@
 
 CSHA1::CSHA1() : isInit(false), ctx(nullptr) {}
 
-CSHA1::~CSHA1() {}
+CSHA1::~CSHA1() {
+  if (ctx) {
+    EVP_MD_CTX_free(ctx);
+    ctx = nullptr;
+  }
+}
 
 void CSHA1::Init() {
+  if (ctx) EVP_MD_CTX_free(ctx);
   ctx = EVP_MD_CTX_new();
-  EVP_DigestInit_ex(ctx, EVP_sha1(), nullptr);
+  if (!ctx) throw logged_error("EVP_MD context allocation error");
+  if (EVP_DigestInit_ex(ctx, EVP_sha1(), nullptr) != 1)
+    throw logged_error("SHA-1 initialization error");
   isInit = true;
 }
 void CSHA1::Update(ByteArray data) {
