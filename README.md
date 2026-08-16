@@ -190,7 +190,7 @@ via JNI; smart-card readers are not used.
 ### Build Tools
 
 - [Meson](https://mesonbuild.com/) ≥ 0.56 and [Ninja](https://ninja-build.org/)
-- A C++17-capable compiler (GCC, Clang, or MinGW-w64)
+- A C++20-capable compiler (GCC, Clang, or MinGW-w64)
 - [vcpkg](https://github.com/microsoft/vcpkg) — required for Windows and Android cross builds
 - Android NDK r27c — required for Android builds
 - Podman or Docker — required for the portable Linux build
