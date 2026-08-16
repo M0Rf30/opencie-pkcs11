@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-OpenCIE-PKCS11 is a cross-platform C++17 shared library implementing the PKCS#11 v2.40 cryptographic token interface for the Italian CIE (Carta d'Identita Elettronica) smart card. It also provides a signing SDK for PDF (CAdES/PAdES), XAdES XML, and PKCS#7/CMS signatures with RFC 3161 timestamping.
+OpenCIE-PKCS11 is a cross-platform C++20 shared library implementing the PKCS#11 v2.40 cryptographic token interface for the Italian CIE (Carta d'Identita Elettronica) smart card. It also provides a signing SDK for PDF (CAdES/PAdES), XAdES XML, and PKCS#7/CMS signatures with RFC 3161 timestamping.
 
 Single output artifact: `libopencie-pkcs11.so` (or `.dll`/`.dylib`), assembled from three internal static libraries. License: LGPL-3.0-or-later.
 
@@ -197,7 +197,7 @@ std::runtime_error
 
 | Aspect | Choice |
 |--------|--------|
-| Language | C++17 (`-std=c++17`) |
+| Language | C++20 (`-std=c++20`) |
 | Build system | Meson >= 0.56 + Ninja |
 | Crypto | OpenSSL 3.x (`libcrypto`) — no Crypto++ |
 | Smart card | PC/SC (libpcsclite on Linux, WinSCard on Windows, PCSC.framework on macOS) |

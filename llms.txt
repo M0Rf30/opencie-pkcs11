@@ -4,7 +4,7 @@
 
 - Version: 1.0.0
 - License: LGPL-3.0-or-later
-- Language: C++17 / C
+- Language: C++20 / C
 - Platforms: Linux (x86_64, aarch64), macOS (arm64), Windows (x86_64), Android (arm64-v8a, x86_64)
 - Output: libopencie-pkcs11.so / .dll / .dylib
 
