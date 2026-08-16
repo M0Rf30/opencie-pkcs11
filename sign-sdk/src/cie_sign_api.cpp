@@ -817,6 +817,68 @@ long cie_sign_verify_cleanup(CIE_SIGN_CTX ctx) {
   __CATCH
 }
 
+// Recursively frees the nested heap allocations owned by a single
+// SIGNER_INFO (its certificate blob, extension strings, revocation info,
+// timestamp, and counter-signatures), but not `si` itself: `si` is always
+// an element of a caller-owned SIGNER_INFO[] array or an embedded member.
+static void freeSignerInfoContents(SIGNER_INFO& si) {
+  delete[] si.pCertificate;
+  si.pCertificate = nullptr;
+
+  for (int j = 0; j < si.nExtensionsCount; j++) delete[] si.pszExtensions[j];
+  delete[] si.pszExtensions;
+  si.pszExtensions = nullptr;
+
+  delete si.pRevocationInfo;
+  si.pRevocationInfo = nullptr;
+
+  if (si.pTimeStamp) {
+    TS_INFO* pTSInfo = static_cast<TS_INFO*>(si.pTimeStamp);
+    freeSignerInfoContents(pTSInfo->signerInfo);
+    delete pTSInfo;
+    si.pTimeStamp = nullptr;
+  }
+
+  if (si.pCounterSignatures) {
+    SIGNER_INFO* pCounterSignatures =
+        static_cast<SIGNER_INFO*>(si.pCounterSignatures);
+    for (int k = 0; k < si.nCounterSignatureCount; k++)
+      freeSignerInfoContents(pCounterSignatures[k]);
+    delete[] pCounterSignatures;
+    si.pCounterSignatures = nullptr;
+    si.nCounterSignatureCount = 0;
+  }
+}
+
+// Frees a SIGNER_INFOS array (and its own storage). `nInitialized` limits
+// the deep content free to the first N entries; pass -1 (default) when
+// every entry up to nCount has been populated. Use a smaller value on an
+// error path where the array was allocated for more entries than were
+// ever initialised.
+static void freeSignerInfos(SIGNER_INFOS* pSignerInfos, int nInitialized = -1) {
+  if (!pSignerInfos) return;
+  int nCount = nInitialized < 0 ? pSignerInfos->nCount : nInitialized;
+  for (int i = 0; i < nCount; i++)
+    freeSignerInfoContents(pSignerInfos->pSignerInfo[i]);
+  delete[] pSignerInfos->pSignerInfo;
+  delete pSignerInfos;
+}
+
+// Frees the entire allocation tree referenced by a VERIFY_INFO: the
+// per-signer array (with all nested certificates/extensions/revocation
+// info/timestamps/counter-signatures) plus the top-level TS_INFO used by
+// the standalone TSR/TST/TSD verification paths.
+static void freeVerifyInfo(VERIFY_INFO& verifyInfo) {
+  freeSignerInfos(verifyInfo.pSignerInfos);
+  verifyInfo.pSignerInfos = nullptr;
+
+  if (verifyInfo.pTSInfo) {
+    freeSignerInfoContents(verifyInfo.pTSInfo->signerInfo);
+    delete verifyInfo.pTSInfo;
+    verifyInfo.pTSInfo = nullptr;
+  }
+}
+
 long cie_sign_verify_cleanup_result(VERIFY_RESULT* pVerifyResult) {
   LOG_MSG((0, "--> cie_sign_verify_cleanup_result", "VerifyResult: %p",
            pVerifyResult));
@@ -825,33 +887,7 @@ long cie_sign_verify_cleanup_result(VERIFY_RESULT* pVerifyResult) {
 
   if (!pVerifyResult) return 0;
 
-  if (!pVerifyResult->verifyInfo.pSignerInfos) return 0;
-
-  switch (pVerifyResult->nResultType) {
-    case CIE_SIGN_FILETYPE_P7M:
-    case CIE_SIGN_FILETYPE_PDF:
-    case CIE_SIGN_FILETYPE_XML:
-
-      for (int i = 0; i < pVerifyResult->verifyInfo.pSignerInfos->nCount; i++) {
-        if (pVerifyResult->verifyInfo.pSignerInfos->pSignerInfo[i].pTimeStamp) {
-          if ((static_cast<TS_INFO*>(
-                   pVerifyResult->verifyInfo.pSignerInfos->pSignerInfo[i]
-                       .pTimeStamp))
-                  ->signerInfo.pRevocationInfo)
-            SAFEDELETE(
-                (static_cast<TS_INFO*>(
-                     pVerifyResult->verifyInfo.pSignerInfos->pSignerInfo[i]
-                         .pTimeStamp))
-                    ->signerInfo.pRevocationInfo);
-        }
-
-        SAFEDELETE(pVerifyResult->verifyInfo.pSignerInfos->pSignerInfo[i]
-                       .pRevocationInfo);
-      }
-
-      SAFEDELETE(pVerifyResult->verifyInfo.pSignerInfos);
-      break;
-  }
+  freeVerifyInfo(pVerifyResult->verifyInfo);
 
   LOG_MSG((0, "<-- cie_sign_verify_cleanup_result", "VerifyResult: %p",
            pVerifyResult));
@@ -941,7 +977,9 @@ long verify_p7m(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
 
       pVerifyInfo->pTSInfo = p7mTSInfo;
 
+      delete[] p7mSignerInfos->pSignerInfo;
       SAFEDELETE(p7mSignerInfos)
+      delete[] pdfSignerInfos->pSignerInfo;
       SAFEDELETE(pdfSignerInfos)
     }
 
@@ -1831,7 +1869,8 @@ long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& /*data*/,
 #endif
 
     if (nRes) {
-      delete pVerifyInfo->pSignerInfos->pSignerInfo;
+      freeSignerInfos(pVerifyInfo->pSignerInfos, i);
+      pVerifyInfo->pSignerInfos = nullptr;
       LOG_ERR((0, "<-- verify_pdf", "Context: %p, Error: %x", pContext, nRes));
       return nRes;
     }

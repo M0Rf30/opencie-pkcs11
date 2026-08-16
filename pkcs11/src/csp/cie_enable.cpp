@@ -79,6 +79,31 @@ static std::string hexEncode(const uint8_t* data, size_t len) {
   return out;
 }
 
+namespace {
+/// Minimal RAII scope-exit guard: invokes a callable exactly once when the
+/// guard goes out of scope (normal return, early return, or exception
+/// unwinding). `shared/src/util/util.h` has a `scopeExit()` helper for this,
+/// but its factory function fails to compile (explicit constructor rejected
+/// by list-initialization) and it has no other caller in the tree to have
+/// caught that; a small local guard avoids depending on it.
+template <typename F>
+class ScopeGuard {
+ public:
+  explicit ScopeGuard(F f) : f_(std::move(f)) {}
+  ScopeGuard(const ScopeGuard&) = delete;
+  ScopeGuard& operator=(const ScopeGuard&) = delete;
+  ~ScopeGuard() { f_(); }
+
+ private:
+  F f_;
+};
+
+template <typename F>
+ScopeGuard<F> makeScopeGuard(F f) {
+  return ScopeGuard<F>(std::move(f));
+}
+}  // namespace
+
 extern CModuleInfo moduleInfo;
 
 DWORD CardAuthenticateEx(IAS* ias, DWORD PinId, DWORD dwFlags, BYTE* pbPinData,
@@ -123,7 +148,6 @@ CK_RV CK_ENTRY cie_disable(const char* szPAN) {
 CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
                           int* attempts, PROGRESS_CALLBACK progressCallBack,
                           COMPLETED_CALLBACK completedCallBack) {
-  char* readers = nullptr;
   char* ATR = nullptr;
 
   LOG_INFO("***** Starting cie_enable *****");
@@ -161,6 +185,10 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
       LOG_ERROR("cie_enable - SCardEstablishContext error: %d", nRet);
       return CKR_DEVICE_ERROR;
     }
+    // Released exactly once on every path out of this try block (early
+    // return, normal completion, or exception unwinding).
+    auto scHandleGuard =
+        makeScopeGuard([&]() noexcept { transport->ReleaseContext(hSC); });
 
     nRet = transport->ListReaders(hSC, nullptr, &len);
     if (nRet != SCARD_S_SUCCESS) {
@@ -170,12 +198,17 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
 
     if (len == 1) return CKR_TOKEN_NOT_PRESENT;
 
-    readers = static_cast<char*>(malloc(len));
+    char* readers = static_cast<char*>(malloc(len));
+    // Released exactly once, after the loop below, on every path. The
+    // loop's own increment/condition dereferences curreader — a pointer
+    // into this buffer — so it must never be freed while the loop can
+    // still run (that was the use-after-free: it used to be freed mid-loop
+    // at the "found CIE" sites below).
+    auto readersGuard = makeScopeGuard([&]() noexcept { free(readers); });
 
     nRet = transport->ListReaders(hSC, readers, &len);
     if (nRet != SCARD_S_SUCCESS) {
       LOG_ERROR("cie_enable - SCardListReaders error: %d", nRet);
-      free(readers);
       return CKR_TOKEN_NOT_PRESENT;
     }
 
@@ -193,7 +226,6 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
                                   reinterpret_cast<uint8_t*>(ATR), &atrLen);
       if (nRet != SCARD_S_SUCCESS) {
         LOG_ERROR("cie_enable - SCardGetAttrib error, %d\n", nRet);
-        free(readers);
         return CKR_DEVICE_ERROR;
       }
 
@@ -203,7 +235,6 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
                                   reinterpret_cast<uint8_t*>(ATR), &atrLen);
       if (nRet != SCARD_S_SUCCESS) {
         LOG_ERROR("cie_enable - SCardGetAttrib error, %d\n", nRet);
-        free(readers);
         free(ATR);
         return CKR_DEVICE_ERROR;
       }
@@ -239,8 +270,6 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
 
         completedCallBack(sidServizi_already.c_str(), "", "");
 
-        free(readers);
-        readers = nullptr;
         free(ATR);
         ATR = nullptr;
 
@@ -274,8 +303,6 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
 
       progressCallBack(20, "Authenticating...");
 
-      free(readers);
-      readers = nullptr;
       free(ATR);
       ATR = nullptr;
 
@@ -287,17 +314,14 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
       if (rs == static_cast<LONG>(SCARD_W_WRONG_CHV)) {
         LOG_ERROR("cie_enable - CardAuthenticateEx Wrong Pin");
         free(ATR);
-        free(readers);
         return CKR_PIN_INCORRECT;
       } else if (rs == static_cast<LONG>(SCARD_W_CHV_BLOCKED)) {
         LOG_ERROR("cie_enable - CardAuthenticateEx Pin locked");
         free(ATR);
-        free(readers);
         return CKR_PIN_LOCKED;
       } else if (rs != SCARD_S_SUCCESS) {
         LOG_ERROR("cie_enable - CardAuthenticateEx Generic error, res:%d", rs);
         free(ATR);
-        free(readers);
         return CKR_GENERAL_ERROR;
       }
 
@@ -397,7 +421,6 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
     if (!foundCIE) {
       LOG_ERROR("cie_enable - No CIE available");
       free(ATR);
-      free(readers);
       return CKR_TOKEN_NOT_RECOGNIZED;
     }
 
@@ -405,7 +428,6 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
     LOG_ERROR("cie_enable - Smart card error: 0x%04X", e.sw);
     cie_record_sw_error(e.sw);
     if (ATR) free(ATR);
-    if (readers) free(readers);
     cie_error_kind kind = cie_classify_sw(e.sw);
     if (kind == CIE_ERR_PIN_BLOCKED) return CKR_PIN_LOCKED;
     if (kind == CIE_ERR_WRONG_PIN) return CKR_PIN_INCORRECT;
@@ -415,18 +437,15 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
     LOG_ERROR("cie_enable - Exception %s ", ex.what());
     cie_record_transport_error();
     if (ATR) free(ATR);
-    if (readers) free(readers);
     return CKR_GENERAL_ERROR;
   } catch (...) {
     LOG_ERROR("cie_enable - Unknown exception");
     cie_record_transport_error();
     if (ATR) free(ATR);
-    if (readers) free(readers);
     return CKR_GENERAL_ERROR;
   }
 
   if (ATR) free(ATR);
-  if (readers) free(readers);
 
   LOG_INFO("cie_enable - CIE paired successfully");
   progressCallBack(100, "OK!");
@@ -786,8 +805,20 @@ int CK_ENTRY cie_reader_name(char* buf, int buf_len) {
       bool isInternal = strstr(p, "Broadcom") != nullptr;
 
       if (hasCard || (isEmpty && !isInternal)) {
-        strncpy(buf, p, static_cast<size_t>(buf_len) - 1);
-        buf[buf_len - 1] = '\0';
+        size_t nameLen = strnlen(p, len);
+        if (nameLen >= static_cast<size_t>(buf_len)) {
+          // Truncating here would silently hand the caller an unusable,
+          // ambiguous reader name. Fail closed: skip this reader (buf
+          // stays the empty string set above) and keep looking instead of
+          // reporting success with garbage.
+          LOG_ERROR(
+              "cie_reader_name - Reader name too long for buffer (%zu >= %d),"
+              " skipping",
+              nameLen, buf_len);
+          continue;
+        }
+        strncpy(buf, p, nameLen);
+        buf[nameLen] = '\0';
         found = 1;
         break;
       }

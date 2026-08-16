@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "csp/cie_enable.h"
+#include "csp/cie_error.h"
 #include "csp/ias.h"
 #include "logger/logger.h"
 #include "pcsc/pcsc.h"
@@ -20,6 +21,25 @@
 #include "sign/cie_sign.h"
 #include "util/module_info.h"
 #include "util/util_exception.h"
+
+namespace {
+/** @brief RAII guard releasing a PC/SC SCARDCONTEXT exactly once. */
+class ScardContextGuard {
+ public:
+  ScardContextGuard(std::shared_ptr<ISmartCardTransport> transport,
+                    SCARDCONTEXT hCardContext)
+      : transport_(std::move(transport)), hContext_(hCardContext) {}
+  ~ScardContextGuard() {
+    if (hContext_) transport_->ReleaseContext(hContext_);
+  }
+  ScardContextGuard(const ScardContextGuard&) = delete;
+  ScardContextGuard& operator=(const ScardContextGuard&) = delete;
+
+ private:
+  std::shared_ptr<ISmartCardTransport> transport_;
+  SCARDCONTEXT hContext_;
+};
+}  // namespace
 
 using namespace CieIDLogger;
 
@@ -66,6 +86,7 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
       LOG_ERROR("cie_sign - List readers error: %d\n", nRet);
       return CKR_DEVICE_ERROR;
     }
+    ScardContextGuard hScGuard(transport, hSC);
     LOG_INFO("cie_sign - Establish Context ok\n");
 
     nRet = transport->ListReaders(hSC, nullptr, &len);
@@ -183,10 +204,17 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
     if (!foundCIE) {
       return CKR_TOKEN_NOT_RECOGNIZED;
     }
+  } catch (scard_error& e) {
+    LOG_ERROR("cie_sign - Smart card error: 0x%04X", e.sw);
+    cie_record_sw_error(e.sw);
+    cie_error_kind kind = cie_classify_sw(e.sw);
+    if (kind == CIE_ERR_PIN_BLOCKED) return CKR_PIN_LOCKED;
+    if (kind == CIE_ERR_WRONG_PIN) return CKR_PIN_INCORRECT;
+    if (kind == CIE_ERR_CARD_COMMUNICATION) return CKR_DEVICE_ERROR;
+    return CKR_GENERAL_ERROR;
   } catch (std::exception& ex) {
-    LOG_ERROR(ex.what());
     LOG_ERROR("cie_sign - Exception: %s", ex.what());
-    LOG_ERROR("cie_sign - General error\n");
+    cie_record_transport_error();
     return CKR_GENERAL_ERROR;
   }
 

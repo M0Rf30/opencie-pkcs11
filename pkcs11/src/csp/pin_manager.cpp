@@ -20,6 +20,25 @@
 #include "pcsc/pcsc_transport.h"
 #endif
 
+namespace {
+/** @brief RAII guard releasing a PC/SC SCARDCONTEXT exactly once. */
+class ScardContextGuard {
+ public:
+  ScardContextGuard(std::shared_ptr<ISmartCardTransport> transport,
+                    SCARDCONTEXT hCardContext)
+      : transport_(std::move(transport)), hContext_(hCardContext) {}
+  ~ScardContextGuard() {
+    if (hContext_) transport_->ReleaseContext(hContext_);
+  }
+  ScardContextGuard(const ScardContextGuard&) = delete;
+  ScardContextGuard& operator=(const ScardContextGuard&) = delete;
+
+ private:
+  std::shared_ptr<ISmartCardTransport> transport_;
+  SCARDCONTEXT hContext_;
+};
+}  // namespace
+
 using namespace CieIDLogger;
 
 extern "C" {
@@ -65,6 +84,7 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
       LOG_ERROR("PINManager::ChangePIN - res: %d", nRet);
       return CKR_DEVICE_ERROR;
     }
+    ScardContextGuard hScGuard(transport, hSC);
 
     LOG_DEBUG("PINManager::ChangePIN - SCardListReaders");
 
@@ -282,6 +302,7 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
       LOG_ERROR("PINManager::UnlockPIN - SCardEstablishContext err: %d", nRet);
       return CKR_DEVICE_ERROR;
     }
+    ScardContextGuard hScGuard(transport, hSC);
 
     if (transport->ListReaders(hSC, nullptr, &len) != SCARD_S_SUCCESS) {
       LOG_ERROR("PINManager::UnlockPIN - SCardEstablishContext err: %d", nRet);

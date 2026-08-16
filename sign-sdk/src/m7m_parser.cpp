@@ -25,10 +25,10 @@ int M7MParser::Load(const char* m7m, int m7mlen) {
   boundary.append(
       ByteArray(reinterpret_cast<const BYTE*>(begin) + 10, (end - begin - 10)));
 
-  char* szBoundary =
-      const_cast<char*>(reinterpret_cast<const char*>(boundary.data()));
   int boundadyLen = boundary.size();
-  szBoundary[boundadyLen] = 0;
+  boundary.push(static_cast<BYTE>(0));
+
+  const char* szBoundary = reinterpret_cast<const char*>(boundary.data());
 
   begin = find(m7m, len, szBoundary);
   if (begin == nullptr) return -1;

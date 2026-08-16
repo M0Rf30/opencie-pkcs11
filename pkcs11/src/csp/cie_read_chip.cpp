@@ -328,6 +328,25 @@ static bool jp2ToPng(const uint8_t* jp2Data, size_t jp2Len, uint8_t** pngOut,
 
 #endif  // HAVE_OPENJPEG
 
+namespace {
+/** @brief RAII guard releasing a PC/SC SCARDCONTEXT exactly once. */
+class ScardContextGuard {
+ public:
+  ScardContextGuard(std::shared_ptr<ISmartCardTransport> transport,
+                    SCARDCONTEXT hCardContext)
+      : transport_(std::move(transport)), hContext_(hCardContext) {}
+  ~ScardContextGuard() {
+    if (hContext_) transport_->ReleaseContext(hContext_);
+  }
+  ScardContextGuard(const ScardContextGuard&) = delete;
+  ScardContextGuard& operator=(const ScardContextGuard&) = delete;
+
+ private:
+  std::shared_ptr<ISmartCardTransport> transport_;
+  SCARDCONTEXT hContext_;
+};
+}  // namespace
+
 /**
  * @brief Single-session helper: PACE once, read DG1 and DG2 in sequence.
  *
@@ -360,22 +379,20 @@ static CK_RV readBothDGs(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
     SCARDCONTEXT hSC = 0;
     long nRet = transport->EstablishContext(SCARD_SCOPE_USER, &hSC);
     if (nRet != SCARD_S_SUCCESS) return CKR_DEVICE_ERROR;
+    ScardContextGuard hScGuard(transport, hSC);
 
     DWORD len = 0;
     nRet = transport->ListReaders(hSC, nullptr, &len);
     if (nRet != SCARD_S_SUCCESS || len <= 1) {
-      transport->ReleaseContext(hSC);
       return CKR_TOKEN_NOT_PRESENT;
     }
     readers = static_cast<char*>(malloc(len));
     if (!readers) {
-      transport->ReleaseContext(hSC);
       return CKR_HOST_MEMORY;
     }
     nRet = transport->ListReaders(hSC, readers, &len);
     if (nRet != SCARD_S_SUCCESS) {
       free(readers);
-      transport->ReleaseContext(hSC);
       return CKR_TOKEN_NOT_PRESENT;
     }
 
@@ -414,17 +431,14 @@ static CK_RV readBothDGs(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
 
       if (rs == static_cast<LONG>(SCARD_W_WRONG_CHV)) {
         free(readers);
-        transport->ReleaseContext(hSC);
         return CKR_PIN_INCORRECT;
       }
       if (rs == static_cast<LONG>(SCARD_W_CHV_BLOCKED)) {
         free(readers);
-        transport->ReleaseContext(hSC);
         return CKR_PIN_LOCKED;
       }
       if (rs != SCARD_S_SUCCESS) {
         free(readers);
-        transport->ReleaseContext(hSC);
         return CKR_GENERAL_ERROR;
       }
 
@@ -436,13 +450,11 @@ static CK_RV readBothDGs(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
       } catch (const std::exception& e) {
         LOG_ERROR("readBothDGs - DG read threw: %s", e.what());
         free(readers);
-        transport->ReleaseContext(hSC);
         return CKR_GENERAL_ERROR;
       }
 
       if (dg1Data.size() > *dg1Len || dg2Data.size() > *dg2Len) {
         free(readers);
-        transport->ReleaseContext(hSC);
         return CKR_BUFFER_TOO_SMALL;
       }
       memcpy(dg1Out, dg1Data.data(), dg1Data.size());
@@ -454,7 +466,6 @@ static CK_RV readBothDGs(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
     }
 
     free(readers);
-    transport->ReleaseContext(hSC);
     if (!found) return CKR_TOKEN_NOT_RECOGNIZED;
 
   } catch (const std::exception& ex) {
