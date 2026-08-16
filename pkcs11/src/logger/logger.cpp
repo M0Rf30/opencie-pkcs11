@@ -136,21 +136,29 @@ Logger::Logger() {
 Logger::~Logger() { m_File.close(); }
 
 Logger& Logger::getInstance() noexcept {
-  static Logger instance;
+  // Intentionally leaked: a function-local `static Logger` would be
+  // destroyed via __cxa_atexit registered when this function first runs,
+  // i.e. AFTER __attribute__((destructor)) exit hooks (e.g. DllMainDetach)
+  // are registered. At process exit those destructors run FIRST and still
+  // call into the logger, which would then use an already-destroyed
+  // instance (destroyed mutex -> std::system_error -> terminate/abort in
+  // this noexcept path). Never destroying the instance avoids that
+  // use-after-destroy entirely.
+  static Logger* instance = new Logger();
 
 #ifndef __ANDROID__
-  int log_level = instance.getLogConfig();
+  int log_level = instance->getLogConfig();
 
   if (log_level == LOG_STATUS_DISABLED) {
-    instance.disableLog();
+    instance->disableLog();
   } else if (log_level >= 0 && log_level < 3) {
-    instance.enableFileLogging();
-    instance.enableLog();
-    instance.updateLogLevel(static_cast<LogLevel>(log_level));
+    instance->enableFileLogging();
+    instance->enableLog();
+    instance->updateLogLevel(static_cast<LogLevel>(log_level));
   }
 #endif
 
-  return instance;
+  return *instance;
 }
 
 void Logger::writeConfigFile(const std::string& filePath,
@@ -304,40 +312,46 @@ std::string Logger::getCurrentTime() {
 
 void Logger::log_log(std::ostream& /*out*/, LogLevel level,
                      const char* text) noexcept {
-  if (m_LogStatus == LOG_STATUS_ENABLED) {
-    if (level < m_LogLevel) {
-      return;
-    }
+  // Defence in depth: this is called from destructor-attribute exit hooks
+  // (see getInstance()), so any exception here must never escape and
+  // trigger std::terminate/abort.
+  try {
+    if (m_LogStatus == LOG_STATUS_ENABLED) {
+      if (level < m_LogLevel) {
+        return;
+      }
 
 #ifdef __ANDROID__
-    android_LogPriority prio;
-    switch (level) {
-      case LOG_LEVEL_DEBUG:
-        prio = ANDROID_LOG_DEBUG;
-        break;
-      case LOG_LEVEL_INFO:
-        prio = ANDROID_LOG_INFO;
-        break;
-      case LOG_LEVEL_ERROR:
-        prio = ANDROID_LOG_ERROR;
-        break;
-      default:
-        prio = ANDROID_LOG_VERBOSE;
-        break;
-    }
-    __android_log_print(prio, CIE_LOG_TAG, "%s", text);
+      android_LogPriority prio;
+      switch (level) {
+        case LOG_LEVEL_DEBUG:
+          prio = ANDROID_LOG_DEBUG;
+          break;
+        case LOG_LEVEL_INFO:
+          prio = ANDROID_LOG_INFO;
+          break;
+        case LOG_LEVEL_ERROR:
+          prio = ANDROID_LOG_ERROR;
+          break;
+        default:
+          prio = ANDROID_LOG_VERBOSE;
+          break;
+      }
+      __android_log_print(prio, CIE_LOG_TAG, "%s", text);
 #else
-    std::string data;
-    data.append(level_strings[level]);
-    data.append(" ");
-    data.append(text);
+      std::string data;
+      data.append(level_strings[level]);
+      data.append(" ");
+      data.append(text);
 
-    std::lock_guard<std::mutex> guard(m_Mutex);
-    m_File.open(pbLog, std::ios::out | std::ios::app);
-    m_File << getCurrentTime() << "  " << data << '\n';
-    m_File.flush();
-    m_File.close();
+      std::lock_guard<std::mutex> guard(m_Mutex);
+      m_File.open(pbLog, std::ios::out | std::ios::app);
+      m_File << getCurrentTime() << "  " << data << '\n';
+      m_File.flush();
+      m_File.close();
 #endif
+    }
+  } catch (...) {
   }
 }
 
@@ -443,30 +457,35 @@ void Logger::buffer(const uint8_t* buff, size_t buff_size) noexcept {
 
 void Logger::print_bytes(std::ostream& /*out*/, const uint8_t* data,
                          size_t dataLen, bool /*format*/) {
-  size_t index = 0;
+  // Defence in depth: only caller (buffer()) is noexcept, so any exception
+  // escaping here would terminate the process (see getInstance()).
+  try {
+    size_t index = 0;
 
-  std::lock_guard<std::mutex> guard(m_Mutex);
-  m_File.open(pbLog, std::ios::out | std::ios::app);
+    std::lock_guard<std::mutex> guard(m_Mutex);
+    m_File.open(pbLog, std::ios::out | std::ios::app);
 
-  m_File << std::setfill('0');
-  m_File << '\n';
+    m_File << std::setfill('0');
+    m_File << '\n';
 
-  m_File << "0x" << std::hex << std::setw(8) << index << "\t";
+    m_File << "0x" << std::hex << std::setw(8) << index << "\t";
 
-  for (size_t idx = 0; idx < dataLen; idx++) {
-    if (idx) {
-      if ((idx % 16) == 0) {
-        m_File << "\n0x" << std::hex << std::setw(8) << idx << "\t";
-      } else if ((idx % 8) == 0) {
-        m_File << " -  ";
+    for (size_t idx = 0; idx < dataLen; idx++) {
+      if (idx) {
+        if ((idx % 16) == 0) {
+          m_File << "\n0x" << std::hex << std::setw(8) << idx << "\t";
+        } else if ((idx % 8) == 0) {
+          m_File << " -  ";
+        }
       }
+
+      m_File << std::hex << std::setw(2) << static_cast<int>(data[idx]) << " ";
     }
+    m_File << '\n' << '\n';
 
-    m_File << std::hex << std::setw(2) << static_cast<int>(data[idx]) << " ";
+    m_File.close();
+  } catch (...) {
   }
-  m_File << '\n' << '\n';
-
-  m_File.close();
 }
 
 void Logger::updateLogLevel(LogLevel logLevel) { m_LogLevel = logLevel; }
