@@ -9,9 +9,6 @@
  * concrete RSA implementations.  The hierarchy mirrors the Cryptoki
  * mechanism model: each active operation (e.g. C_SignInit -> C_SignUpdate ->
  * C_SignFinal) is represented by a mechanism object held by the session.
- *
- * Commented-out CEncrypt / CDecrypt / CRSA_X509 classes are retained for
- * reference; they were part of the original design but are unused by CIE cards.
  */
 
 #pragma once
@@ -195,72 +192,6 @@ class CSignRecoverRSA : public CSignRecover {
   void SignRecoverSetOperationState(ByteArray &OperationState) override;
 };
 
-/*class CEncrypt : public CMechanism
-{
-public:
-        CK_OBJECT_HANDLE hEncryptKey;
-
-        CEncrypt(CK_MECHANISM_TYPE type, std::shared_ptr<CSession> Session);
-        virtual ~CEncrypt();
-
-        virtual bool EncryptSupportMultipart() = 0;
-        virtual void EncryptInit(CK_OBJECT_HANDLE PublicKey) = 0;
-        virtual ByteDynArray  EncryptUpdate(ByteArray &Data) = 0;
-        virtual ByteDynArray  EncryptFinal() = 0;
-        virtual CK_ULONG EncryptLength() = 0;
-        virtual ByteDynArray EncryptGetOperationState() = 0;
-        virtual void EncryptSetOperationState(ByteArray &OperationState) = 0;
-};
-
-class CEncryptRSA : public CEncrypt
-{
-public:
-        CEncryptRSA(CK_MECHANISM_TYPE type, std::shared_ptr<CSession> Session);
-        virtual ~CEncryptRSA();
-
-        bool EncryptSupportMultipart();
-        CK_ULONG EncryptLength();
-        ByteDynArray EncryptCompute(ByteArray &baPlainData);
-        ByteDynArray EncryptGetOperationState();
-        void EncryptSetOperationState(ByteArray &OperationState);
-};*/
-
-/*class CDecrypt : public CMechanism
-{
-        static uint8_t uninitializedCacheData;
-public:
-        CK_OBJECT_HANDLE hDecryptKey;
-
-        CDecrypt(CK_MECHANISM_TYPE type, std::shared_ptr<CSession> Session);
-        virtual ~CDecrypt();
-
-        virtual bool DecryptSupportMultipart() = 0;
-        virtual void DecryptInit(CK_OBJECT_HANDLE PrivateKey) = 0;
-        virtual ByteDynArray  DecryptUpdate(ByteArray &EncryptedData) = 0;
-        virtual ByteDynArray DecryptFinal() = 0;
-        virtual CK_ULONG DecryptLength() = 0;
-        virtual ByteDynArray DecryptRemovePadding(ByteArray &paddedData) = 0;
-        virtual ByteDynArray  DecryptGetOperationState() = 0;
-        virtual void DecryptSetOperationState(ByteArray &OperationState) = 0;
-
-        ByteDynArray resultCache;
-        ByteArray cacheData;
-        bool checkCache(ByteArray &Data, ByteArray &Result);
-        void setCache(ByteArray &Data, ByteArray &Result);
-};
-
-class CDecryptRSA : public CDecrypt
-{
-public:
-        CDecryptRSA(CK_MECHANISM_TYPE type, std::shared_ptr<CSession> Session);
-        virtual ~CDecryptRSA();
-
-        bool DecryptSupportMultipart();
-        CK_ULONG DecryptLength();
-        ByteDynArray  DecryptGetOperationState();
-        void DecryptSetOperationState(ByteArray &OperationState);
-};*/
-
 /** @brief SHA-1 digest mechanism (CKM_SHA_1). */
 class CDigestSHA : public CDigest {
  public:
@@ -312,44 +243,6 @@ class CDigestMD5 : public CDigest {
   void DigestSetOperationState(ByteArray &OperationState) override;
 };
 
-/*class CRSA_X509 : public CSignRSA, public CSignRecoverRSA, public CVerifyRSA,
-public CVerifyRecoverRSA, public CEncryptRSA, public CDecryptRSA
-{
-public:
-        CRSA_X509(std::shared_ptr<CSession> Session);
-        virtual ~CRSA_X509();
-
-        ByteDynArray baVerifyBuffer;
-        ByteDynArray baSignBuffer;
-        ByteDynArray baEncryptBuffer;
-        ByteDynArray baDecryptBuffer;
-
-        void VerifyInit(CK_OBJECT_HANDLE PublicKey);
-        void VerifyUpdate(ByteArray &Part);
-        void VerifyFinal(ByteArray &Signature);
-
-        void VerifyRecoverInit(CK_OBJECT_HANDLE PublicKey);
-        ByteDynArray VerifyRecover(ByteArray &Signature);
-
-        void SignInit(CK_OBJECT_HANDLE PrivateKey);
-        void SignReset();
-        void SignUpdate(ByteArray &Part);
-        ByteDynArray SignFinal();
-
-        void SignRecoverInit(CK_OBJECT_HANDLE PrivateKey);
-        ByteDynArray SignRecover(ByteArray &baData);
-
-        void EncryptInit(CK_OBJECT_HANDLE PublicKey);
-        ByteDynArray  EncryptUpdate(ByteArray &Data);
-        ByteDynArray  EncryptFinal();
-
-        void DecryptInit(CK_OBJECT_HANDLE PrivateKey);
-        ByteDynArray  DecryptUpdate(ByteArray &EncryptedData);
-        ByteDynArray DecryptFinal();
-        ByteDynArray DecryptRemovePadding(ByteArray &paddedData);
-
-};*/
-
 /**
  * @brief Combined RSA PKCS#1 v1.5 sign/verify/sign-recover/verify-recover
  * mechanism.
@@ -369,8 +262,6 @@ class CRSA_PKCS1
 
   ByteDynArray baVerifyBuffer;
   ByteDynArray baSignBuffer;
-  /*ByteDynArray baEncryptBuffer;
-  ByteDynArray baDecryptBuffer;*/
 
   void VerifyInit(CK_OBJECT_HANDLE PublicKey) override;
   void VerifyUpdate(ByteArray &Part) override;
@@ -386,15 +277,6 @@ class CRSA_PKCS1
 
   void SignRecoverInit(CK_OBJECT_HANDLE PrivateKey) override;
   ByteDynArray SignRecover(ByteArray &baData) override;
-
-  /*void EncryptInit(CK_OBJECT_HANDLE PublicKey);
-  ByteDynArray  EncryptUpdate(ByteArray &Data);
-  ByteDynArray  EncryptFinal();
-
-  void DecryptInit(CK_OBJECT_HANDLE PrivateKey);
-  ByteDynArray  DecryptUpdate(ByteArray &EncryptedData);
-  ByteDynArray DecryptFinal();
-  ByteDynArray DecryptRemovePadding(ByteArray &paddedData);*/
 };
 
 /**
