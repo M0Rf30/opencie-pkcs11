@@ -96,6 +96,12 @@ Logger::Logger() {
   snprintf(pbLog, sizeof(pbLog), "%s_%s.log", "CIEPKI", cTime);
   path.append(pbLog);
 
+  if (path.length() >= sizeof(pbLog)) {
+    disableLog();
+    m_LogType = FILE_LOG;
+    return;
+  }
+
   memcpy(pbLog, path.data(), path.length());
   pbLog[path.length()] = 0;
 #endif
@@ -233,7 +239,11 @@ int Logger::getLogConfig() noexcept {
     mkdir(path.c_str(), 0700);
   }
 
-  snprintf(pbConfig, sizeof(pbConfig), "%s/config", path.data());
+  int nConfigLen =
+      snprintf(pbConfig, sizeof(pbConfig), "%s/config", path.data());
+  if (nConfigLen < 0 || static_cast<size_t>(nConfigLen) >= sizeof(pbConfig)) {
+    return LOG_STATUS_DISABLED;
+  }
 #endif
 
   if (!config_exists(pbConfig)) {
@@ -243,7 +253,7 @@ int Logger::getLogConfig() noexcept {
     t64configTime = 0;
   }
 
-  volatile int stat_res = stat(pbConfig, &result);
+  int stat_res = stat(pbConfig, &result);
 
   if (stat_res == 0) {
     if (t64configTime < result.st_mtime) {
