@@ -44,7 +44,18 @@ void CCertStore::AddCertificate(CCertificate& certificate) {
 
     CCertificate* pCert = new CCertificate(certificate);
 
-    m_certMap[nHash] = pCert;
+    std::map<unsigned long, CCertificate*>::iterator it = m_certMap.find(nHash);
+    if (it != m_certMap.end()) {
+      // A different certificate previously occupied this hash bucket
+      // (the hash is a weak 32-bit value, so collisions happen) or this
+      // same certificate is being re-added; free the old entry so it is
+      // not leaked.
+      CCertificate* pOld = it->second;
+      SAFEDELETE(pOld)
+      it->second = pCert;
+    } else {
+      m_certMap[nHash] = pCert;
+    }
   } catch (...) {
     LOG_ERR((0, "CertStore::AddCertificate Exception", ""));
   }
@@ -58,7 +69,8 @@ CCertificate* CCertStore::GetCertificate(CCertificate& certificate) {
     CASN1OctetString autorityKeyIdentifier =
         certificate.getAuthorithyKeyIdentifier();
 
-    if (autorityKeyIdentifier.getLength() > 0) {
+    bool haveAki = autorityKeyIdentifier.getLength() > 0;
+    if (haveAki) {
       ByteDynArray* pValue =
           const_cast<ByteDynArray*>(autorityKeyIdentifier.getValue());
       pValue->set(0, 0x04);
@@ -75,10 +87,28 @@ CCertificate* CCertStore::GetCertificate(CCertificate& certificate) {
       nHash = getHash(reinterpret_cast<const char*>(baIssuer.data()));
     }
 
-    CCertificate* pCert = m_certMap[nHash];
-    if (pCert != nullptr &&
-        pCert->getSerialNumber() == certificate.getSerialNumber())
+    std::map<unsigned long, CCertificate*>::iterator it = m_certMap.find(nHash);
+    if (it == m_certMap.end() || it->second == nullptr) return nullptr;
+
+    CCertificate* pCert = it->second;
+    if (pCert->getSerialNumber() == certificate.getSerialNumber())
       return nullptr;
+
+    // The map is keyed by a weak 32-bit hash, so a bucket hit only means
+    // the candidate hashed the same as the issuer we are looking for, not
+    // that it actually is that issuer. Confirm it before trusting it:
+    // the candidate's subject DN must equal the DER-encoded issuer DN of
+    // the certificate under test, and -- when both sides carry one -- its
+    // Subject Key Identifier must equal the Authority Key Identifier we
+    // looked up with.
+    if (pCert->getSubject() != certificate.getIssuer()) return nullptr;
+
+    if (haveAki) {
+      CASN1OctetString candidateSki = pCert->getSubjectKeyIdentifier();
+      if (candidateSki.getLength() == 0 ||
+          *candidateSki.getValue() != *autorityKeyIdentifier.getValue())
+        return nullptr;
+    }
 
     return pCert;
   } catch (...) {

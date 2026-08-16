@@ -164,7 +164,10 @@ void CacheSetDer(const char *PAN, const uint8_t *der, size_t len) {
   plaintext.append(reinterpret_cast<const char *>(der), len);
 
   std::string ciphertext;
-  encrypt(plaintext, ciphertext);
+  if (encrypt(plaintext, ciphertext) != 0) {
+    OPENSSL_cleanse(plaintext.data(), plaintext.size());
+    throw logged_error("CacheSetDer: failed to encrypt cache data");
+  }
   OPENSSL_cleanse(plaintext.data(), plaintext.size());
 
   std::ofstream file(sPath.c_str(), std::ofstream::out | std::ofstream::binary);
@@ -337,7 +340,10 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
                    certlen);
 
   std::string ciphertext;
-  encrypt(plaintext, ciphertext);
+  if (encrypt(plaintext, ciphertext) != 0) {
+    OPENSSL_cleanse(plaintext.data(), plaintext.size());
+    throw logged_error("CacheSetData: failed to encrypt cache data");
+  }
   OPENSSL_cleanse(plaintext.data(), plaintext.size());
 
   std::ofstream file(sPath.c_str(), std::ofstream::out | std::ofstream::binary);

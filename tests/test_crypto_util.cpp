@@ -78,7 +78,7 @@ TEST_CASE("encrypt uses a random IV, not a fixed/zero one", "[crypto][cache]") {
   CHECK(ciphertext1.substr(4, 16) != ciphertext2.substr(4, 16));
 }
 
-TEST_CASE("decrypt falls back to the legacy zero-IV format for old cache files",
+TEST_CASE("decrypt rejects unauthenticated legacy zero-IV cache blobs",
           "[crypto][cache]") {
   std::string legacyPlaintext = "legacy cached PIN";
   std::string legacyCiphertext = LegacyZeroIvEncrypt(legacyPlaintext);
@@ -86,9 +86,33 @@ TEST_CASE("decrypt falls back to the legacy zero-IV format for old cache files",
   // Sanity check: legacy ciphertext never carries the "CIE1" header.
   REQUIRE(legacyCiphertext.substr(0, 4) != "CIE1");
 
+  // The legacy format carries no integrity tag, so an attacker with write
+  // access to the cache file could forge a PIN or certificate. It is now
+  // rejected outright; the cache regenerates from the card instead.
   std::string decrypted;
-  REQUIRE(decrypt(legacyCiphertext, decrypted) == 0);
-  CHECK(decrypted == legacyPlaintext);
+  CHECK(decrypt(legacyCiphertext, decrypted) != 0);
+}
+
+TEST_CASE("decrypt rejects a CIE1 blob whose HMAC tag was tampered with",
+          "[crypto][cache]") {
+  std::string plaintext = "authenticated cached PIN";
+  std::string ciphertext;
+  REQUIRE(encrypt(plaintext, ciphertext) == 0);
+
+  std::string roundTripped;
+  REQUIRE(decrypt(ciphertext, roundTripped) == 0);
+  CHECK(roundTripped.substr(0, plaintext.size()) == plaintext);
+
+  // Flipping any byte of the trailing tag must be detected.
+  std::string tampered = ciphertext;
+  tampered[tampered.size() - 1] ^= 0x01;
+  std::string out;
+  CHECK(decrypt(tampered, out) != 0);
+
+  // So must flipping a byte of the ciphertext body.
+  std::string tamperedBody = ciphertext;
+  tamperedBody[tamperedBody.size() / 2] ^= 0x01;
+  CHECK(decrypt(tamperedBody, out) != 0);
 }
 
 TEST_CASE("decrypt rejects ciphertext shorter than one AES block",

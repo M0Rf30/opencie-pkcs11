@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #include "tsa_client.h"
 
+#include <openssl/crypto.h>
+
 #include <cstdio>
 #include <cstring>
 
+#include "asn1/algorithm_identifier.h"
+#include "asn1/asn1_octet_string.h"
 #include "asn1/time_stamp_request.h"
 #include "asn1/time_stamp_response.h"
 #include "asn1/time_stamp_token.h"
@@ -13,6 +17,47 @@ extern char g_szResolveList[4096];
 
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb,
                             void* userp);
+
+// RFC 3161 Section 2.4.2: TSTInfo ::= SEQUENCE { version, policy,
+// messageImprint, serialNumber, genTime, accuracy OPTIONAL,
+// ordering DEFAULT FALSE, nonce OPTIONAL, tsa [0] OPTIONAL,
+// extensions [1] OPTIONAL }. version/policy/messageImprint/serialNumber/
+// genTime always occupy elements 0..4 (CTSTInfo::getUTCTime() already
+// relies on genTime being element 4); nonce, when present, is the first
+// plain INTEGER (tag 0x02) after that, before the context-tagged tsa/
+// extensions fields -- the same scanning approach CTSTInfo::getTSAName()
+// already uses for the tsa field.
+static bool TSTInfoNonceMatches(CTSTInfo& tstInfo,
+                                const CASN1Integer& sentNonce) {
+  unsigned int siz = tstInfo.size();
+  for (unsigned int i = 5; i < siz; i++) {
+    CASN1Object obj = tstInfo.elementAt(i);
+    BYTE tag = obj.getTag();
+    if (tag == 0x02) return CASN1Integer(obj) == sentNonce;
+    if (tag == 0xA0 || tag == 0xA1) break;  // reached tsa/extensions: no nonce
+  }
+  // We always send a nonce (see GetTimeStampToken below); RFC 3161 requires
+  // a compliant TSA to echo it back, so a response without one is rejected.
+  return false;
+}
+
+// Confirms the token's MessageImprint (hash algorithm + hashed message)
+// matches what we actually asked to be timestamped, so a TSA cannot bind
+// its timestamp to a different digest than the caller requested.
+static bool TSTInfoMessageImprintMatches(CTSTInfo& tstInfo,
+                                         const ByteDynArray& expectedDigest) {
+  if (expectedDigest.size() == 0) return false;
+
+  CASN1Sequence messageImprint = tstInfo.getMessageImprint();
+  CAlgorithmIdentifier expectedAlgo(szSHA256OID);
+  if (!(messageImprint.elementAt(0) == expectedAlgo.elementAt(0))) return false;
+
+  CASN1OctetString hashedMessage(messageImprint.elementAt(1));
+  const ByteDynArray* pDigest = hashedMessage.getValue();
+  return pDigest != nullptr && pDigest->size() == expectedDigest.size() &&
+         CRYPTO_memcmp(pDigest->data(), expectedDigest.data(),
+                       expectedDigest.size()) == 0;
+}
 
 CTSAClient::CTSAClient(void) : m_szTSAUrl(""), m_szTSAPassword("") {
   m_szTSAUsername[0] = '\0';
@@ -177,7 +222,21 @@ long CTSAClient::GetTimeStampToken(ByteDynArray& digest, const char* szPolicyID,
     CPKIStatusInfo statusInfo(tsResponse.getPKIStatusInfo());
 
     if (statusInfo.getStatus().getIntValue() == 0) {
-      *ppTimeStampToken = new CTimeStampToken(tsResponse.getTimeStampToken());
+      CTimeStampToken token(tsResponse.getTimeStampToken());
+      CTSTInfo tstInfo = token.getTSTInfo();
+
+      if (!TSTInfoNonceMatches(tstInfo, nounce)) {
+        LOG_ERR((0, "TSACLient",
+                 "GetTimeStampToken: nonce mismatch, rejecting response"));
+        *ppTimeStampToken = nullptr;
+      } else if (!TSTInfoMessageImprintMatches(tstInfo, digest)) {
+        LOG_ERR((0, "TSACLient",
+                 "GetTimeStampToken: messageImprint does not match the "
+                 "requested digest, rejecting response"));
+        *ppTimeStampToken = nullptr;
+      } else {
+        *ppTimeStampToken = new CTimeStampToken(token);
+      }
     } else {
       LOG_ERR((0, "TSACLient", "CPKIStatusInfo error: %x",
                statusInfo.getStatus().getIntValue()));
