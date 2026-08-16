@@ -41,11 +41,9 @@
 
 #include "ocsp_request.h"
 
-#include <openssl/evp.h>
-#include <openssl/sha.h>
-
 #include "asn1/algorithm_identifier.h"
 #include "cert_store.h"
+#include "crypto/sha1.h"
 
 COCSPRequest::COCSPRequest(BufferedReader& reader) : CASN1Sequence(reader) {}
 
@@ -70,24 +68,9 @@ COCSPRequest::COCSPRequest(CCertificate& certificate) {
   ByteDynArray baIssuerName;
   issuerName.toByteArray(baIssuerName);
 
-  // Assuming baIssuerName is a buffer with the issuer name data
-  unsigned char hash[SHA_DIGEST_LENGTH];
-  EVP_MD_CTX* sha1_ctx = EVP_MD_CTX_new();
-  EVP_DigestInit(sha1_ctx, EVP_sha1());
-  EVP_DigestUpdate(sha1_ctx, baIssuerName.data(), baIssuerName.size());
-  EVP_DigestFinal(sha1_ctx, hash, nullptr);
-  EVP_MD_CTX_free(sha1_ctx);
+  ByteDynArray baIssuerNameHash =
+      CSHA1().Digest(ByteArray(baIssuerName.data(), baIssuerName.size()));
 
-  // Reinterpret the hash as five unsigned 32-bit words.
-  unsigned* word = reinterpret_cast<unsigned*>(hash);
-  char szAux[100];
-
-  snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
-           __builtin_bswap32(word[0]), __builtin_bswap32(word[1]),
-           __builtin_bswap32(word[2]), __builtin_bswap32(word[3]),
-           __builtin_bswap32(word[4]));
-
-  ByteDynArray baIssuerNameHash(szAux);
   ByteDynArray baIssuerKeyHash;
 
   // hash public key

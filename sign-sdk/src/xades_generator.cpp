@@ -10,6 +10,7 @@
 #include "asn1/digest_info.h"
 #include "big_integer_library.h"
 #include "crypto/base64.h"
+#include "crypto/sha1.h"
 #include "crypto/sha256.h"
 #include "util/array.h"
 
@@ -285,32 +286,14 @@ void CXAdESGenerator::CanonicalizeAndHashBase64(xmlDocPtr pDoc,
   strCanonical.append(reinterpret_cast<char*>(pCanonicalDoc));
 
   ByteDynArray hashaux;
+  ByteArray baCan(reinterpret_cast<const uint8_t*>(pCanonicalDoc),
+                  static_cast<size_t>(docLen));
   if (m_bXAdES) {
-    ByteArray baCan(reinterpret_cast<const uint8_t*>(pCanonicalDoc),
-                    static_cast<size_t>(docLen));
     ByteDynArray sha256res = CSHA256().Digest(baCan);
     hashaux.append(ByteArray(sha256res.data(), 32));
   } else {
-    // Compute SHA1 hash
-    unsigned char hash[SHA_DIGEST_LENGTH];
-
-    EVP_MD_CTX* sha1_ctx = EVP_MD_CTX_new();
-    EVP_DigestInit(sha1_ctx, EVP_sha1());
-    EVP_DigestUpdate(sha1_ctx, pCanonicalDoc, docLen);
-    EVP_DigestFinal(sha1_ctx, hash, nullptr);
-    EVP_MD_CTX_free(sha1_ctx);
-
-    char szAux[100];
-
-    // Reinterpret the hash as five unsigned 32-bit words.
-    unsigned* word = reinterpret_cast<unsigned*>(hash);
-
-    snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
-             __builtin_bswap32(word[0]), __builtin_bswap32(word[1]),
-             __builtin_bswap32(word[2]), __builtin_bswap32(word[3]),
-             __builtin_bswap32(word[4]));
-
-    hashaux.load(szAux);
+    ByteDynArray sha1res = CSHA1().Digest(baCan);
+    hashaux.append(ByteArray(sha1res.data(), 20));
   }
 
   strDocHashB64.clear();

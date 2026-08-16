@@ -14,6 +14,8 @@
 #include "asn1/certificate.h"
 #include "asn1_optional_field.h"
 #include "cert_store.h"
+#include "crypto/sha1.h"
+#include "crypto/sha256.h"
 #include "digest_info.h"
 #include "util/util.h"
 
@@ -463,32 +465,26 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
 
           bitmask |= VERIFIED_SHA256;
 
-          BYTE hash[32];
-          BYTE hash2[32];
+          ByteDynArray bahash = CSHA256::Digest(ByteArray(buff, bufflen));
+          ByteDynArray bahash2 =
+              CSHA256::Digest(ByteArray(content2.data(), content2.size()));
 
-          EVP_MD_CTX* sha256_ctx = EVP_MD_CTX_new();
-          EVP_DigestInit(sha256_ctx, EVP_sha256());
-          EVP_DigestUpdate(sha256_ctx, buff, bufflen);
-          EVP_DigestFinal(sha256_ctx, hash, nullptr);
-          EVP_MD_CTX_free(sha256_ctx);
-
-          EVP_MD_CTX* sha256_1_ctx = EVP_MD_CTX_new();
-          EVP_DigestInit(sha256_1_ctx, EVP_sha256());
-          EVP_DigestUpdate(sha256_1_ctx, content2.data(), content2.size());
-          EVP_DigestFinal(sha256_1_ctx, hash2, nullptr);
-          EVP_MD_CTX_free(sha256_1_ctx);
-
-          ByteDynArray bahash(ByteArray(hash, 32));
           LOG_DBG((0, "CSignerInfo::verifySignature", "DigestValue: %s, %s",
                    dumpHexData(*pDigestValue).c_str(),
                    dumpHexData(bahash).c_str()));
 
-          if (CRYPTO_memcmp(hash, pDigestValue->data(), 32) == 0) {
+          if (pDigestValue->size() == SHA256_DIGEST_LENGTH &&
+              bahash.size() == SHA256_DIGEST_LENGTH &&
+              CRYPTO_memcmp(bahash.data(), pDigestValue->data(),
+                            SHA256_DIGEST_LENGTH) == 0) {
             LOG_DBG((0, "CSignerInfo::verifySignature", "SHA256 Len OK"));
 
             // verify the content hash
             if (messageDigest.size() > 0) {
-              if (CRYPTO_memcmp(hash2, messageDigest.data(), 32) == 0) {
+              if (messageDigest.size() == SHA256_DIGEST_LENGTH &&
+                  bahash2.size() == SHA256_DIGEST_LENGTH &&
+                  CRYPTO_memcmp(bahash2.data(), messageDigest.data(),
+                                SHA256_DIGEST_LENGTH) == 0) {
                 bitmask |= VERIFIED_SIGNATURE;
                 LOG_DBG((0, "CSignerInfo::verifySignature", "VERIFIED: %x",
                          bitmask));
@@ -496,7 +492,9 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
                 LOG_DBG((0, "CSignerInfo::verifySignature", "Not verified"));
               }
             } else {
-              if (CRYPTO_memcmp(hash2, hash, 32) == 0) {
+              if (bahash2.size() == SHA256_DIGEST_LENGTH &&
+                  CRYPTO_memcmp(bahash2.data(), bahash.data(),
+                                SHA256_DIGEST_LENGTH) == 0) {
                 bitmask |= VERIFIED_SIGNATURE;
                 LOG_DBG((0, "CSignerInfo::verifySignature", "VERIFIED 2: %x",
                          bitmask));
@@ -511,56 +509,33 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
                    sha1Algo.elementAt(0)) {  // if(digestAlgo ==
                                              // CAlgorithmIdentifier(szSHA1OID))
           LOG_DBG((0, "CSignerInfo::verifySignature", "SHA1"));
-          char szAux[100];
-          unsigned char hash[SHA_DIGEST_LENGTH];
-          EVP_MD_CTX* sha1_ctx = nullptr;
 
-          // Compute SHA1 hash
-          sha1_ctx = EVP_MD_CTX_new();
-          EVP_DigestInit(sha1_ctx, EVP_sha1());
-          EVP_DigestUpdate(sha1_ctx, buff, bufflen);
-          EVP_DigestFinal(sha1_ctx, hash, nullptr);
-          EVP_MD_CTX_free(sha1_ctx);
+          ByteDynArray hashaux = CSHA1().Digest(ByteArray(buff, bufflen));
+          ByteDynArray contentHash =
+              CSHA1().Digest(ByteArray(content2.data(), content2.size()));
 
-          // Reinterpret the hash as five unsigned 32-bit words.
-          unsigned* word = reinterpret_cast<unsigned*>(hash);
-
-          snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
-                   __builtin_bswap32(word[0]), __builtin_bswap32(word[1]),
-                   __builtin_bswap32(word[2]), __builtin_bswap32(word[3]),
-                   __builtin_bswap32(word[4]));
-
-          ByteDynArray hashaux(szAux);
-
-          sha1_ctx = EVP_MD_CTX_new();
-          EVP_DigestInit(sha1_ctx, EVP_sha1());
-          EVP_DigestUpdate(sha1_ctx, content2.data(), content2.size());
-          EVP_DigestFinal(sha1_ctx, hash, nullptr);
-          EVP_MD_CTX_free(sha1_ctx);
-
-          snprintf(szAux, sizeof(szAux), "%08X%08X%08X%08X%08X ",
-                   __builtin_bswap32(word[0]), __builtin_bswap32(word[1]),
-                   __builtin_bswap32(word[2]), __builtin_bswap32(word[3]),
-                   __builtin_bswap32(word[4]));
-
-          ByteDynArray contentHash(szAux);
-
-          if (CRYPTO_memcmp(hashaux.data(), pDigestValue->data(),
-                            hashaux.size()) == 0) {
+          if (pDigestValue->size() == SHA_DIGEST_LENGTH &&
+              hashaux.size() == SHA_DIGEST_LENGTH &&
+              CRYPTO_memcmp(hashaux.data(), pDigestValue->data(),
+                            SHA_DIGEST_LENGTH) == 0) {
             LOG_DBG((0, "CSignerInfo::verifySignature", "length 1"));
 
             // verify the content hash
             if (messageDigest.size() > 0) {
               LOG_DBG((0, "CSignerInfo::verifySignature", "length 2"));
-              if (CRYPTO_memcmp(contentHash.data(), messageDigest.data(),
-                                contentHash.size()) == 0) {
+              if (messageDigest.size() == SHA_DIGEST_LENGTH &&
+                  contentHash.size() == SHA_DIGEST_LENGTH &&
+                  CRYPTO_memcmp(contentHash.data(), messageDigest.data(),
+                                SHA_DIGEST_LENGTH) == 0) {
                 bitmask |= VERIFIED_SIGNATURE;
               } else {
                 LOG_DBG((0, "CSignerInfo::verifySignature", "Not verified 2"));
               }
             } else {
-              if (CRYPTO_memcmp(contentHash.data(), hashaux.data(),
-                                contentHash.size()) == 0) {
+              if (contentHash.size() == SHA_DIGEST_LENGTH &&
+                  hashaux.size() == SHA_DIGEST_LENGTH &&
+                  CRYPTO_memcmp(contentHash.data(), hashaux.data(),
+                                SHA_DIGEST_LENGTH) == 0) {
                 bitmask |= VERIFIED_SIGNATURE;
               } else {
                 LOG_DBG((0, "CSignerInfo::verifySignature", "Not verified 3"));
