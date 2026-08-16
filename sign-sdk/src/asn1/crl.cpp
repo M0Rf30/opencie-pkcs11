@@ -118,8 +118,7 @@ bool CCrl::isCurrent(const char* szDateTime) {
   const char* szRef = szDateTime;
   if (!szRef) {
     time_t now = time(nullptr);
-    struct tm tmNow;
-    strftime(szNow, sizeof(szNow), "%y%m%d%H%M%SZ", gmtime_r(&now, &tmNow));
+    if (!FormatUtcTime(now, szNow, sizeof(szNow))) return false;
     szRef = szNow;
   }
 

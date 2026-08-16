@@ -13,7 +13,25 @@
 
 #pragma once
 
+#include <ctime>
+
 #include "asn1_object.h"
+
+/**
+ * @brief Formats @p t as a UTCTime string ("YYMMDDHHMMSSZ") in UTC.
+ *
+ * The trailing 'Z' asserts UTC, so the broken-down time must come from
+ * gmtime, not localtime — using local time here shifts every comparison
+ * against a certificate or CRL by the local UTC offset. Wraps the
+ * reentrant conversion, which is spelled gmtime_r on POSIX and gmtime_s
+ * (with reversed arguments) on Windows.
+ *
+ * @param t     Time to format.
+ * @param szOut Output buffer.
+ * @param nOut  Size of @p szOut in bytes.
+ * @return true on success; false if the conversion or formatting failed.
+ */
+bool FormatUtcTime(time_t t, char* szOut, size_t nOut);
 
 /**
  * @brief ASN.1 UTCTime (tag 0x17).

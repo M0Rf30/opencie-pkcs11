@@ -15,6 +15,7 @@
 #include <ctime>
 #include <vector>
 
+#include "asn1/asn1_utc_time.h"
 #include "asn1/crl.h"
 #include "asn1_exception.h"
 #include "asn1_octet_string.h"
@@ -187,8 +188,9 @@ bool CCertificate::isSHA256() {
 bool CCertificate::isValid() {
   char szTime[20];
   time_t now = time(nullptr);
-  struct tm tmNow;
-  strftime(szTime, sizeof(szTime), "%y%m%d%H%M%SZ", gmtime_r(&now, &tmNow));
+  // Fail closed: if we cannot establish the current UTC time we cannot
+  // assert the certificate is inside its validity window.
+  if (!FormatUtcTime(now, szTime, sizeof(szTime))) return false;
 
   return isValid(szTime);
 }
