@@ -175,7 +175,7 @@ long CSignatureGenerator::Generate(ByteDynArray& pkcs7SignedData,
   LOG_DBG((0, "CSignatureGenerator::Generate", "CertificateHash"));
 
   std::vector<BYTE> hashBuf;
-  int hashlen;
+  int hashlen = 0;
 
   switch (mech) {
     case CKM_SHA256_RSA_PKCS: {
@@ -227,6 +227,13 @@ long CSignatureGenerator::Generate(ByteDynArray& pkcs7SignedData,
         memcpy(hashBuf.data(), h1.data(), hashlen);
       }
     } break;
+
+    default:
+      LOG_ERR((0, "CSignatureGenerator::Generate",
+               "unsupported hash mechanism: %d", mech));
+      SAFEDELETE(pSignerCertificate);
+      m_pSigner->Close();
+      return CIE_SIGN_ERROR_INVALID_SIGOPT;
   }
 
   ByteDynArray digest;
