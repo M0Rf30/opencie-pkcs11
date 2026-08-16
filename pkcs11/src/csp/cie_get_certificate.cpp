@@ -75,4 +75,18 @@ CK_RV CK_ENTRY cie_get_certificate(const char *pan, unsigned char **outDer,
   }
 }
 
+/**
+ * @brief Free a buffer libopencie-pkcs11 allocated and returned through an
+ * out-parameter (currently only cie_get_certificate()'s *outDer).
+ *
+ * Always release such buffers through this function instead of the
+ * caller's own free(): on Windows, the DLL and a statically-linked caller
+ * can be bound to different CRT heaps, so freeing a cross-module
+ * allocation with the wrong heap's free() is undefined behavior.
+ *
+ * @param ptr  Pointer previously returned via a libopencie-pkcs11
+ *             out-parameter, or NULL (no-op).
+ */
+void CK_ENTRY cie_free(void *ptr) { free(ptr); }
+
 }  // extern "C"

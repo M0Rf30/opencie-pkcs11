@@ -98,6 +98,7 @@
     cie_reader_watch;
     cie_reader_name;
     cie_get_certificate;
+    cie_free;
     cie_read_dgs;
     cie_timestamp;
     cie_classify_sw;

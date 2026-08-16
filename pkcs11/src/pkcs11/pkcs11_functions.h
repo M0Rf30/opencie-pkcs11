@@ -11,19 +11,13 @@
 
 #pragma once
 
+#include "opencie/cie_ext.h"
 #include "pcsc/scard_types.h"
 #include "pkcs11/cryptoki.h"
 
 #define MAXVAL 0xffffff     ///< Maximum value for PKCS#11 counters.
 #define MAXSESSIONS MAXVAL  ///< Maximum number of concurrent sessions.
 
-#ifndef CK_ENTRY
-#ifdef _WIN32
-#define CK_ENTRY __declspec(dllexport)
-#else
-#define CK_ENTRY __attribute__((visibility("default")))
-#endif
-#endif
 #define LIBRARY_VERSION_MAJOR 2  ///< PKCS#11 library major version.
 #define LIBRARY_VERSION_MINOR 0  ///< PKCS#11 library minor version.
 

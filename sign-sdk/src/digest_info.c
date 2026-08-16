@@ -10,10 +10,12 @@
 #include <openssl/obj_mac.h>
 #include <string.h>
 
+#include "../../include/opencie/cie_ext.h"
+
 // Make Digest Info
-int make_digest_info(int algid, const unsigned char *pbtDigest,
-                     size_t btDigestLen, unsigned char *pbtDigestInfo,
-                     size_t *pbtDigestInfoLen) {
+int CK_ENTRY make_digest_info(int algid, const unsigned char *pbtDigest,
+                              size_t btDigestLen, unsigned char *pbtDigestInfo,
+                              size_t *pbtDigestInfoLen) {
   size_t requestedLen;
   switch (algid) {
     case NID_sha1:

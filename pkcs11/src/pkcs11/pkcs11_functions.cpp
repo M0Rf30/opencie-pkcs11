@@ -167,6 +167,12 @@ __attribute__((destructor)) void DllMainDetach() {
 void WriteAttributes(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
   LOG_INFO("[PKCS11] WriteAttributes - Attributes: %x", ulCount);
 
+  if (pTemplate == nullptr && ulCount > 0) {
+    LOG_ERROR("[PKCS11] WriteAttributes - NULL template with ulCount=%x",
+              ulCount);
+    return;
+  }
+
   for (unsigned int i = 0; i < ulCount; i++) {
     if (pTemplate[i].pValue) {
       switch (pTemplate[i].type) {
@@ -651,7 +657,10 @@ CK_RV CK_ENTRY C_CreateObject(CK_SESSION_HANDLE hSession,
 
     logParam(hSession) logParam(pTemplate) logParam(ulCount) logParam(phObject)
 
-        WriteAttributes(pTemplate, ulCount);
+        if (pTemplate == nullptr &&
+            ulCount > 0) throw p11_error(CKR_ARGUMENTS_BAD);
+
+    WriteAttributes(pTemplate, ulCount);
 
     if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
 
@@ -675,7 +684,10 @@ CK_RV CK_ENTRY C_GenerateKey(CK_SESSION_HANDLE hSession,
     logParam(hSession) logParam(pMechanism) logParam(pTemplate)
         logParam(ulCount) logParam(phKey)
 
-            WriteAttributes(pTemplate, ulCount);
+            if (pTemplate == nullptr &&
+                ulCount > 0) throw p11_error(CKR_ARGUMENTS_BAD);
+
+    WriteAttributes(pTemplate, ulCount);
 
     if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
 
@@ -701,8 +713,13 @@ CK_RV CK_ENTRY C_GenerateKeyPair(
             logParam(ulPrivateKeyAttributeCount) logParam(phPublicKey)
                 logParam(phPrivateKey)
 
-                    if (!bP11Initialized) throw p11_error(
-                        CKR_CRYPTOKI_NOT_INITIALIZED);
+                    if ((pPublicKeyTemplate == nullptr &&
+                         ulPublicKeyAttributeCount > 0) ||
+                        (pPrivateKeyTemplate == nullptr &&
+                         ulPrivateKeyAttributeCount >
+                             0)) throw p11_error(CKR_ARGUMENTS_BAD);
+
+    if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -865,14 +882,15 @@ CK_RV CK_ENTRY C_FindObjectsInit(CK_SESSION_HANDLE hSession,
 
     logParam(hSession) logParam(pTemplate) logParam(ulCount)
 
-        WriteAttributes(pTemplate, ulCount);
+        if (pTemplate == nullptr &&
+            ulCount > 0) throw p11_error(CKR_ARGUMENTS_BAD);
+
+    WriteAttributes(pTemplate, ulCount);
 
     if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
-
-    if (pTemplate == nullptr && ulCount > 0) throw p11_error(CKR_ARGUMENTS_BAD);
 
     pSession->FindObjectsInit(pTemplate, ulCount);
 
@@ -889,7 +907,10 @@ CK_RV CK_ENTRY C_GetAttributeValue(CK_SESSION_HANDLE hSession,
 
     logParam(hSession) logParam(hObject) logParam(pTemplate) logParam(ulCount)
 
-        if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+        if (pTemplate == nullptr &&
+            ulCount > 0) throw p11_error(CKR_ARGUMENTS_BAD);
+
+    if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
@@ -1082,7 +1103,10 @@ CK_RV CK_ENTRY C_SetAttributeValue(CK_SESSION_HANDLE hSession,
 
     logParam(hSession) logParam(hObject) logParam(pTemplate) logParam(ulCount)
 
-        if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+        if (pTemplate == nullptr &&
+            ulCount > 0) throw p11_error(CKR_ARGUMENTS_BAD);
+
+    if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
