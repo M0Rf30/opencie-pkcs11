@@ -48,4 +48,15 @@ class COCSPRequest : public CASN1Sequence {
   explicit COCSPRequest(const CASN1Object& contentInfo);
 
   explicit COCSPRequest(CCertificate& certificate);
+
+  /**
+   * Computes the OCSP CertID components (issuerNameHash, issuerKeyHash) for
+   * `certificate` using the same SHA-1-based algorithm this SDK uses when
+   * building a request, so a response's CertID can be matched against it.
+   * `issuerNameHash`/`issuerKeyHash` must be empty on entry; they are
+   * populated via append, not assignment.
+   */
+  static void ComputeCertID(CCertificate& certificate,
+                            ByteDynArray& issuerNameHash,
+                            ByteDynArray& issuerKeyHash);
 };

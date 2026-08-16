@@ -50,6 +50,26 @@ COCSPRequest::COCSPRequest(BufferedReader& reader) : CASN1Sequence(reader) {}
 COCSPRequest::COCSPRequest(const CASN1Object& ocspRequest)
     : CASN1Sequence(ocspRequest) {}
 
+void COCSPRequest::ComputeCertID(CCertificate& certificate,
+                                 ByteDynArray& issuerNameHash,
+                                 ByteDynArray& issuerKeyHash) {
+  CName issuerName(certificate.getIssuer());
+
+  ByteDynArray baIssuerName;
+  issuerName.toByteArray(baIssuerName);
+
+  issuerNameHash.append(
+      CSHA1().Digest(ByteArray(baIssuerName.data(), baIssuerName.size())));
+
+  // hash public key
+  CASN1Sequence authorityKeyIdentifier(
+      certificate.getAuthorithyKeyIdentifier());
+  CASN1OctetString keyIdentifier(authorityKeyIdentifier.elementAt(0));
+  keyIdentifier.setTag(0x04);  // set the correct tag
+
+  issuerKeyHash.append(*keyIdentifier.getValue());
+}
+
 COCSPRequest::COCSPRequest(CCertificate& certificate) {
   CASN1Sequence tbsRequest;
 
@@ -63,27 +83,9 @@ COCSPRequest::COCSPRequest(CCertificate& certificate) {
 
   CAlgorithmIdentifier hashAlgorithm(szSHA1OID);
 
-  CName issuerName(certificate.getIssuer());
-
-  ByteDynArray baIssuerName;
-  issuerName.toByteArray(baIssuerName);
-
-  ByteDynArray baIssuerNameHash =
-      CSHA1().Digest(ByteArray(baIssuerName.data(), baIssuerName.size()));
-
+  ByteDynArray baIssuerNameHash;
   ByteDynArray baIssuerKeyHash;
-
-  // hash public key
-  ByteDynArray baPubKey;
-
-  {
-    CASN1Sequence authorityKeyIdentifier(
-        certificate.getAuthorithyKeyIdentifier());
-    CASN1OctetString keyIdentifier(authorityKeyIdentifier.elementAt(0));
-    keyIdentifier.setTag(0x04);  // set the correct tag
-
-    baIssuerKeyHash.append(*keyIdentifier.getValue());
-  }
+  ComputeCertID(certificate, baIssuerNameHash, baIssuerKeyHash);
 
   certId.addElement(hashAlgorithm);
   certId.addElement(CASN1OctetString(baIssuerNameHash));

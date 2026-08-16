@@ -46,24 +46,29 @@ struct SignatureInfo {
   ByteDynArray sigPropDigest;
   ByteDynArray sigPropRealDigest;
   ByteDynArray sigInfoRealDigest;
-  ByteDynArray sigValue;  ///< RSA+SHA1 signature value.
+  ByteDynArray sigValue;  ///< RSA+SHA1 signature value (base64 text).
   CCertificate*
       pX509Cert;  ///< X.509 certificate (used internally during loading).
   ByteDynArray mbufOrigContent;
   int nDigestAlgo;
   bool bCAdES;
+  /** ds:Signature element in CXAdESVerifier's live document (not owned). */
+  xmlNodePtr pSignatureNode;
 };
 
 /**
  * Parsed XAdES document containing data file references and signature info.
  */
 struct XAdESDoc {
-  char* szFormat;     ///< Data format name.
-  char* szFormatVer;  ///< Data format version.
-  int nDataFiles;
-  RefDataFile** pRefDataFiles;
-  int nSignatures;
-  SignatureInfo** ppSignatures;
+  char* szFormat = nullptr;     ///< Data format name.
+  char* szFormatVer = nullptr;  ///< Data format version.
+  int nDataFiles = 0;
+  RefDataFile** pRefDataFiles = nullptr;
+  int nSignatures = 0;
+  SignatureInfo** ppSignatures = nullptr;
+  /** Parsed document backing every pSignatureNode; owned, freed by
+   * ~CXAdESVerifier. */
+  xmlDocPtr pXmlDoc = nullptr;
 };
 
 /**
@@ -73,6 +78,11 @@ class CXAdESVerifier {
  public:
   CXAdESVerifier(void);
   virtual ~CXAdESVerifier(void);
+
+  /** Owns the parsed libxml2 document and the signature/ref-file trees, so
+   * copying would double-free. Non-copyable by design. */
+  CXAdESVerifier(const CXAdESVerifier&) = delete;
+  CXAdESVerifier& operator=(const CXAdESVerifier&) = delete;
 
   /** Parse an XAdES document from a buffer. */
   long Load(BYTE* buf, int len);
