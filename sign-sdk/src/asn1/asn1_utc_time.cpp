@@ -7,6 +7,20 @@
 
 const BYTE CASN1UTCTime::TAG = 0x17;
 
+bool FormatUtcTime(time_t t, char* szOut, size_t nOut) {
+  if (szOut == nullptr || nOut == 0) return false;
+
+  struct tm tmUtc;
+#ifdef _WIN32
+  // Microsoft's gmtime_s takes the output first and returns errno_t.
+  if (gmtime_s(&tmUtc, &t) != 0) return false;
+#else
+  if (gmtime_r(&t, &tmUtc) == nullptr) return false;
+#endif
+
+  return strftime(szOut, nOut, "%y%m%d%H%M%SZ", &tmUtc) != 0;
+}
+
 CASN1UTCTime::~CASN1UTCTime() {}
 
 CASN1UTCTime::CASN1UTCTime(BufferedReader& reader) : CASN1Object(reader) {}
