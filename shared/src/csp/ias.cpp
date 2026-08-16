@@ -766,6 +766,8 @@ StatusWord IAS::respSM(const ByteArray &keyEnc, const ByteArray &keySig,
   index = 0;
   do {
     if (resp[index] == 0x99) {
+      if (resp[index + 1] != 0x02)
+        throw logged_error("Invalid status word length");
       calcMac.append(resp.mid(index, resp[index + 1] + 2));
       sw = resp[index + 2] << 8 | resp[index + 3];
       index += 4;
@@ -940,6 +942,7 @@ StatusWord IAS::SendAPDU_SM(ByteArray head, ByteArray data, ByteDynArray &resp,
                               .append("\n")
                               .c_str());
       if (i == data.size()) return sw;
+      if (sw != 0x9000) throw scard_error(sw);
     }
   }
 }
@@ -972,6 +975,8 @@ StatusWord IAS::SendAPDU(ByteArray head, ByteArray data, ByteDynArray &resp,
 
         return sw;
       }
+
+      if (sw != 0x9000) throw scard_error(sw);
     }
   } else {
     if (data.size() != 0)

@@ -361,6 +361,8 @@ void CIEtemplateLogin(void *pTemplateData, CK_USER_TYPE userType,
       if (userType == CKU_USER) {
         notifyPINLocked();
         throw p11_error(CKR_PIN_LOCKED);
+      } else if (userType == CKU_SO) {
+        throw p11_error(CKR_PIN_LOCKED);
       }
     }
     if (sw >= 0x63C0 && sw <= 0x63CF) {
