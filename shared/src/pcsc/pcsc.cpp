@@ -11,6 +11,7 @@
 
 struct transData {
   SCARDCONTEXT context;
+  std::atomic<bool> completed {false};
 };
 bool safeTransaction::isLocked() { return locked; }
 safeTransaction::safeTransaction(ISmartCardTransport &transport,
@@ -24,11 +25,15 @@ safeTransaction::safeTransaction(ISmartCardTransport &transport,
 #ifdef _WIN32
   auto td = std::make_shared<struct transData>();
   td->context = conn.hContext;
+  pWatchdogState = td;
   auto thread = std::thread([td, &transport]() {
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 10 && !td->completed.load(std::memory_order_acquire);
+         i++) {
       Sleep(500);
     }
-    transport.Cancel(td->context);
+    if (!td->completed.load(std::memory_order_acquire)) {
+      transport.Cancel(td->context);
+    }
     return 0;
   });
   thread.detach();
@@ -48,12 +53,20 @@ void safeTransaction::unlock() {
     transport.EndTransaction(hCard, dwDisposition);
     locked = false;
   }
+#ifdef _WIN32
+  if (pWatchdogState)
+    pWatchdogState->completed.store(true, std::memory_order_release);
+#endif
 }
 
 safeTransaction::~safeTransaction() {
   if (hCard != 0 && locked) {
     transport.EndTransaction(hCard, dwDisposition);
   }
+#ifdef _WIN32
+  if (pWatchdogState)
+    pWatchdogState->completed.store(true, std::memory_order_release);
+#endif
 }
 
 safeConnection::safeConnection(ISmartCardTransport &transport,

@@ -64,7 +64,7 @@ class CSlot {
   DWORD dwSessionCount;  ///< Number of open sessions on this slot.
 
   static SlotMap g_mSlots;  ///< Global map of all known slots.
-  static bool
+  static std::atomic<bool>
       bMonitorUpdate;  ///< Flag set when the monitor thread detects a change.
 
   CK_SLOT_ID hSlot;  ///< PKCS#11 slot identifier.
