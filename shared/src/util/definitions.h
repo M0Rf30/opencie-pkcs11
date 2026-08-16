@@ -209,12 +209,16 @@ extern logFunc pfnCrashliticsLog;
 #define __CATCH                                                                \
   }                                                                            \
   catch (uint64_t err) {                                                       \
-    LOG_ERR((0, "__CATCH", "Unexpected Long Exception: %d", err));             \
-    ;                                                                          \
+    LOG_ERR((0, "__CATCH", "Unexpected Long Exception: %llu",                  \
+             static_cast<unsigned long long>(err)));                           \
     return CIE_SIGN_ERROR_UNEXPECTED;                                          \
   }                                                                            \
   catch (CASN1Exception * pExc) {                                              \
     LOG_ERR((0, "__CATCH", "Unexpected ASN1 Exception: %s", pExc->m_lpszMsg)); \
+    return CIE_SIGN_ERROR_UNEXPECTED;                                          \
+  }                                                                            \
+  catch (const CASN1Exception& exc) {                                          \
+    LOG_ERR((0, "__CATCH", "Unexpected ASN1 Exception: %s", exc.m_lpszMsg));   \
     return CIE_SIGN_ERROR_UNEXPECTED;                                          \
   }                                                                            \
   catch (...) {                                                                \

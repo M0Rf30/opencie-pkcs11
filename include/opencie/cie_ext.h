@@ -27,14 +27,16 @@
 #include <stdint.h>
 
 // ---------------------------------------------------------------------------
-// Platform portability — map the PKCS#11 calling-convention macro to nothing
-// when this header is used outside the main build tree.
+// Platform portability — the PKCS#11 calling-convention / export-visibility
+// macro. Defined once here; internal headers (e.g. pkcs11_functions.h)
+// include this header instead of redefining it, so every translation unit
+// gets the same value regardless of include order.
 // ---------------------------------------------------------------------------
 #ifndef CK_ENTRY
 #ifdef _WIN32
 #define CK_ENTRY __declspec(dllexport)
 #else
-#define CK_ENTRY
+#define CK_ENTRY __attribute__((visibility("default")))
 #endif
 #endif
 
@@ -241,16 +243,37 @@ CK_RV CK_ENTRY cie_extract_p7m(const char* inFilePath, const char* outFilePath);
  * Retrieve the DER-encoded X.509 certificate for an enrolled CIE card.
  *
  * Reads from the local AES-encrypted cache written by cie_enable().
- * The caller must free *outDer with free() after use.
+ *
+ * Ownership: *outDer is malloc'd inside libopencie-pkcs11. Release it with
+ * cie_free(), not the caller's own free(): on Windows the DLL and a
+ * statically-linked caller can be bound to different CRT heaps, and
+ * freeing a cross-module allocation with the wrong heap's free() is
+ * undefined behavior.
  *
  * @param pan     NUL-terminated PAN string identifying the card.
- * @param outDer  On success, set to a malloc'd buffer with the DER cert.
+ * @param outDer  On success, set to a malloc'd buffer with the DER cert;
+ *                release it with cie_free().
  * @param outLen  On success, set to the byte length of *outDer.
  * @return CKR_OK on success, CKR_ARGUMENTS_BAD / CKR_DEVICE_ERROR /
  *         CKR_HOST_MEMORY / CKR_FUNCTION_FAILED otherwise.
  */
 CK_RV CK_ENTRY cie_get_certificate(const char* pan, unsigned char** outDer,
                                    unsigned long* outLen);
+
+/**
+ * Free a buffer that libopencie-pkcs11 allocated and returned through an
+ * out-parameter (currently only cie_get_certificate()'s *outDer).
+ *
+ * Always release such buffers through this function instead of the
+ * caller's own free(): on Windows, the DLL and a statically-linked caller
+ * can be bound to different CRT heaps, so freeing a cross-module
+ * allocation with the wrong heap's free() is undefined behavior. On POSIX
+ * platforms this simply calls free().
+ *
+ * @param ptr  Pointer previously returned via a libopencie-pkcs11
+ *             out-parameter, or NULL (a no-op).
+ */
+void CK_ENTRY cie_free(void* ptr);
 
 // ---------------------------------------------------------------------------
 // Timestamp functions

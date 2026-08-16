@@ -6,11 +6,8 @@
 
 #include <cstring>
 
+#include "../../include/opencie/cie_ext.h"
 #include "pkcs11/cryptoki.h"
-extern "C" {
-void make_digest_info(int algid, unsigned char* pbtDigest, size_t btDigestLen,
-                      unsigned char* pbtDigestInfo, size_t* pbtDigestInfoLen);
-}
 
 CCIESigner::CCIESigner(IAS* pIAS) : m_pIAS(pIAS), m_szPIN("") {}
 
