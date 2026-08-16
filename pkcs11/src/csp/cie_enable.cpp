@@ -705,13 +705,25 @@ int CK_ENTRY cie_reader_watch([[maybe_unused]] int current_count) {
   pnp.szReader = "\\\\?PnP?\\Notification";
   pnp.dwCurrentState = SCARD_STATE_UNAWARE;
 
+  // SCardGetStatusChange(INFINITE) makes this call uninterruptible, which
+  // hangs any host process (Dart isolate, NSS, browsers, ...) that tries to
+  // shut down while no reader-count change has happened yet. Poll with a
+  // bounded timeout instead, retrying on SCARD_E_TIMEOUT, so the loop keeps
+  // its "block until reader count changes" contract while still noticing
+  // cooperative cancellation opportunities at each poll boundary.
+  constexpr DWORD kWatchPollMs = 1000;
+
   while (true) {
-    LONG rv = transport.GetStatusChange(hCtx, INFINITE, &pnp, 1);
-    if (rv != SCARD_S_SUCCESS) {
+    LONG rv = transport.GetStatusChange(hCtx, kWatchPollMs, &pnp, 1);
+    if (rv == static_cast<LONG>(SCARD_E_TIMEOUT)) {
+      // No PnP event yet; fall through to re-count readers below so a
+      // change that raced with the timeout is still detected promptly.
+    } else if (rv != SCARD_S_SUCCESS) {
       transport.ReleaseContext(hCtx);
       return -1;
+    } else {
+      pnp.dwCurrentState = pnp.dwEventState & ~SCARD_STATE_CHANGED;
     }
-    pnp.dwCurrentState = pnp.dwEventState & ~SCARD_STATE_CHANGED;
 
     int count = 0;
     DWORD len = 0;
