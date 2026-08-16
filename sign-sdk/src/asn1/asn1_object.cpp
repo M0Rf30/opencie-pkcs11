@@ -3,7 +3,6 @@
 
 #include <memory.h>
 
-#include <cmath>
 #include <vector>
 
 #include "asn1_exception.h"
@@ -153,7 +152,7 @@ void CASN1Object::toByteArray(ByteDynArray& byteArray) const {
     int i = 0;
     int nAux = nLen;
     for (i = 0; i < nLenNeeded; i++) {
-      int nDigit = nAux >> (256 * i);
+      int nDigit = nAux;
       serialized[2 + (nLenNeeded - i - 1)] = static_cast<BYTE>(nDigit);
       nAux = nAux / 256;
     }
@@ -188,7 +187,7 @@ int CASN1Object::parseLen(BufferedReader& reader, BYTE* pbtTag,
   BYTE btTag = 0;
   BYTE btLenRead;
   UINT nLen = 0;
-  BYTE btHexLen[10];
+  BYTE btHexLen[sizeof(UINT)];
   if (pbIndefiniteLen) *pbIndefiniteLen = false;
 
   if (pbtLenRead) *pbtLenRead = 0;
@@ -215,13 +214,19 @@ int CASN1Object::parseLen(BufferedReader& reader, BYTE* pbtTag,
     // Long Form
     btLenRead = btLenRead & 0x7F;
 
+    // A length-octet count that cannot fit the UINT accumulator (or the
+    // fixed staging buffer) is not representable; reject it outright
+    // instead of reading it and truncating the result silently.
+    if (btLenRead == 0 || btLenRead > sizeof(btHexLen)) {
+      throw CASN1ParsingException();
+    }
+
     if (reader.read(btHexLen, btLenRead) != btLenRead) {
       throw CASN1ParsingException();
     }
 
     for (BYTE i = 0; i < btLenRead; i++) {
-      nLen += static_cast<UINT>(btHexLen[btLenRead - i - 1] *
-                                pow(static_cast<double>(256), i));
+      nLen = (nLen << 8) | btHexLen[i];
     }
 
     if (pbtLenRead) *pbtLenRead = btLenRead;
@@ -234,12 +239,25 @@ int CASN1Object::parseLen(BufferedReader& reader, BYTE* pbtTag,
   // read the rest of the value
 
   if (pValue) {
-    std::vector<BYTE> pbtVal(nLen);
-    if (reader.read(pbtVal.data(), nLen) < nLen) {
-      throw CASN1ParsingException();
+    // Stream the declared length in small, fixed-size chunks instead of
+    // committing to one allocation sized by an unvalidated, attacker-chosen
+    // length: a bogus length now fails as soon as the input is exhausted,
+    // rather than after an up-to-4GiB allocation.
+    constexpr unsigned int kReadChunk = 8192;
+    std::vector<BYTE> pbtVal;
+    std::vector<BYTE> chunk(kReadChunk);
+    UINT remaining = nLen;
+    while (remaining > 0) {
+      unsigned int toRead = (remaining < kReadChunk) ? remaining : kReadChunk;
+      unsigned int got = reader.read(chunk.data(), toRead);
+      if (got == 0) {
+        throw CASN1ParsingException();
+      }
+      pbtVal.insert(pbtVal.end(), chunk.data(), chunk.data() + got);
+      remaining -= got;
     }
 
-    pValue->append(ByteArray(pbtVal.data(), nLen));
+    pValue->append(ByteArray(pbtVal.data(), pbtVal.size()));
   }
   return nLen;
 }
@@ -250,7 +268,34 @@ const char* CASN1Object::toHexString() {
   return m_hexStr.c_str();
 }
 
+namespace {
+// BER indefinite-length content can nest arbitrarily (an indefinite-length
+// object embedded inside another) and CASN1Object::parseBER also recurses
+// once per sibling element within a single indefinite-length container.
+// Both forms consume a stack frame per call, so an attacker controlling a
+// couple of bytes per level can exhaust the stack. Cap the combined
+// recursion depth well above anything a legitimate CMS/X.509 structure
+// needs.
+constexpr int kMaxAsn1BerDepth = 64;
+thread_local int g_asn1BerDepth = 0;
+
+class Asn1BerDepthGuard {
+ public:
+  Asn1BerDepthGuard() {
+    if (++g_asn1BerDepth > kMaxAsn1BerDepth) {
+      --g_asn1BerDepth;
+      throw CASN1ParsingException();
+    }
+  }
+  ~Asn1BerDepthGuard() { --g_asn1BerDepth; }
+  Asn1BerDepthGuard(const Asn1BerDepthGuard&) = delete;
+  Asn1BerDepthGuard& operator=(const Asn1BerDepthGuard&) = delete;
+};
+}  // namespace
+
 int CASN1Object::parseBER(BufferedReader& reader, ByteDynArray& buffer) {
+  Asn1BerDepthGuard depthGuard;
+
   int begin = reader.getPosition();
 
   CASN1Object obj(reader);

@@ -126,8 +126,12 @@ class CASNParser {
    * @param data Input byte array containing DER-encoded data.
    * @param outTags Output tag array to populate.
    * @param startseq Starting byte offset for position tracking.
+   * @param depth Current recursion depth; internal use, defaults to 0.
+   *   Throws once nesting exceeds an internal cap to bound stack usage
+   *   on attacker-controlled input.
    */
-  void Parse(const ByteArray &data, CASNTagArray &outTags, size_t startseq);
+  void Parse(const ByteArray &data, CASNTagArray &outTags, size_t startseq,
+             size_t depth = 0);
 
   CASNTagArray tags;  ///< Parsed ASN.1 tag tree.
 

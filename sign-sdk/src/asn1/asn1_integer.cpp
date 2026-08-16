@@ -23,9 +23,8 @@ CASN1Integer::CASN1Integer(unsigned long nVal) {
 
   nVal = nVal / 256;
 
-  int i = 1;
   while (nVal > 0) {
-    btDigit = static_cast<BYTE>(nVal >> (256 * i));
+    btDigit = static_cast<BYTE>(nVal);
     val.push(btDigit);
     nVal = nVal / 256;
   }
@@ -50,10 +49,10 @@ unsigned long CASN1Integer::getLongValue() const {
   if (nLen == 1) {
     nValue = btBuffer[0];
   } else {
-    for (unsigned int i = 0; i < nLen; i++) {
+    for (unsigned int i = 0; i < nLen && i < sizeof(nValue); i++) {
       BYTE btVal = (btBuffer[nLen - i - 1]);
 
-      nValue += btVal << (8 * i);
+      nValue += static_cast<long>(static_cast<unsigned long>(btVal) << (8 * i));
     }
   }
   return nValue;

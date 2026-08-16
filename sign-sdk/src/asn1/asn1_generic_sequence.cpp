@@ -5,13 +5,25 @@
 
 #include "asn1_exception.h"
 
+namespace {
+// calloc()/realloc() can fail for a pathologically large offset table;
+// treat that the same as any other unparseable input instead of handing
+// back or writing through a null pointer.
+unsigned int* allocOffsets(unsigned int count) {
+  void* p = calloc(count, sizeof(unsigned int));
+  if (!p) {
+    throw CASN1ParsingException();
+  }
+  return static_cast<unsigned int*>(p);
+}
+}  // namespace
+
 CASN1GenericSequence::CASN1GenericSequence(BYTE btTag)
     : m_nextOffset(0),
       m_pnOffsets(nullptr),
       m_nOffsetsMax(MAXSIZE),
       m_nSize(0) {
-  m_pnOffsets = static_cast<unsigned int*>(
-      calloc(m_nOffsetsMax + 2, sizeof(m_pnOffsets[0])));
+  m_pnOffsets = allocOffsets(m_nOffsetsMax + 2);
   setTag(btTag);
 }
 
@@ -21,8 +33,7 @@ CASN1GenericSequence::CASN1GenericSequence(BufferedReader& reader)
       m_pnOffsets(nullptr),
       m_nOffsetsMax(MAXSIZE),
       m_nSize(0) {
-  m_pnOffsets = static_cast<unsigned int*>(
-      calloc(m_nOffsetsMax + 2, sizeof(m_pnOffsets[0])));
+  m_pnOffsets = allocOffsets(m_nOffsetsMax + 2);
   m_nSize = makeOffset();
 }
 
@@ -32,8 +43,7 @@ CASN1GenericSequence::CASN1GenericSequence(const ByteDynArray& content)
       m_pnOffsets(nullptr),
       m_nOffsetsMax(MAXSIZE),
       m_nSize(0) {
-  m_pnOffsets = static_cast<unsigned int*>(
-      calloc(m_nOffsetsMax + 2, sizeof(m_pnOffsets[0])));
+  m_pnOffsets = allocOffsets(m_nOffsetsMax + 2);
   m_nSize = makeOffset();
 }
 
@@ -43,8 +53,7 @@ CASN1GenericSequence::CASN1GenericSequence(const CASN1Object& obj)
       m_pnOffsets(nullptr),
       m_nOffsetsMax(MAXSIZE),
       m_nSize(0) {
-  m_pnOffsets = static_cast<unsigned int*>(
-      calloc(m_nOffsetsMax + 2, sizeof(m_pnOffsets[0])));
+  m_pnOffsets = allocOffsets(m_nOffsetsMax + 2);
   m_nSize = makeOffset();
 }
 
@@ -54,8 +63,7 @@ CASN1GenericSequence::CASN1GenericSequence(const CASN1GenericSequence& obj)
       m_pnOffsets(nullptr),
       m_nOffsetsMax(MAXSIZE),
       m_nSize(0) {
-  m_pnOffsets = static_cast<unsigned int*>(
-      calloc(m_nOffsetsMax + 2, sizeof(m_pnOffsets[0])));
+  m_pnOffsets = allocOffsets(m_nOffsetsMax + 2);
   m_nSize = makeOffset();
 }
 
@@ -65,8 +73,7 @@ CASN1GenericSequence::CASN1GenericSequence(const BYTE* value, long len)
       m_pnOffsets(nullptr),
       m_nOffsetsMax(MAXSIZE),
       m_nSize(0) {
-  m_pnOffsets = static_cast<unsigned int*>(
-      calloc(m_nOffsetsMax + 2, sizeof(m_pnOffsets[0])));
+  m_pnOffsets = allocOffsets(m_nOffsetsMax + 2);
   m_nSize = makeOffset();
 }
 
@@ -154,7 +161,7 @@ CASN1Object CASN1GenericSequence::elementAt(int nPos) {
   if (this->size() > static_cast<unsigned int>(nPos)) {
     int offset = m_pnOffsets[nPos];
     ByteDynArray curObj(
-        ByteArray(getValue()->data() + offset, getLength() - offset + 1));
+        ByteArray(getValue()->data() + offset, getLength() - offset));
     CASN1Object curAsn1Obj(curObj);
 
     m_nextOffset = offset + curAsn1Obj.getSerializedLength();
@@ -165,8 +172,12 @@ CASN1Object CASN1GenericSequence::elementAt(int nPos) {
 }
 
 CASN1Object CASN1GenericSequence::nextElement() {
-  ByteDynArray curObj(ByteArray(getValue()->data() + m_nextOffset,
-                                getLength() - m_nextOffset + 1));
+  if (m_nextOffset > getLength()) {
+    throw CASN1ParsingException();
+  }
+
+  ByteDynArray curObj(
+      ByteArray(getValue()->data() + m_nextOffset, getLength() - m_nextOffset));
 
   CASN1Object curAsn1Obj(curObj);
 
@@ -178,8 +189,7 @@ CASN1Object CASN1GenericSequence::nextElement() {
 CASN1Object CASN1GenericSequence::elementAtOpt(int nPos) {
   if (this->size() > static_cast<unsigned int>(nPos)) {
     int offset = m_pnOffsets[nPos];
-    CASN1Object curAsn1Obj(getValue()->data() + offset,
-                           getLength() - offset + 1);
+    CASN1Object curAsn1Obj(getValue()->data() + offset, getLength() - offset);
 
     m_nextOffset = offset + curAsn1Obj.getSerializedLength();
 
@@ -189,8 +199,12 @@ CASN1Object CASN1GenericSequence::elementAtOpt(int nPos) {
 }
 
 CASN1Object CASN1GenericSequence::nextElementOpt() {
+  if (m_nextOffset > getLength()) {
+    throw CASN1ParsingException();
+  }
+
   CASN1Object curAsn1Obj(getValue()->data() + m_nextOffset,
-                         getLength() - m_nextOffset + 1);
+                         getLength() - m_nextOffset);
 
   m_nextOffset += curAsn1Obj.getSerializedLength();
 
@@ -260,15 +274,19 @@ int CASN1GenericSequence::makeOffset() {
   while (offset < len) {
     if (i == m_nOffsetsMax) {
       m_nOffsetsMax += 1000;
-      m_pnOffsets = static_cast<unsigned int*>(
-          realloc(m_pnOffsets, sizeof(m_pnOffsets[0]) * m_nOffsetsMax + 2));
+      unsigned int* pNew = static_cast<unsigned int*>(
+          realloc(m_pnOffsets, sizeof(m_pnOffsets[0]) * (m_nOffsetsMax + 2)));
+      if (!pNew) {
+        throw CASN1ParsingException();
+      }
+      m_pnOffsets = pNew;
     }
     m_pnOffsets[i] = offset;
 
     // Current object
     try {
       CASN1Object currentObj(pContent->data() + offset,
-                             pContent->size() - offset + 1);
+                             pContent->size() - offset);
       int iLen = currentObj.getOrigLenLen() + currentObj.getLength() + 2;
       offset += iLen;
       i++;
