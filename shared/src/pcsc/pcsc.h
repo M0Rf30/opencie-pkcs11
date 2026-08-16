@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <atomic>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -65,6 +67,9 @@ class safeTransaction {
   SCARDHANDLE hCard;
   bool locked;
   DWORD dwDisposition;
+#ifdef _WIN32
+  std::shared_ptr<struct transData> pWatchdogState;
+#endif
 
  public:
   /**
@@ -99,7 +104,7 @@ class readerMonitor {
   std::thread Thread;
   void *appData;
   void (*readerEvent)(std::string &reader, bool insert, void *appData);
-  bool stopMonitor;
+  std::atomic<bool> stopMonitor;
 
  public:
   /**

@@ -48,7 +48,7 @@ DWORD CSlot::dwSlotCnt = 0;
 SlotMap CSlot::g_mSlots;
 std::thread CSlot::Thread;
 std::atomic<CCardContext *> CSlot::ThreadContext {nullptr};
-bool CSlot::bMonitorUpdate = false;
+std::atomic<bool> CSlot::bMonitorUpdate {false};
 
 CSlot::CSlot(ISmartCardTransport &transport, const char *szReader)
     : transport(transport), Context(transport) {
@@ -107,7 +107,13 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
     }
     CSlot::bMonitorUpdate = false;
     while (true) {
-      Context.validate();
+      {
+        // CCardContext::hContext may be re-established here; C_Finalize
+        // reads it (CSlot::ThreadContext->hContext) under p11Mutex, so the
+        // mutation must happen under the same lock.
+        std::unique_lock<std::mutex> lock(p11Mutex);
+        Context.validate();
+      }
       ris = pSlotMap->begin()->second->transport.GetStatusChange(
           Context, 1000, state.data(), static_cast<DWORD>(dwSlotNum));
       if (ris != S_OK) {

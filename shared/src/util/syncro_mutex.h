@@ -12,6 +12,10 @@
 #pragma once
 #include "util/util.h"
 
+#ifndef _WIN32
+#include <mutex>
+#endif
+
 /**
  * @brief Wrapper around a platform mutex handle.
  *
@@ -22,6 +26,9 @@
 class CSyncroMutex {
 #ifdef _WIN32
   HANDLE hMutex; /**< Platform-specific mutex handle. */
+#else
+  std::mutex mtx_; /**< Process-local mutex; Create() is a no-op here since
+                    *   this class has no cross-process callers on POSIX. */
 #endif
 
  public:

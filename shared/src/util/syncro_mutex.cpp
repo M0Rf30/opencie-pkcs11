@@ -88,12 +88,15 @@ void CSyncroMutex::Create(const char * /*szName*/) {}
 
 CSyncroMutex::~CSyncroMutex(void) {}
 
-void CSyncroMutex::Lock() {}
+void CSyncroMutex::Lock() { mtx_.lock(); }
 
-void CSyncroMutex::Unlock() {}
+void CSyncroMutex::Unlock() { mtx_.unlock(); }
 
-CSyncroLocker::CSyncroLocker(CSyncroMutex &mutex) { pMutex = &mutex; }
+CSyncroLocker::CSyncroLocker(CSyncroMutex &mutex) {
+  pMutex = &mutex;
+  pMutex->Lock();
+}
 
-CSyncroLocker::~CSyncroLocker() {}
+CSyncroLocker::~CSyncroLocker() { pMutex->Unlock(); }
 
 #endif  // _WIN32

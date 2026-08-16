@@ -27,7 +27,8 @@ class auto_reset_event {
    * @brief Construct an auto-reset event.
    * @param signaled Initial signaled state (default: non-signaled).
    */
-  explicit auto_reset_event(bool signaled = false) : signaled_(signaled) {}
+  explicit auto_reset_event(bool signaled = false)
+      : pending_(signaled ? 1 : 0) {}
 
   /** @brief Signal the event, releasing one waiting thread. */
   void set();
@@ -36,7 +37,9 @@ class auto_reset_event {
   void wait();
 
  private:
-  std::mutex m_;               /**< Mutex protecting the signaled state. */
+  std::mutex m_;               /**< Mutex protecting the pending count. */
   std::condition_variable cv_; /**< Condition variable for wait/notify. */
-  bool signaled_;              /**< Current signaled state. */
+  unsigned pending_; /**< Number of set() calls not yet consumed by wait().
+                      *   Counting (rather than boolean) so back-to-back
+                      *   set() calls are never coalesced into one wakeup. */
 };
