@@ -2,6 +2,7 @@
 #include "asn_parser.h"
 
 #include <algorithm>
+#include <limits>
 #include <numeric>
 
 #include "util/array.h"
@@ -10,7 +11,17 @@ extern CLog Log;
 
 #define BitValue(a, b) ((a >> b) & 1)
 
+namespace {
+// Bounds the recursion depth of CASNParser::Parse on nested constructed
+// types (SEQUENCE/SET). Each level costs one C++ stack frame; attacker-
+// controlled input with deeply nested "30 02" chains would otherwise
+// exhaust the stack. RFC 5280 profiles need far fewer than this.
+constexpr size_t kMaxAsn1NestingDepth = 32;
+}  // namespace
+
 size_t GetASN1DataLenght(const ByteArray &data) {
+  if (data.size() == 0) throw logged_error("Excessive length in ASN.1");
+
   size_t l = 1;
   const uint8_t *cur = data.data();
 
@@ -27,12 +38,22 @@ size_t GetASN1DataLenght(const ByteArray &data) {
     }
   }
 
+  // cur[1] (the length field's first octet) must be within the buffer
+  // before it is read.
+  if (l >= data.size()) throw logged_error("Excessive length in ASN.1");
+  size_t remaining = data.size() - l;
+
   size_t llen = 0;
   if (cur[1] == 0x80) {
+    if (remaining < 2) throw logged_error("Excessive length in ASN.1");
     llen = 1;
     len = data.size() - l - 2;
   } else if (BitValue(cur[1], 7) == 1) {
     llen = (cur[1] & 0x7f);
+    // Bounds-check before reading llen more octets, and reject encodings
+    // that could not possibly fit in a size_t.
+    if (llen > sizeof(size_t) || remaining < llen + 1)
+      throw logged_error("Excessive length in ASN.1");
     for (size_t k = 0; k < llen; k++) {
       len <<= 8;
       len |= cur[k + 2];
@@ -42,7 +63,12 @@ size_t GetASN1DataLenght(const ByteArray &data) {
     llen = 1;
     len = cur[1];
   }
-  return l + llen + len;
+  // Compose the result without wrapping: `len` can be attacker-controlled
+  // up to SIZE_MAX via the 8-octet long form above.
+  size_t header = l + llen;
+  if (len > std::numeric_limits<size_t>::max() - header)
+    throw logged_error("Excessive length in ASN.1");
+  return header + len;
 }
 bool CASNTag::isSequence() {
   return forcedSequence || ((tag.size() >= 1) && (tag[0] & 0x20) == 0x20);
@@ -166,8 +192,11 @@ void CASNParser::Parse(const ByteArray &data) {
 }
 
 void CASNParser::Parse(const ByteArray &data, CASNTagArray &outTags,
-                       size_t startseq) {
-  init_func size_t l = 0;
+                       size_t startseq, size_t depth) {
+  init_func if (depth > kMaxAsn1NestingDepth) throw logged_error(
+      "Excessive nesting depth in ASN.1");
+
+  size_t l = 0;
   uint8_t *cur = data.data();
   while (l < data.size()) {
     size_t len = 0;
@@ -189,12 +218,22 @@ void CASNParser::Parse(const ByteArray &data, CASNTagArray &outTags,
       }
     }
 
+    // cur[1] (the length field's first octet) must be within the buffer
+    // before it is read.
+    if (data.size() - l < 2) throw logged_error("Excessive length in ASN.1");
+    size_t remaining = data.size() - l;
+
     int llen = 0;
     if (cur[1] == 0x80) {
       llen = 1;
       len = data.size() - l - 2;
     } else if (BitValue(cur[1], 7) == 1) {
       llen = (cur[1] & 0x7f);
+      // Bounds-check before reading llen more octets, and reject encodings
+      // that could not possibly fit in a size_t.
+      if (static_cast<size_t>(llen) > sizeof(size_t) ||
+          remaining < static_cast<size_t>(llen) + 2)
+        throw logged_error("Excessive length in ASN.1");
       for (int k = 0; k < llen; k++) {
         len <<= 8;
         len |= cur[k + 2];
@@ -207,7 +246,12 @@ void CASNParser::Parse(const ByteArray &data, CASNTagArray &outTags,
     if (tagv.size() > 0 && tagv[0] == 0 && len == 0) {
       return;
     }
-    if (l + (len + llen + 1) > data.size())
+    // Compare via subtraction against the remaining buffer size instead of
+    // adding into `len`: `len` is attacker-controlled and can be up to
+    // SIZE_MAX, so `l + (len + llen + 1) > data.size()` can wrap around and
+    // pass even though `len` reaches far past the buffer.
+    size_t header = static_cast<size_t>(llen) + 1;
+    if (header > remaining || len > remaining - header)
       throw logged_error("Excessive length in ASN.1");
 
     auto tag = std::unique_ptr<CASNTag>(new CASNTag());
@@ -215,7 +259,7 @@ void CASNParser::Parse(const ByteArray &data, CASNTagArray &outTags,
     tag->tag = tagv;
     if (tag->isSequence()) {
       ByteArray input(&cur[llen + 1], len);
-      Parse(input, tag->tags, startseq + l + llen + 1);
+      Parse(input, tag->tags, startseq + l + llen + 1, depth + 1);
     } else {
       // single value
       tag->content = ByteDynArray(ByteArray(&cur[llen + 1], len));
