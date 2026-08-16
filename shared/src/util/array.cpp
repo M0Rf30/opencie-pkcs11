@@ -214,7 +214,7 @@ ByteDynArray::ByteDynArray(size_t size) {
 ByteDynArray::~ByteDynArray() { clear(); }
 
 ByteDynArray &ByteDynArray::operator=(const ByteDynArray &src) {
-  alloc_copy(src);
+  if (this != &src) alloc_copy(src);
   return *this;
 }
 
