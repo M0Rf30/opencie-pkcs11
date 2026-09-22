@@ -290,6 +290,12 @@ if host_machine.system() == 'android'
   shared_sources += ['shared/src/pcsc/android_nfc_transport.cpp']
 endif
 
+# Linux kernel NFC transport backend (opt-in at runtime for Linux phones;
+# PC/SC stays the default on desktop Linux)
+if host_machine.system() == 'linux'
+  shared_sources += ['shared/src/pcsc/linux_nfc_transport.cpp']
+endif
+
 libcie_shared = static_library(
     'cie-shared',
     shared_sources,
