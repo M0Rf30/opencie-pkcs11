@@ -48,6 +48,12 @@ test_shared_sources = [
     '../shared/src/crypto/asn_parser.cpp',
 ]
 
+# Linux kernel NFC backend (ATR synthesis is pure logic, no hardware needed)
+if host_machine.system() == 'linux'
+  test_sources += ['test_linux_nfc_atr.cpp']
+  test_shared_sources += ['../shared/src/pcsc/linux_nfc_transport.cpp']
+endif
+
 test_exe = executable(
     'opencie-tests',
     test_sources + test_shared_sources,
