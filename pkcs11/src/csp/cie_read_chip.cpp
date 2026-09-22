@@ -26,12 +26,8 @@
 #include "csp/cie_enable.h"
 #include "csp/ias.h"
 #include "logger/logger.h"
+#include "pcsc/transport_factory.h"
 #include "pkcs11/pkcs11_functions.h"
-#if defined(__ANDROID__)
-#include "pcsc/android_nfc_transport.h"
-#else
-#include "pcsc/pcsc_transport.h"
-#endif
 
 // OpenJPEG for JPEG2000 decoding (HAVE_LIBOPENJP2 defined by meson when found)
 #ifdef HAVE_LIBOPENJP2
@@ -371,11 +367,7 @@ static CK_RV readBothDGs(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
 
   char* readers = nullptr;
   try {
-#if defined(__ANDROID__)
-    auto transport = std::make_shared<AndroidNFCTransport>();
-#else
-    auto transport = std::make_shared<PCSCTransport>();
-#endif
+    auto transport = createSmartCardTransport();
     SCARDCONTEXT hSC = 0;
     long nRet = transport->EstablishContext(SCARD_SCOPE_USER, &hSC);
     if (nRet != SCARD_S_SUCCESS) return CKR_DEVICE_ERROR;

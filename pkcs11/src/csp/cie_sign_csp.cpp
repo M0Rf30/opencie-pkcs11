@@ -12,11 +12,7 @@
 #include "csp/ias.h"
 #include "logger/logger.h"
 #include "pcsc/pcsc.h"
-#if defined(__ANDROID__)
-#include "pcsc/android_nfc_transport.h"
-#else
-#include "pcsc/pcsc_transport.h"
-#endif
+#include "pcsc/transport_factory.h"
 #include "pkcs11/pkcs11_functions.h"
 #include "sign/cie_sign.h"
 #include "util/module_info.h"
@@ -76,11 +72,7 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
 
     SCARDCONTEXT hSC;
 
-#if defined(__ANDROID__)
-    auto transport = std::make_shared<AndroidNFCTransport>();
-#else
-    auto transport = std::make_shared<PCSCTransport>();
-#endif
+    auto transport = createSmartCardTransport();
     long nRet = transport->EstablishContext(SCARD_SCOPE_USER, &hSC);
     if (nRet != SCARD_S_SUCCESS) {
       LOG_ERROR("cie_sign - List readers error: %d\n", nRet);

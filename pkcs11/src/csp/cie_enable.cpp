@@ -46,6 +46,7 @@ extern char** environ;
 #include "csp/cie_error.h"
 #include "csp/ias.h"
 #include "logger/logger.h"
+#include "pcsc/transport_factory.h"
 #include "pkcs11/pkcs11_functions.h"
 #include "pkcs11/slot.h"
 #include "sign/cie_sign.h"
@@ -53,9 +54,7 @@ extern char** environ;
 #include "util/cache_lib.h"
 #include "util/definitions.h"
 #include "util/module_info.h"
-#if defined(__ANDROID__)
-#include "pcsc/android_nfc_transport.h"
-#else
+#if !defined(__ANDROID__)
 #include "pcsc/pcsc_transport.h"
 #endif
 
@@ -175,11 +174,7 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
     LOG_INFO("cie_enable - Connecting to CIE...");
     progressCallBack(1, "Connessione alla CIE");
 
-#if defined(__ANDROID__)
-    auto transport = std::make_shared<AndroidNFCTransport>();
-#else
-    auto transport = std::make_shared<PCSCTransport>();
-#endif
+    auto transport = createSmartCardTransport();
     long nRet = transport->EstablishContext(SCARD_SCOPE_USER, &hSC);
     if (nRet != SCARD_S_SUCCESS) {
       LOG_ERROR("cie_enable - SCardEstablishContext error: %d", nRet);

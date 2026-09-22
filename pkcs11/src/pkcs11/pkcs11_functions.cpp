@@ -8,12 +8,8 @@
 
 #include "pkcs11_functions.h"
 
-#if defined(__ANDROID__)
-#include "pcsc/android_nfc_transport.h"
-#else
-#include "pcsc/pcsc_transport.h"
-#endif
 #include "pcsc/scard_types.h"
+#include "pcsc/transport_factory.h"
 #ifndef _WIN32
 #include <pwd.h>
 #include <sys/types.h>
@@ -342,11 +338,7 @@ CK_RV CK_ENTRY C_Initialize(CK_VOID_PTR pReserved) {
     if (CCardTemplate::g_mCardTemplates.size() == 0)
       CCardTemplate::InitTemplateList();
 
-#if defined(__ANDROID__)
-    g_transport = std::make_shared<AndroidNFCTransport>();
-#else
-  g_transport = std::make_shared<PCSCTransport>();
-#endif
+    g_transport = createSmartCardTransport();
 
     bP11Initialized = true;
     try {
