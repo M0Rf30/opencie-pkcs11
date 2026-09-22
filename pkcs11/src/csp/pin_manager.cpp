@@ -12,13 +12,9 @@
 #include "csp/ias.h"
 #include "logger/logger.h"
 #include "pcsc/pcsc.h"
+#include "pcsc/transport_factory.h"
 #include "pkcs11/pkcs11_functions.h"
 #include "util/module_info.h"
-#if defined(__ANDROID__)
-#include "pcsc/android_nfc_transport.h"
-#else
-#include "pcsc/pcsc_transport.h"
-#endif
 
 namespace {
 /** @brief RAII guard releasing a PC/SC SCARDCONTEXT exactly once. */
@@ -74,11 +70,7 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
     progressCallBack(10, "Connessione alla CIE");
 
     LOG_DEBUG("PINManager::ChangePIN - SCardEstablishContext");
-#if defined(__ANDROID__)
-    auto transport = std::make_shared<AndroidNFCTransport>();
-#else
-    auto transport = std::make_shared<PCSCTransport>();
-#endif
+    auto transport = createSmartCardTransport();
     long nRet = transport->EstablishContext(SCARD_SCOPE_USER, &hSC);
     if (nRet != SCARD_S_SUCCESS) {
       LOG_ERROR("PINManager::ChangePIN - res: %d", nRet);
@@ -292,11 +284,7 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
     progressCallBack(10, "Connessione alla CIE");
 
     LOG_DEBUG("PINManager::UnlockPIN - SCardEstablishContext");
-#if defined(__ANDROID__)
-    auto transport = std::make_shared<AndroidNFCTransport>();
-#else
-    auto transport = std::make_shared<PCSCTransport>();
-#endif
+    auto transport = createSmartCardTransport();
     long nRet = transport->EstablishContext(SCARD_SCOPE_USER, &hSC);
     if (nRet != SCARD_S_SUCCESS) {
       LOG_ERROR("PINManager::UnlockPIN - SCardEstablishContext err: %d", nRet);

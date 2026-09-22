@@ -268,6 +268,7 @@ shared_sources = [
     'shared/src/pcsc/pcsc.cpp',
     'shared/src/pcsc/card_locker.cpp',
     'shared/src/pcsc/apdu.cpp',
+    'shared/src/pcsc/transport_factory.cpp',
     'shared/src/crypto/sha512.cpp',
     'shared/src/crypto/sha256.cpp',
     'shared/src/crypto/sha1.cpp',
