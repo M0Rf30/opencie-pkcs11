@@ -54,9 +54,6 @@ extern char** environ;
 #include "util/cache_lib.h"
 #include "util/definitions.h"
 #include "util/module_info.h"
-#if !defined(__ANDROID__)
-#include "pcsc/pcsc_transport.h"
-#endif
 
 using namespace CieIDLogger;
 
@@ -681,7 +678,10 @@ int CK_ENTRY cie_reader_count(void) {
 #if defined(__ANDROID__)
   return 0;
 #else
-  PCSCTransport transport;
+  /* Same backend the card operations use: with OPENCIE_NFC_BACKEND=kernel the
+   * "reader" is the phone's NFC controller, not a PC/SC slot. */
+  auto transportPtr = createSmartCardTransport();
+  ISmartCardTransport& transport = *transportPtr;
   SCARDCONTEXT hCtx = 0;
   if (transport.EstablishContext(SCARD_SCOPE_USER, &hCtx) != SCARD_S_SUCCESS)
     return 0;
@@ -710,7 +710,8 @@ int CK_ENTRY cie_reader_watch([[maybe_unused]] int current_count) {
 #if defined(__ANDROID__)
   return 0;
 #else
-  PCSCTransport transport;
+  auto transportPtr = createSmartCardTransport();
+  ISmartCardTransport& transport = *transportPtr;
   SCARDCONTEXT hCtx = 0;
   if (transport.EstablishContext(SCARD_SCOPE_USER, &hCtx) != SCARD_S_SUCCESS)
     return -1;
@@ -765,7 +766,8 @@ int CK_ENTRY cie_reader_name(char* buf, int buf_len) {
 #if defined(__ANDROID__)
   return 0;
 #else
-  PCSCTransport transport;
+  auto transportPtr = createSmartCardTransport();
+  ISmartCardTransport& transport = *transportPtr;
   SCARDCONTEXT hCtx = 0;
   if (transport.EstablishContext(SCARD_SCOPE_USER, &hCtx) != SCARD_S_SUCCESS)
     return 0;

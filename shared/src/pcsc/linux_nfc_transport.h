@@ -102,6 +102,8 @@ class LinuxNFCTransport final : public ISmartCardTransport {
 
   bool ensureNetlink();
   bool findDevice(uint32_t *deviceIndex);
+  /** Consumes the ACK for request @p seq; returns 0 or a negative errno. */
+  int awaitAck(uint32_t seq);
   bool powerUpAndPoll(uint32_t deviceIndex);
   bool waitForTarget(uint32_t deviceIndex, DWORD timeoutMs, Target *target);
   bool openDataSocket(const Target &target);

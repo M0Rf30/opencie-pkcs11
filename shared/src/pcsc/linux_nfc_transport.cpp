@@ -34,6 +34,10 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include "logger/logger.h"
+
+using namespace CieIDLogger;
+
 /* Kernel NFC does not expose AF_NFC through <sys/socket.h> on every libc. */
 #ifndef AF_NFC
 #define AF_NFC 39
@@ -231,7 +235,14 @@ bool LinuxNFCTransport::ensureNetlink() {
                   });
   });
 
-  if (familyId_ == 0) return false;
+  if (familyId_ == 0) {
+    static std::atomic<bool> logged {false};
+    if (!logged.exchange(true))
+      LOG_ERROR(
+          "LinuxNFCTransport - generic netlink family \"nfc\" not found: the "
+          "kernel NFC subsystem is not available (nfc module not loaded?)");
+    return false;
+  }
 
   if (eventGroup_ != 0) {
     setsockopt(netlinkFd_, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &eventGroup_,
@@ -269,13 +280,43 @@ bool LinuxNFCTransport::findDevice(uint32_t *deviceIndex) {
       }
     });
   }
+  if (!found) {
+    static std::atomic<bool> logged {false};
+    if (!logged.exchange(true))
+      LOG_ERROR("LinuxNFCTransport - no kernel NFC device found");
+  }
   return found;
+}
+
+int LinuxNFCTransport::awaitAck(uint32_t seq) {
+  /* NLM_F_ACK requests get an NLMSG_ERROR reply (error 0 on success). It must
+   * be consumed here: left in the queue it would be read later as the reply
+   * to GET_TARGET, and a present card would look absent. Multicast events
+   * interleaved on the same socket are skipped. */
+  for (int attempt = 0; attempt < 8; ++attempt) {
+    struct pollfd pfd {netlinkFd_, POLLIN, 0};
+    if (poll(&pfd, 1, 1000) <= 0) return -ETIMEDOUT;
+
+    char buf[kNlBuf];
+    ssize_t received = recv(netlinkFd_, buf, sizeof(buf), 0);
+    if (received <= 0) return -EIO;
+
+    for (struct nlmsghdr *nlh = reinterpret_cast<struct nlmsghdr *>(buf);
+         NLMSG_OK(nlh, static_cast<unsigned int>(received));
+         nlh = NLMSG_NEXT(nlh, received)) {
+      if (nlh->nlmsg_type != NLMSG_ERROR || nlh->nlmsg_seq != seq) continue;
+      const struct nlmsgerr *err =
+          static_cast<const struct nlmsgerr *>(NLMSG_DATA(nlh));
+      return err->error;
+    }
+  }
+  return -ETIMEDOUT;
 }
 
 bool LinuxNFCTransport::powerUpAndPoll(uint32_t deviceIndex) {
   if (!ensureNetlink()) return false;
 
-  auto sendCmd = [&](uint8_t cmd, bool withProtocols) {
+  auto sendCmd = [&](uint8_t cmd, bool withProtocols) -> int {
     NlRequest req {};
     req.hdr.nlmsg_len = NLMSG_LENGTH(GENL_HDRLEN);
     req.hdr.nlmsg_type = familyId_;
@@ -283,18 +324,36 @@ bool LinuxNFCTransport::powerUpAndPoll(uint32_t deviceIndex) {
     req.hdr.nlmsg_seq = ++sequence_;
     req.genl.cmd = cmd;
     req.genl.version = NFC_GENL_VERSION;
-    if (!putU32(&req, NFC_ATTR_DEVICE_INDEX, deviceIndex)) return false;
+    if (!putU32(&req, NFC_ATTR_DEVICE_INDEX, deviceIndex)) return -EINVAL;
     /* CIE chips ship as both ISO 14443 type A and type B; poll for both. */
     if (withProtocols &&
         !putU32(&req, NFC_ATTR_PROTOCOLS,
                 NFC_PROTO_ISO14443_MASK | NFC_PROTO_ISO14443_B_MASK))
-      return false;
-    return send(netlinkFd_, &req, req.hdr.nlmsg_len, 0) > 0;
+      return -EINVAL;
+    if (send(netlinkFd_, &req, req.hdr.nlmsg_len, 0) <= 0) return -errno;
+    return awaitAck(req.hdr.nlmsg_seq);
   };
 
-  /* DEV_UP is idempotent from our perspective: an already-up device is fine. */
-  sendCmd(NFC_CMD_DEV_UP, false);
-  if (!sendCmd(NFC_CMD_START_POLL, true)) return false;
+  /* An already-powered device answers DEV_UP with -EALREADY: fine. */
+  const int up = sendCmd(NFC_CMD_DEV_UP, false);
+  if (up != 0 && up != -EALREADY)
+    LOG_ERROR("LinuxNFCTransport - DEV_UP on nfc%u failed: %s", deviceIndex,
+              strerror(-up));
+
+  const int pollRv = sendCmd(NFC_CMD_START_POLL, true);
+  if (pollRv == -EBUSY) {
+    /* Another client (typically neard) already owns the poll loop. Targets it
+     * activates are still listed by GET_TARGET, so carry on rather than fail;
+     * but neard may deactivate the target under us, so say so. */
+    LOG_INFO(
+        "LinuxNFCTransport - nfc%u is already polling (neard running?); "
+        "reusing its poll loop. Stop neard if card access is unreliable.",
+        deviceIndex);
+  } else if (pollRv != 0) {
+    LOG_ERROR("LinuxNFCTransport - START_POLL on nfc%u failed: %s", deviceIndex,
+              strerror(-pollRv));
+    return false;
+  }
 
   polling_ = true;
   return true;
@@ -386,10 +445,25 @@ bool LinuxNFCTransport::openDataSocket(const Target &target) {
 
   if (connect(dataFd_, reinterpret_cast<struct sockaddr *>(&addr),
               sizeof(addr)) < 0) {
+    LOG_ERROR(
+        "LinuxNFCTransport - connect to nfc%u target %u (ISO 14443 type %c) "
+        "failed: %s",
+        target.deviceIndex, target.targetIndex,
+        target.protocol == NFC_PROTO_ISO14443_B ? 'B' : 'A', strerror(errno));
     close(dataFd_);
     dataFd_ = -1;
     return false;
   }
+  LOG_INFO(
+      "LinuxNFCTransport - connected to nfc%u target %u (ISO 14443 type %c, "
+      "%zu ATS bytes)",
+      target.deviceIndex, target.targetIndex,
+      target.protocol == NFC_PROTO_ISO14443_B ? 'B' : 'A', target.ats.size());
+  if (target.ats.empty())
+    LOG_INFO(
+        "LinuxNFCTransport - kernel reported no ATS for this target; the "
+        "synthetic ATR carries no historical bytes, so CIE chip type "
+        "detection cannot use it");
   return true;
 }
 
