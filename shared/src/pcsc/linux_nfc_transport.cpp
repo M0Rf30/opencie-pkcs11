@@ -269,10 +269,16 @@ bool LinuxNFCTransport::findDevice(uint32_t *deviceIndex) {
   if (received <= 0) return false;
 
   bool found = false;
+  int kernelError = 0;
   for (struct nlmsghdr *nlh = reinterpret_cast<struct nlmsghdr *>(buf);
        NLMSG_OK(nlh, static_cast<unsigned int>(received)) && !found;
        nlh = NLMSG_NEXT(nlh, received)) {
-    if (nlh->nlmsg_type == NLMSG_DONE || nlh->nlmsg_type == NLMSG_ERROR) break;
+    if (nlh->nlmsg_type == NLMSG_DONE) break;
+    if (nlh->nlmsg_type == NLMSG_ERROR) {
+      kernelError =
+          static_cast<const struct nlmsgerr *>(NLMSG_DATA(nlh))->error;
+      break;
+    }
     forEachAttr(nlh, [&](const struct nlattr *attr) {
       if (!found && attr->nla_type == NFC_ATTR_DEVICE_INDEX) {
         *deviceIndex = attrU32(attr);
@@ -282,8 +288,17 @@ bool LinuxNFCTransport::findDevice(uint32_t *deviceIndex) {
   }
   if (!found) {
     static std::atomic<bool> logged {false};
-    if (!logged.exchange(true))
-      LOG_ERROR("LinuxNFCTransport - no kernel NFC device found");
+    if (!logged.exchange(true)) {
+      if (kernelError == -EPERM)
+        LOG_ERROR(
+            "LinuxNFCTransport - NFC_CMD_GET_DEVICE denied (EPERM): the "
+            "kernel requires CAP_NET_ADMIN for NFC netlink commands");
+      else if (kernelError != 0)
+        LOG_ERROR("LinuxNFCTransport - NFC_CMD_GET_DEVICE failed: %s",
+                  strerror(-kernelError));
+      else
+        LOG_ERROR("LinuxNFCTransport - no kernel NFC device found");
+    }
   }
   return found;
 }
