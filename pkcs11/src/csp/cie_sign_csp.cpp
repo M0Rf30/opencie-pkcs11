@@ -75,7 +75,7 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
     auto transport = createSmartCardTransport();
     long nRet = transport->EstablishContext(SCARD_SCOPE_USER, &hSC);
     if (nRet != SCARD_S_SUCCESS) {
-      LOG_ERROR("cie_sign - List readers error: %d\n", nRet);
+      LOG_ERROR("cie_sign - List readers error: %ld\n", nRet);
       return CKR_DEVICE_ERROR;
     }
     ScardContextGuard hScGuard(transport, hSC);
@@ -83,7 +83,7 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
 
     nRet = transport->ListReaders(hSC, nullptr, &len);
     if (nRet != SCARD_S_SUCCESS) {
-      LOG_ERROR("cie_sign - List readers error: %d\n", nRet);
+      LOG_ERROR("cie_sign - List readers error: %ld\n", nRet);
       return CKR_TOKEN_NOT_PRESENT;
     }
 

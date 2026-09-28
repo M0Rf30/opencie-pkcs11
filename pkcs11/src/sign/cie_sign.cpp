@@ -148,7 +148,7 @@ uint16_t CIESign::sign(const char* inFilePath, const char* type,
       throw ret;
     }
   } catch (long err) {
-    LOG_ERROR("CIESign::sign error %d", err);
+    LOG_ERROR("CIESign::sign error %ld", err);
   }
 
   if (ctx) cie_sign_sign_cleanup(ctx);
