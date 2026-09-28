@@ -277,7 +277,7 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
     auto transport = createSmartCardTransport();
     long nRet = transport->EstablishContext(SCARD_SCOPE_USER, &hSC);
     if (nRet != SCARD_S_SUCCESS) {
-      LOG_ERROR("cie_enable - SCardEstablishContext error: %d", nRet);
+      LOG_ERROR("cie_enable - SCardEstablishContext error: %ld", nRet);
       return CKR_DEVICE_ERROR;
     }
     // Released exactly once on every path out of this try block (early
@@ -287,7 +287,8 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
 
     nRet = transport->ListReaders(hSC, nullptr, &len);
     if (nRet != SCARD_S_SUCCESS) {
-      LOG_ERROR("cie_enable - SCardListReaders error: %d. Len: %d", nRet, len);
+      LOG_ERROR("cie_enable - SCardListReaders error: %ld. Len: %lu", nRet,
+                len);
       return CKR_TOKEN_NOT_PRESENT;
     }
 
@@ -303,7 +304,7 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
 
     nRet = transport->ListReaders(hSC, readers, &len);
     if (nRet != SCARD_S_SUCCESS) {
-      LOG_ERROR("cie_enable - SCardListReaders error: %d", nRet);
+      LOG_ERROR("cie_enable - SCardListReaders error: %ld", nRet);
       return CKR_TOKEN_NOT_PRESENT;
     }
 
@@ -320,7 +321,7 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
       nRet = transport->GetAttrib(conn.hCard, SCARD_ATTR_ATR_STRING,
                                   reinterpret_cast<uint8_t*>(ATR), &atrLen);
       if (nRet != SCARD_S_SUCCESS) {
-        LOG_ERROR("cie_enable - SCardGetAttrib error, %d\n", nRet);
+        LOG_ERROR("cie_enable - SCardGetAttrib error, %ld\n", nRet);
         return CKR_DEVICE_ERROR;
       }
 
@@ -329,7 +330,7 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
       nRet = transport->GetAttrib(conn.hCard, SCARD_ATTR_ATR_STRING,
                                   reinterpret_cast<uint8_t*>(ATR), &atrLen);
       if (nRet != SCARD_S_SUCCESS) {
-        LOG_ERROR("cie_enable - SCardGetAttrib error, %d\n", nRet);
+        LOG_ERROR("cie_enable - SCardGetAttrib error, %ld\n", nRet);
         free(ATR);
         return CKR_DEVICE_ERROR;
       }
@@ -415,7 +416,7 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
         free(ATR);
         return CKR_PIN_LOCKED;
       } else if (rs != SCARD_S_SUCCESS) {
-        LOG_ERROR("cie_enable - CardAuthenticateEx Generic error, res:%d", rs);
+        LOG_ERROR("cie_enable - CardAuthenticateEx Generic error, res:%ld", rs);
         free(ATR);
         return CKR_GENERAL_ERROR;
       }
@@ -703,7 +704,7 @@ HRESULT TokenTransmitCallback(void* data, BYTE* apdu, DWORD apduSize,
                                     SCARD_PROTOCOL_Tx, SCARD_LEAVE_CARD,
                                     &protocol);
     if (ris != SCARD_S_SUCCESS)
-      LOG_ERROR("TokenTransmitCallback - ScardReconnect error: %d", ris);
+      LOG_ERROR("TokenTransmitCallback - ScardReconnect error: %ld", ris);
     else {
       ris = conn->transport.Transmit(conn->hCard, SCARD_PCI_T1, apdu, apduSize,
                                      resp, respSize);
@@ -713,7 +714,7 @@ HRESULT TokenTransmitCallback(void* data, BYTE* apdu, DWORD apduSize,
   }
 
   if (ris != SCARD_S_SUCCESS) {
-    LOG_ERROR("TokenTransmitCallback - SCardTransmit error: %d", ris);
+    LOG_ERROR("TokenTransmitCallback - SCardTransmit error: %ld", ris);
   }
   return ris;
 }

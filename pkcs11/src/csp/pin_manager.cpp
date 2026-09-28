@@ -73,7 +73,7 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
     auto transport = createSmartCardTransport();
     long nRet = transport->EstablishContext(SCARD_SCOPE_USER, &hSC);
     if (nRet != SCARD_S_SUCCESS) {
-      LOG_ERROR("PINManager::ChangePIN - res: %d", nRet);
+      LOG_ERROR("PINManager::ChangePIN - res: %ld", nRet);
       return CKR_DEVICE_ERROR;
     }
     ScardContextGuard hScGuard(transport, hSC);
@@ -82,7 +82,7 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
 
     nRet = transport->ListReaders(hSC, nullptr, &len);
     if (nRet != SCARD_S_SUCCESS) {
-      LOG_ERROR("PINManager::ChangePIN - res: %d", nRet);
+      LOG_ERROR("PINManager::ChangePIN - res: %ld", nRet);
       return CKR_TOKEN_NOT_PRESENT;
     }
 
@@ -113,7 +113,7 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
       nRet = transport->GetAttrib(conn.hCard, SCARD_ATTR_ATR_STRING,
                                   reinterpret_cast<uint8_t*>(ATR), &atrLen);
       if (nRet != SCARD_S_SUCCESS) {
-        LOG_ERROR("PINManager::ChangePIN - SCardGetAttrib err: %d", nRet);
+        LOG_ERROR("PINManager::ChangePIN - SCardGetAttrib err: %ld", nRet);
         free(readers);
         return CKR_DEVICE_ERROR;
       }
@@ -123,7 +123,7 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
       nRet = transport->GetAttrib(conn.hCard, SCARD_ATTR_ATR_STRING,
                                   reinterpret_cast<uint8_t*>(ATR), &atrLen);
       if (nRet != SCARD_S_SUCCESS) {
-        LOG_ERROR("PINManager::ChangePIN - SCardGetAttrib err: %d", nRet);
+        LOG_ERROR("PINManager::ChangePIN - SCardGetAttrib err: %ld", nRet);
         free(readers);
         free(ATR);
         return CKR_DEVICE_ERROR;
@@ -292,13 +292,13 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
     auto transport = createSmartCardTransport();
     long nRet = transport->EstablishContext(SCARD_SCOPE_USER, &hSC);
     if (nRet != SCARD_S_SUCCESS) {
-      LOG_ERROR("PINManager::UnlockPIN - SCardEstablishContext err: %d", nRet);
+      LOG_ERROR("PINManager::UnlockPIN - SCardEstablishContext err: %ld", nRet);
       return CKR_DEVICE_ERROR;
     }
     ScardContextGuard hScGuard(transport, hSC);
 
     if (transport->ListReaders(hSC, nullptr, &len) != SCARD_S_SUCCESS) {
-      LOG_ERROR("PINManager::UnlockPIN - SCardEstablishContext err: %d", nRet);
+      LOG_ERROR("PINManager::UnlockPIN - SCardEstablishContext err: %ld", nRet);
       return CKR_TOKEN_NOT_PRESENT;
     }
 
@@ -328,7 +328,7 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
       if (transport->GetAttrib(conn.hCard, SCARD_ATTR_ATR_STRING,
                                reinterpret_cast<uint8_t*>(ATR),
                                &atrLen) != SCARD_S_SUCCESS) {
-        LOG_ERROR("PINManager::UnlockPIN - SCardGetAttrib err: %d", nRet);
+        LOG_ERROR("PINManager::UnlockPIN - SCardGetAttrib err: %ld", nRet);
         free(readers);
         return CKR_DEVICE_ERROR;
       }

@@ -58,7 +58,7 @@ StatusWord CToken::Transmit(const ByteArray &apdu, ByteDynArray *resp) {
 
   // the smart card was removed during the operation
   if (res != SCARD_S_SUCCESS) {
-    Log.writePure("sc err %lx", res);
+    Log.writePure("sc err %llx", static_cast<unsigned long long>(res));
     throw windows_error(res);
   }
 
