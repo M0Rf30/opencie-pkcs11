@@ -86,7 +86,6 @@ CSession::CSession() {
 
 CK_SLOT_ID CSession::GetNewSessionID() {
   dwSessionCnt++;
-  __sync_fetch_and_add(&dwSessionCnt, 1);
   return dwSessionCnt;
 }
 
@@ -235,6 +234,9 @@ CK_RV CSession::GetAttributeValue(CK_OBJECT_HANDLE hObject,
   std::shared_ptr<CP11Object> pObject = pSlot->GetObjectFromID(hObject);
   if (pObject == nullptr) throw p11_error(CKR_OBJECT_HANDLE_INVALID);
 
+  if (pObject->IsPrivate() && pSlot->User != CKU_USER)
+    throw p11_error(CKR_USER_NOT_LOGGED_IN);
+
   return pObject->GetAttributeValue(pTemplate, ulCount);
 }
 
@@ -351,6 +353,9 @@ void CSession::DigestInit(CK_MECHANISM_PTR pMechanism) {
 }
 
 void CSession::Digest(ByteArray &Data, ByteArray &Digest) {
+  if (pDigestMechanism == nullptr)
+    throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
+
   CK_ULONG ulReqLen = pDigestMechanism->DigestLength();
 
   if (!Digest.isNull() && Digest.size() < ulReqLen)

@@ -47,21 +47,17 @@ cie_atr atr_list[] = {{CIE_Type::CIE_NXP,
                         0x34, 0x49, 0x12, 0x0F, 0xFF, 0x82, 0x90, 0x00, 0x80}}};
 
 template <typename T>
-bool IsSubset(const std::vector<T>& A, const std::vector<T>& B) {
-  if (A.size() < B.size()) return false;
-
-  std::vector<T> sortedA(A);
-  std::vector<T> sortedB(B);
-  sort(sortedA.begin(), sortedA.end());
-  sort(sortedB.begin(), sortedB.end());
-  return includes(sortedA.begin(), sortedA.end(), sortedB.begin(),
-                  sortedB.end());
+bool ContainsSubsequence(const std::vector<T>& haystack,
+                         const std::vector<T>& needle) {
+  if (needle.size() > haystack.size()) return false;
+  return std::search(haystack.begin(), haystack.end(), needle.begin(),
+                     needle.end()) != haystack.end();
 }
 
 string get_manufacturer(const vector<uint8_t>& atr) {
-  auto it =
-      std::find_if(atr_list, atr_list + sizeof(atr_list) / sizeof(atr_list[0]),
-                   [&atr](const cie_atr& el) { return IsSubset(atr, el.atr); });
+  auto it = std::find_if(
+      atr_list, atr_list + sizeof(atr_list) / sizeof(atr_list[0]),
+      [&atr](const cie_atr& el) { return ContainsSubsequence(atr, el.atr); });
   if (it != atr_list + sizeof(atr_list) / sizeof(atr_list[0])) {
     LOG_INFO("ReadCIEType - get_manufacturer() CIE %s detected",
              it->type.c_str());
@@ -72,9 +68,9 @@ string get_manufacturer(const vector<uint8_t>& atr) {
 }
 
 CIE_Type get_type(const vector<uint8_t>& atr) {
-  auto it =
-      std::find_if(atr_list, atr_list + sizeof(atr_list) / sizeof(atr_list[0]),
-                   [&atr](const cie_atr& el) { return IsSubset(atr, el.atr); });
+  auto it = std::find_if(
+      atr_list, atr_list + sizeof(atr_list) / sizeof(atr_list[0]),
+      [&atr](const cie_atr& el) { return ContainsSubsequence(atr, el.atr); });
   if (it != atr_list + sizeof(atr_list) / sizeof(atr_list[0])) {
     LOG_INFO("ReadCIEType - cie_type() CIE %s detected", it->type.c_str());
     return it->cie_type;
