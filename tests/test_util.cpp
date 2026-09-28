@@ -153,6 +153,23 @@ TEST_CASE("ISOPad16 pads data to 16-byte boundary", "[util][padding]") {
   CHECK(padded[15] == 0x00);
 }
 
+// Regression test for finding CIE-MISC-002: ISOPadLen16 used to test
+// `Len & 0x10f` (a typo for `Len & 0x0f`) to decide whether Len is already
+// 16-byte aligned. Both masks happen to agree for every plausible buffer
+// length (bit 0x100 is essentially never set), but exercise a couple of
+// boundary values, including one where 0x100 would matter if it were ever
+// reached, to lock in the corrected, non-misleading implementation.
+TEST_CASE("ISOPadLen16 rounds up to the next 16-byte boundary",
+          "[util][padding]") {
+  CHECK(ISOPadLen16(0) == 16);
+  CHECK(ISOPadLen16(1) == 16);
+  CHECK(ISOPadLen16(15) == 16);
+  CHECK(ISOPadLen16(16) == 32);
+  CHECK(ISOPadLen16(17) == 32);
+  CHECK(ISOPadLen16(255) == 256);
+  CHECK(ISOPadLen16(256) == 272);
+}
+
 // ── ASN1Tag
 // ───────────────────────────────────────────────────────────────────
 

@@ -3,12 +3,31 @@
 
 /**
  * @file crypto_util.h
- * @brief Authenticated AES-CBC encryption/decryption for the local cache,
+ * @brief Obfuscating AES-CBC encryption/decryption for the local cache,
  *        using OpenSSL EVP.
+ *
+ * @warning This layer is OBFUSCATION, not real cryptographic protection.
+ * Both the AES key and the HMAC key are derived from ENCRYPTION_KEY
+ * (see keys.h), a fixed string compiled into this open-source library.
+ * Anyone who can read this library's source (i.e. anyone) can derive
+ * both keys, so this format offers no confidentiality against a local
+ * attacker who can read the cache file, and no integrity against one
+ * who can read AND write it -- they can forge a validly-HMACed blob.
+ * The actual protection for the cached PIN is the inner, card-bound
+ * layer keyed from the CIE chip itself (see IAS::SetCache /
+ * IAS::GetCache in ias.cpp), not this outer layer. The real defenses
+ * against a *different* local user reading or tampering with the file
+ * are OS file permissions (see cache_lib.cpp's 0600/0700 handling), not
+ * this encryption.
  *
  * Provides symmetric AES-128-CBC encrypt/decrypt functions with a
  * SHA-1-derived key from the application encryption key, plus an
- * HMAC-SHA256 tag over the ciphertext so tampering is detected.
+ * HMAC-SHA256 tag over the ciphertext. The HMAC still detects
+ * *accidental* corruption (disk errors, truncated writes, a foreign
+ * file at the same path) and, in combination with GetDerPath /
+ * GetCardPath now rejecting non-hex PANs, closes off casual path
+ * confusion -- but it must not be relied on as a security boundary
+ * against a same-machine attacker.
  *
  * Every call to encrypt() generates a fresh random IV, builds
  * magic(4) || iv(16) || AES-CBC ciphertext, and appends an HMAC-SHA256

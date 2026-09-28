@@ -59,7 +59,8 @@ bool CacheRemove(const char *PAN);
  *
  * The certificate is encrypted at rest the same way as CacheSetData(),
  * even though it is not secret itself, so the cache format stays
- * consistent and the file cannot be tampered with unnoticed.
+ * consistent. Note: the outer HMAC is obfuscation, not a security
+ * boundary -- see the @warning in crypto_util.h.
  *
  * @param PAN  Card Personal Account Number (cache key).
  * @param der  Pointer to the DER certificate bytes.

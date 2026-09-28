@@ -23,6 +23,17 @@
 #include <cstdlib>
 #include <string>
 
+// NOTE: does not include util/defines.h for the CIE_PRINTF macro:
+// defines.h includes func_call_info.h, which includes this header, so
+// that would be a circular include. Use the raw attribute directly
+// instead.
+#if defined(__GNUC__) || defined(__clang__)
+#define CIE_LOG_PRINTF(fmt_idx, va_idx) \
+  __attribute__((format(printf, fmt_idx, va_idx)))
+#else
+#define CIE_LOG_PRINTF(fmt_idx, va_idx)
+#endif
+
 #ifndef OutputDebugString
 #define OutputDebugString printf
 #endif
@@ -64,13 +75,13 @@ class CLog {
    * @param format printf-style format string.
    * @return Status code (0 on success).
    */
-  DWORD write(const char *format, ...);
+  DWORD write(const char *format, ...) CIE_LOG_PRINTF(2, 3);
 
   /**
    * @brief Write a formatted message without log metadata.
    * @param format printf-style format string.
    */
-  void writePure(const char *format, ...);
+  void writePure(const char *format, ...) CIE_LOG_PRINTF(2, 3);
 
   /**
    * @brief Write binary data as a hex dump.

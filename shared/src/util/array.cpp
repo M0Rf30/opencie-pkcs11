@@ -102,7 +102,7 @@ bool ByteArray::operator!=(const ByteArray &src) const {
 void ByteArray::copy(const ByteArray &src, size_t start) {
   if (start > _size || src._size > _size - start)
     throw logged_error(
-        stdPrintf("Source array size %i too large to copy; maximum size %i",
+        stdPrintf("Source array size %zu too large to copy; maximum size %zu",
                   src._size + start, _size));
   if (src._size > 0 && src._data)
     std::memcpy(_data + start, src._data, src._size);
@@ -111,7 +111,7 @@ void ByteArray::copy(const ByteArray &src, size_t start) {
 void ByteArray::rightcopy(const ByteArray &src, size_t end) {
   if (end > _size || src._size > _size - end)
     throw logged_error(
-        stdPrintf("Source array size %i too large to copy; maximum size %i",
+        stdPrintf("Source array size %zu too large to copy; maximum size %zu",
                   src._size + end, _size));
   if (src._size > 0 && src._data)
     std::memcpy(_data + _size - end - src._size, src._data, src._size);

@@ -168,8 +168,13 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
 
       progressCallBack(80, "Changing PIN...");
 
-      ByteArray oldPINBa(reinterpret_cast<const uint8_t*>(szCurrentPIN),
-                         strlen(szCurrentPIN));
+      // Copy the caller's PIN into owning storage before it is cleansed:
+      // ByteArray is a non-owning view (const_cast internally) and would
+      // otherwise zero the caller's own buffer, which may be a read-only
+      // string literal.
+      ByteDynArray oldPINBa(
+          ByteArray(reinterpret_cast<const uint8_t*>(szCurrentPIN),
+                    strlen(szCurrentPIN)));
 
       StatusWord sw = ias.VerifyPIN(oldPINBa);
       LOG_INFO("PINManager::VerifyPIN verify PIN status: %02X", sw);
@@ -210,8 +215,8 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
 
       if (isEnrolled) ias.GetCertificate(cert);
 
-      ByteArray newPINBa(reinterpret_cast<const uint8_t*>(szNewPIN),
-                         strlen(szNewPIN));
+      ByteDynArray newPINBa(ByteArray(
+          reinterpret_cast<const uint8_t*>(szNewPIN), strlen(szNewPIN)));
 
       sw = ias.ChangePIN(oldPINBa, newPINBa);
       OPENSSL_cleanse(oldPINBa.data(), oldPINBa.size());
@@ -244,8 +249,8 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
     }
   } catch (scard_error& e) {
     cie_record_sw_error(e.sw);
-    if (readers) free(readers);
-    if (ATR) free(ATR);
+    free(readers);
+    free(ATR);
     cie_error_kind kind = cie_classify_sw(e.sw);
     if (kind == CIE_ERR_PIN_BLOCKED) return CKR_PIN_LOCKED;
     if (kind == CIE_ERR_WRONG_PIN) return CKR_PIN_INCORRECT;
@@ -253,13 +258,13 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
     return CKR_GENERAL_ERROR;
   } catch (...) {
     cie_record_transport_error();
-    if (readers) free(readers);
-    if (ATR) free(ATR);
+    free(readers);
+    free(ATR);
     return CKR_GENERAL_ERROR;
   }
 
-  if (readers) free(readers);
-  if (ATR) free(ATR);
+  free(readers);
+  free(ATR);
 
   cie_clear_error();
   return CKR_OK;
@@ -377,7 +382,8 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
 
       progressCallBack(80, "Unblocking card...");
 
-      ByteArray pukBa(reinterpret_cast<const uint8_t*>(szPUK), strlen(szPUK));
+      ByteDynArray pukBa(
+          ByteArray(reinterpret_cast<const uint8_t*>(szPUK), strlen(szPUK)));
 
       StatusWord sw = ias.VerifyPUK(pukBa);
       LOG_INFO("PINManager::UnlockPIN VerifyPUK status: %02X", sw);
@@ -420,8 +426,8 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
 
       if (isEnrolled) ias.GetCertificate(cert);
 
-      ByteArray newPINBa(reinterpret_cast<const uint8_t*>(szNewPIN),
-                         strlen(szNewPIN));
+      ByteDynArray newPINBa(ByteArray(
+          reinterpret_cast<const uint8_t*>(szNewPIN), strlen(szNewPIN)));
 
       sw = ias.ChangePIN(newPINBa);
       LOG_INFO("PINManager::UnlockPIN ChangePIN status: %02X", sw);
@@ -455,8 +461,8 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
     LOG_INFO("******** PINManager::cie_unblock_pin Completed ********");
   } catch (scard_error& e) {
     cie_record_sw_error(e.sw);
-    if (ATR) free(ATR);
-    if (readers) free(readers);
+    free(ATR);
+    free(readers);
     cie_error_kind kind = cie_classify_sw(e.sw);
     if (kind == CIE_ERR_PIN_BLOCKED) return CKR_PIN_LOCKED;
     if (kind == CIE_ERR_WRONG_PIN) return CKR_PIN_INCORRECT;
@@ -464,14 +470,14 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
     return CKR_GENERAL_ERROR;
   } catch (...) {
     cie_record_transport_error();
-    if (ATR) free(ATR);
-    if (readers) free(readers);
+    free(ATR);
+    free(readers);
     return CKR_GENERAL_ERROR;
   }
 
-  if (ATR) free(ATR);
+  free(ATR);
 
-  if (readers) free(readers);
+  free(readers);
 
   cie_clear_error();
   return CKR_OK;

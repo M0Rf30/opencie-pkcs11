@@ -149,7 +149,7 @@ std::string dumpHexData(ByteArray data) {
 void Debug(ByteArray ba) {
   std::string out;
   dumpHexData(ba, out);
-  LOG_DEBUG(out.c_str());
+  LOG_DEBUG(out);
 }
 
 std::string dumpHexDataLowerCase(ByteArray data, std::string &dump) {
@@ -257,10 +257,10 @@ void ANSIPad(const ByteArray &Data, unsigned long DataLen) {
 }
 
 unsigned long ISOPadLen16(unsigned long Len) {
-  if ((Len & 0x10f) == 0)
-    return (Len + 16);
-  else
-    return (Len - (Len & 0x0f) + 0x10);
+  // NOTE: was `Len & 0x10f`, a typo for `Len & 0x0f` -- it happened to
+  // give the same result as the correct mask for all practical Len
+  // values (bit 0x100 is essentially never set), but was misleading.
+  return Len - (Len & 0x0f) + 16;
 }
 
 unsigned long ISOPadLen(unsigned long Len) {
@@ -525,8 +525,18 @@ std::string stdPrintf(const char *format, ...) {
   auto size = std::vsnprintf(nullptr, 0, format, args);
   va_end(args);
 
-  std::string result(size + 1, '\0');
-  std::vsnprintf(&result[0], result.size(), format, args2);
+  if (size < 0) {
+    va_end(args2);
+    return {};
+  }
+
+  // Allocate size+1 for vsnprintf's implicit trailing NUL, but construct
+  // the returned std::string with exactly `size` characters: std::string
+  // already stores its own length and null-terminates c_str() itself, so
+  // sizing the string to size+1 embeds a stray ' ' inside its logical
+  // length (visible in operator[], concatenation, comparisons, etc.).
+  std::string result(static_cast<size_t>(size), '\0');
+  std::vsnprintf(result.data(), static_cast<size_t>(size) + 1, format, args2);
   va_end(args2);
 
   return result;

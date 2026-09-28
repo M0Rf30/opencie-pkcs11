@@ -109,6 +109,7 @@ extern "C" {
 int GetNumIniSettings() { return (int)_iniSettings.size(); }
 
 int GetIniSettings(int i, void* data) {
+  if (i < 0 || static_cast<size_t>(i) >= _iniSettings.size()) return -1;
   CBase64 b64;
   IniSettings* is = _iniSettings[i];
   int id = is->GetTypeId();
@@ -128,8 +129,14 @@ int GetIniSettings(int i, void* data) {
   } else if (id == 2) {
     out2 =
         std::to_string((static_cast<IniSettingsBool*>(is))->defaultVal ? 1 : 0);
-  } else if (id == 3 || id == 4) {
+  } else if (id == 3) {
     b64.Encode((static_cast<IniSettingsByteArray*>(is))->defaultVal, out2);
+  } else if (id == 4) {
+    // id 3 (IniSettingsByteArray) and id 4 (IniSettingsB64) are unrelated
+    // sibling classes -- both happen to declare a ByteDynArray defaultVal
+    // member, but casting a IniSettingsB64* through IniSettingsByteArray*
+    // is undefined behaviour. Use the correct sibling type.
+    b64.Encode((static_cast<IniSettingsB64*>(is))->defaultVal, out2);
   }
   std::string res = out + out2;
   if (data != nullptr) std::memcpy(data, res.c_str(), res.size());

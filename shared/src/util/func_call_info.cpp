@@ -15,7 +15,9 @@ CFuncCallInfo::CFuncCallInfo(const char *name, CLog &logInfo) : log(logInfo) {
   fName = name;
   if (FunctionLog) {
     if (tlsCallDepth < GlobalDepth) {
-      LogNum = logInfo.write("%*sIN -> %s", static_cast<DWORD>(tlsCallDepth),
+      // The '*' width specifier requires an int argument; DWORD is
+      // unsigned long on LP64 platforms, a real printf-format mismatch.
+      LogNum = logInfo.write("%*sIN -> %s", static_cast<int>(tlsCallDepth),
                              szEmpty, fName);
     }
   }
@@ -26,7 +28,7 @@ CFuncCallInfo::CFuncCallInfo(const char *name, CLog &logInfo) : log(logInfo) {
 CFuncCallInfo::~CFuncCallInfo() {
   tlsCallDepth = tlsCallDepth - 1;
   if (fName)
-    log.write("%*sOUT -> %s (%u)", static_cast<DWORD>(tlsCallDepth), szEmpty,
+    log.write("%*sOUT -> %s (%u)", static_cast<int>(tlsCallDepth), szEmpty,
               fName, LogNum - 1);
 }
 

@@ -90,8 +90,15 @@ Logger::Logger() {
     mkdir(path.c_str(), 0700);
   }
 
+  // Use local time here, consistently with getCurrentTime() (used for
+  // every log entry): the previous gmtime() call made the log FILE NAME's
+  // date UTC while every line inside it was timestamped in local time,
+  // so e.g. shortly after local midnight the file name and its own
+  // entries could disagree on the calendar day.
   gettimeofday(&curTime, nullptr);
-  strftime(cTime, sizeof(cTime), "%Y-%m-%d", gmtime(&curTime.tv_sec));
+  struct tm localTm {};
+  localtime_r(&curTime.tv_sec, &localTm);
+  strftime(cTime, sizeof(cTime), "%Y-%m-%d", &localTm);
 
   snprintf(pbLog, sizeof(pbLog), "%s_%s.log", "CIEPKI", cTime);
   path.append(pbLog);
@@ -157,7 +164,9 @@ Logger& Logger::getInstance() noexcept {
 
   if (log_level == LOG_STATUS_DISABLED) {
     instance->disableLog();
-  } else if (log_level >= 0 && log_level < 3) {
+  } else if (log_level >= LOG_LEVEL_DEBUG && log_level <= LOG_LEVEL_ERROR) {
+    // Previously `< 3`, so switching the config from 0 to 3 (errors only)
+    // at runtime never re-enabled logging.
     instance->enableFileLogging();
     instance->enableLog();
     instance->updateLogLevel(static_cast<LogLevel>(log_level));
@@ -169,9 +178,14 @@ Logger& Logger::getInstance() noexcept {
 
 void Logger::writeConfigFile(const std::string& filePath,
                              const std::string& sConfig) noexcept {
-  m_ConfigFile.open(filePath, std::ios::out);
-  m_ConfigFile << sConfig;
-  m_ConfigFile.close();
+  // Local stream, not a shared member: the previous implementation reused
+  // a single m_ConfigFile fstream for both this write path and the read
+  // path in getLogConfig(). Two threads racing through first-run
+  // initialization could both see a missing config and use that same
+  // std::fstream concurrently, which is undefined behaviour. A
+  // stack-local stream removes the shared mutable state entirely.
+  std::ofstream f(filePath, std::ios::out);
+  f << sConfig;
 }
 
 #ifdef _WIN32
@@ -246,6 +260,21 @@ int Logger::getLogConfig() noexcept {
   }
 #endif
 
+  // Throttle: only stat() the config file at most once every 2 seconds.
+  // Every LOG_DEBUG/INFO/ERROR/BUFFER call used to run this whole
+  // function -- snprintf, mkdir, an ifstream existence check, and a
+  // stat() -- even when logging is disabled. This still notices config
+  // changes (LIB_LOG_LEVEL edits, e.g. for on-the-fly debugging), just
+  // not on every single log call.
+  auto nowSec = static_cast<std::int64_t>(time(nullptr));
+  auto lastCheck = m_lastConfigCheck.load(std::memory_order_relaxed);
+  if (nowSec - lastCheck < 2 && t64configTime != 0) {
+    return m_LogLevel.load(std::memory_order_relaxed);
+  }
+  m_lastConfigCheck.store(nowSec, std::memory_order_relaxed);
+
+  std::lock_guard<std::mutex> guard(m_Mutex);
+
   if (!config_exists(pbConfig)) {
     sConfig = "LIB_LOG_LEVEL=2";
     std::string stConfig = std::string(pbConfig);
@@ -260,26 +289,29 @@ int Logger::getLogConfig() noexcept {
       t64configTime = result.st_mtime;
 
       {
-        std::lock_guard<std::mutex> guard(m_Mutex);
-        m_ConfigFile.open(pbConfig, std::ios::in);
-        m_ConfigFile >> sConfig;
-        m_ConfigFile.close();
+        std::ifstream configFile(pbConfig, std::ios::in);
+        configFile >> sConfig;
       }
 
       sscanf(sConfig.data(), "LIB_LOG_LEVEL=%d", &log_level);
 
-      if (log_level < 0 || log_level > 5) {
+      // Only LOG_LEVEL_DEBUG(1)..LOG_LEVEL_ERROR(3) are valid LogLevel
+      // values (0 means "config unreadable/disabled" here, handled by the
+      // caller). Values 4/5 used to pass this check and silently disable
+      // all output by mapping to no LogLevel enumerator.
+      if (log_level < 0 || log_level > static_cast<int>(LOG_LEVEL_ERROR)) {
         log_level = 0;
         sConfig = "LIB_LOG_LEVEL=2";
         std::string stConfig = std::string(pbConfig);
         writeConfigFile(stConfig, sConfig);
       }
 
-      m_LogLevel = static_cast<LogLevel>(log_level);
+      m_LogLevel.store(static_cast<LogLevel>(log_level),
+                       std::memory_order_relaxed);
     }
   }
 
-  return m_LogLevel;
+  return m_LogLevel.load(std::memory_order_relaxed);
 }
 
 void Logger::logIntoFile(const std::string& data) {
@@ -309,8 +341,16 @@ std::string Logger::getCurrentTime() {
   // Convert to time_t for formatting
   std::time_t now_c = std::chrono::system_clock::to_time_t(now);
 
-  // Convert to local time
-  std::tm local_tm = *std::localtime(&now_c);
+  // Convert to local time. localtime_r (POSIX) / localtime_s (MSVC) are
+  // thread-safe; plain std::localtime() shares a single static tm buffer
+  // across all callers, which is a data race when multiple threads log
+  // concurrently.
+  std::tm local_tm {};
+#ifdef _WIN32
+  localtime_s(&local_tm, &now_c);
+#else
+  localtime_r(&now_c, &local_tm);
+#endif
 
   // Format the time as a string
   std::ostringstream oss;
@@ -374,7 +414,7 @@ void Logger::debug(const char* fmt, ...) noexcept {
   vsnprintf(logBuffer, sizeof(logBuffer), fmt, args);
   va_end(args);
 
-  switch (m_LogType) {
+  switch (m_LogType.load(std::memory_order_relaxed)) {
     case FILE_LOG:
       log_log(m_File, LOG_LEVEL_DEBUG, logBuffer);
       break;
@@ -385,11 +425,13 @@ void Logger::debug(const char* fmt, ...) noexcept {
   }
 }
 
-void Logger::debug(const std::string& text) noexcept { debug(text.data()); }
+void Logger::debug(const std::string& text) noexcept {
+  debug("%s", text.c_str());
+}
 
 void Logger::debug(const std::ostringstream& stream) noexcept {
   std::string text = stream.str();
-  debug(text.data());
+  debug("%s", text.c_str());
 }
 
 // Interface for Info Log
@@ -401,7 +443,7 @@ void Logger::info(const char* fmt, ...) noexcept {
   vsnprintf(logBuffer, sizeof(logBuffer), fmt, args);
   va_end(args);
 
-  switch (m_LogType) {
+  switch (m_LogType.load(std::memory_order_relaxed)) {
     case FILE_LOG:
       log_log(m_File, LOG_LEVEL_INFO, logBuffer);
       break;
@@ -412,11 +454,13 @@ void Logger::info(const char* fmt, ...) noexcept {
   }
 }
 
-void Logger::info(const std::string& text) noexcept { info(text.data()); }
+void Logger::info(const std::string& text) noexcept {
+  info("%s", text.c_str());
+}
 
 void Logger::info(const std::ostringstream& stream) noexcept {
   std::string text = stream.str();
-  info(text.data());
+  info("%s", text.c_str());
 }
 
 // Interface for Error Log
@@ -428,7 +472,7 @@ int Logger::error(const char* fmt, ...) noexcept {
   vsnprintf(logBuffer, sizeof(logBuffer), fmt, args);
   va_end(args);
 
-  switch (m_LogType) {
+  switch (m_LogType.load(std::memory_order_relaxed)) {
     case FILE_LOG:
       log_log(m_File, LOG_LEVEL_ERROR, logBuffer);
       break;
@@ -442,18 +486,18 @@ int Logger::error(const char* fmt, ...) noexcept {
 }
 
 int Logger::error(const std::string& text) noexcept {
-  return error(text.data());
+  return error("%s", text.c_str());
 }
 
 int Logger::error(const std::ostringstream& stream) noexcept {
   std::string text = stream.str();
-  return error(text.data());
+  return error("%s", text.c_str());
 }
 
 // Interface for Buffer Log
 void Logger::buffer(const uint8_t* buff, size_t buff_size) noexcept {
-  if (m_LogLevel == LOG_LEVEL_DEBUG) {
-    switch (m_LogType) {
+  if (m_LogStatus == LOG_STATUS_ENABLED && m_LogLevel == LOG_LEVEL_DEBUG) {
+    switch (m_LogType.load(std::memory_order_relaxed)) {
       case FILE_LOG:
         print_bytes(m_File, buff, buff_size, true);
         break;

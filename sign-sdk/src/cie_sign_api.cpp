@@ -268,8 +268,11 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
 
   switch (option) {
     case CIE_SIGN_OPT_IAS_INSTANCE:
-      LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_IAS_INSTANCE", static_cast<char*>(value)));
+      // Log the raw pointer (%p), not the pointed-to bytes: value is an
+      // IAS* here, not a C string, so formatting it with %s would read
+      // arbitrary heap memory as text (undefined behaviour).
+      LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %p",
+               ctx, "CIE_SIGN_OPT_IAS_INSTANCE", value));
       pContext->pIAS = static_cast<IAS*>(value);
       break;
 
@@ -328,8 +331,10 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
       break;
 
     case CIE_SIGN_OPT_TSA_USERNAME:
+      // Credentials must never reach the log, masked the same way as
+      // CIE_SIGN_OPT_PIN above.
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_TSA_USERNAME", static_cast<char*>(value)));
+               ctx, "CIE_SIGN_OPT_TSA_USERNAME", "****"));
       snprintf(pContext->szTSAUsername, MAX_PATH, "%s",
                static_cast<char*>(value));
       // pContext->pSignatureGenerator->SetTSAUsername(static_cast<char*>(value));
@@ -337,7 +342,7 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
 
     case CIE_SIGN_OPT_TSA_PASSWORD:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
-               ctx, "CIE_SIGN_OPT_TSA_PASSWORD", static_cast<char*>(value)));
+               ctx, "CIE_SIGN_OPT_TSA_PASSWORD", "****"));
       snprintf(pContext->szTSAPassword, MAX_PATH, "%s",
                static_cast<char*>(value));
       break;
