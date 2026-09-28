@@ -83,14 +83,16 @@ static HRESULT TokenTransmitCallback(void *data, BYTE *apdu, DWORD apduSize,
                                       resp, respSize);
   if (ris == static_cast<LONG>(SCARD_W_RESET_CARD) ||
       ris == static_cast<LONG>(SCARD_W_UNPOWERED_CARD)) {
-    LOG_ERROR("TokenTransmitCallback - Card reset error: %lx", ris);
+    LOG_ERROR("TokenTransmitCallback - Card reset error: %lx",
+              static_cast<unsigned long>(ris));
 
     DWORD protocol = 0;
     ris = slot->transport.Reconnect(slot->hCard, SCARD_SHARE_SHARED,
                                     SCARD_PROTOCOL_Tx, SCARD_LEAVE_CARD,
                                     &protocol);
     if (ris != SCARD_S_SUCCESS) {
-      LOG_ERROR("TokenTransmitCallback - Reconnect error %ld", ris);
+      LOG_ERROR("TokenTransmitCallback - Reconnect error %ld",
+                static_cast<long>(ris));
     } else {
       ris = slot->transport.Transmit(slot->hCard, SCARD_PCI_T1, apdu, apduSize,
                                      resp, respSize);
@@ -98,7 +100,8 @@ static HRESULT TokenTransmitCallback(void *data, BYTE *apdu, DWORD apduSize,
   }
 
   if (ris != SCARD_S_SUCCESS) {
-    LOG_ERROR("TokenTransmitCallback - APDU transmission error: %lx", ris);
+    LOG_ERROR("TokenTransmitCallback - APDU transmission error: %lx",
+              static_cast<unsigned long>(ris));
   }
 
   return ris;

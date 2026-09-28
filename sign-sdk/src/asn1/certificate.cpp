@@ -1048,7 +1048,8 @@ long HTTPRequest(const ByteDynArray& data, const char* szUrl,
   // let's do it...
   CURLcode ret = curl_easy_perform(ctx);
 
-  LONG responseCode;
+  // CURLINFO_RESPONSE_CODE writes a `long`; PC/SC's LONG is `int` on macOS.
+  long responseCode = 0;
 
   /* Check for errors */
   if (ret != CURLE_OK) {

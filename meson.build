@@ -219,6 +219,10 @@ if build_sign_sdk
       # are silently ignored by older CMake, so this is safe everywhere).
       'CMAKE_POLICY_DEFAULT_CMP0156': 'NEW',
       'CMAKE_POLICY_DEFAULT_CMP0179': 'NEW',
+      # CMake >= 4.2 warns (CMP0200) that NEW would pick a different
+      # configuration of imported targets such as LibXml2::LibXml2; keep
+      # today's selection explicitly rather than changing what gets linked.
+      'CMAKE_POLICY_DEFAULT_CMP0200': 'OLD',
       # Blanket-suppress remaining CMake dev warnings from this vendored
       # subproject only (never applied to our own project-wide CMakeLists).
       'CMAKE_SUPPRESS_DEVELOPER_WARNINGS': true,
