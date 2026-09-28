@@ -40,7 +40,11 @@ endforeach
 # _FORTIFY_SOURCE needs optimisation to do anything (glibc only installs the
 # checked __*_chk intrinsics when inlining/const-folding is active); skip it
 # on unoptimised debug builds where it would be a no-op.
-if get_option('optimization') not in ['0', 'g']
+# Distro flags often set it already (Arch: -Wp,-D_FORTIFY_SOURCE=3); adding
+# ours on top triggers "'_FORTIFY_SOURCE' redefined" and could downgrade it.
+fortify_preset = ('_FORTIFY_SOURCE' in ' '.join(get_option('cpp_args'))
+                  or '_FORTIFY_SOURCE' in ' '.join(get_option('c_args')))
+if get_option('optimization') not in ['0', 'g'] and not fortify_preset
   foreach a : ['-D_FORTIFY_SOURCE=2']
     if cpp.has_argument(a)
       hardening_cpp_args += [a]
@@ -269,6 +273,17 @@ if build_sign_sdk
     # passing '-fpic' manually" for every podofo_* target.
     podofo_opts.append_compile_args('cpp', '-w')
     podofo_opts.append_compile_args('c', '-w')
+    # PoDoFo deliberately gives PdfEncryptContext::m_cryptCtx a different
+    # type in PdfEncrypt.cpp (EVP_CIPHER_CTX*) than everywhere else (void*).
+    # Under LTO (e.g. Arch's arch-meson: -Db_lto=true) GCC merges those
+    # translation units and reports -Wodr. Keep the vendored PoDoFo out of
+    # LTO; our own code is still LTO-optimised.
+    if cpp.has_argument('-fno-lto')
+      podofo_opts.append_compile_args('cpp', '-fno-lto')
+    endif
+    if cc.has_argument('-fno-lto')
+      podofo_opts.append_compile_args('c', '-fno-lto')
+    endif
 
     # Meson's cmake.subproject captures the subproject's own target include
     # directories but does not propagate INTERFACE_INCLUDE_DIRECTORIES of
