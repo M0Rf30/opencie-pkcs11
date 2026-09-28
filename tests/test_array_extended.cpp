@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #include <catch2/catch_test_macros.hpp>
+#include <cstdint>
 #include <cstring>
+#include <utility>
 
 #include "util/array.h"
 
@@ -154,7 +156,7 @@ TEST_CASE("ByteDynArray detach transfers ownership", "[array]") {
   da[0] = 0x11;
   da[1] = 0x22;
   da[2] = 0x33;
-  uint8_t *ptr = da.detach();
+  uint8_t* ptr = da.detach();
   REQUIRE(ptr != nullptr);
   CHECK(ptr[0] == 0x11);
   CHECK(ptr[2] == 0x33);
@@ -211,4 +213,80 @@ TEST_CASE("ASN1LLength returns 3 for 2-byte long-form lengths",
           "[array][asn1]") {
   CHECK(ASN1LLength(256) == 3);
   CHECK(ASN1LLength(65535) == 3);
+}
+// ── ByteDynArray: move-assignment ─────────────────────────────────────────
+
+TEST_CASE("ByteDynArray move-assignment into non-empty array frees old data",
+          "[array]") {
+  ByteDynArray dst(4);
+  dst.fill(0xAA);
+  ByteDynArray src(2);
+  src[0] = 0x11;
+  src[1] = 0x22;
+  dst = std::move(src);
+  REQUIRE(dst.size() == 2);
+  CHECK(dst[0] == 0x11);
+  CHECK(dst[1] == 0x22);
+  CHECK(src.isNull());
+}
+
+TEST_CASE("ByteDynArray self-move-assignment leaves array intact", "[array]") {
+  ByteDynArray da(3);
+  da[0] = 0x01;
+  da[1] = 0x02;
+  da[2] = 0x03;
+  ByteDynArray& ref = da;
+  da = std::move(ref);
+  REQUIRE(da.size() == 3);
+  CHECK(da[0] == 0x01);
+  CHECK(da[2] == 0x03);
+}
+
+// ── ByteArray: comparison operators with unequal sizes ────────────────────
+
+TEST_CASE("ByteArray operator< with unequal sizes does not overread",
+          "[array]") {
+  uint8_t a[] = {0x05};
+  uint8_t b[] = {0x05, 0x01, 0x02, 0x03, 0x04};
+  ByteArray ba(a, 1), bb(b, 5);
+  // Common prefix equal; shorter array sorts first.
+  CHECK(ba < bb);
+  CHECK(!(bb < ba));
+  CHECK(bb > ba);
+  CHECK(!(ba > bb));
+}
+
+TEST_CASE("ByteArray operator== on empty arrays does not dereference null",
+          "[array]") {
+  ByteArray a, b;
+  CHECK(a == b);
+  CHECK(!(a != b));
+}
+
+// ── ByteArray: mid()/revmid() overflow-safe bounds checks ─────────────────
+
+TEST_CASE("ByteArray mid() rejects size that would overflow start+size",
+          "[array]") {
+  uint8_t buf[] = {0x01, 0x02, 0x03};
+  ByteArray ba(buf, 3);
+  CHECK_THROWS_AS(ba.mid(1, SIZE_MAX), logged_error);
+}
+
+TEST_CASE("ByteArray revmid() rejects size that would overflow toend+size",
+          "[array]") {
+  uint8_t buf[] = {0x01, 0x02, 0x03};
+  ByteArray ba(buf, 3);
+  CHECK_THROWS_AS(ba.revmid(1, SIZE_MAX), logged_error);
+}
+
+// ── ByteDynArray: clear() cleanses freed memory ────────────────────────────
+
+TEST_CASE("ByteDynArray clear() zeroizes buffer before free", "[array]") {
+  ByteDynArray da(4);
+  da.set((uint8_t)0xAA, (uint8_t)0xBB, (uint8_t)0xCC, (uint8_t)0xDD);
+  uint8_t* raw = da.data();
+  (void)raw;
+  da.clear();
+  CHECK(da.isNull());
+  CHECK(da.size() == 0);
 }

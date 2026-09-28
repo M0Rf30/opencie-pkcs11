@@ -9,6 +9,8 @@
 
 #include "crypto/mac.h"
 
+#include <openssl/crypto.h>
+
 #include <cstring>
 #include <memory>
 
@@ -105,6 +107,7 @@ ByteDynArray CMAC::Mac(const ByteArray &data) {
 
     // The chained IV for step 2 is the last 8 bytes of ciphertext output
     memcpy(ivBuf, baOutTmp.data() + outLen - 8, 8);
+    OPENSSL_cleanse(singleDesKey, sizeof(singleDesKey));
   }
 
   // Step 2: 3DES-CBC encrypt the final block using full key
@@ -143,8 +146,9 @@ ByteDynArray CMAC::Mac(const ByteArray &data) {
     ER_ASSERT(rc == 1, "Error finalizing MAC step 2");
 
     resp.copy(ByteArray(dest, 8));
+    OPENSSL_cleanse(dest, sizeof(dest));
   }
-
+  OPENSSL_cleanse(ivBuf, sizeof(ivBuf));
   return resp;
 }
 

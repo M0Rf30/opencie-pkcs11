@@ -3,6 +3,8 @@
 
 #include "cipher_base.h"
 
+#include <openssl/crypto.h>
+
 #include <memory>
 
 namespace {
@@ -18,14 +20,17 @@ ByteDynArray CipherBase::perform_cipher_operation(const ByteArray &data,
                                                   size_t block_size) {
   init_func
 
-      ByteDynArray ivCopy = iv;
+      ER_ASSERT(
+          block_size > 0 && data.size() % block_size == 0 && data.size() > 0,
+          "Input data is not a non-empty multiple of the block size");
+
+  ByteDynArray ivCopy = iv;
 
   EvpCipherCtxPtr ctx(EVP_CIPHER_CTX_new(), EVP_CIPHER_CTX_free);
   ER_ASSERT(ctx != nullptr, "EVP context allocation error");
 
   // Allocate output buffer: round up to the next block boundary
-  size_t AppSize = data.size() - 1;
-  ByteDynArray resp(AppSize - (AppSize % block_size) + block_size);
+  ByteDynArray resp(data.size() + block_size);
 
   int outLen = 0;
   int finalLen = 0;
@@ -39,7 +44,8 @@ ByteDynArray CipherBase::perform_cipher_operation(const ByteArray &data,
     rc = EVP_EncryptUpdate(ctx.get(), resp.data(), &outLen, data.data(),
                            static_cast<int>(data.size()));
     ER_ASSERT(rc == 1, "Encryption error");
-    EVP_EncryptFinal_ex(ctx.get(), resp.data() + outLen, &finalLen);
+    rc = EVP_EncryptFinal_ex(ctx.get(), resp.data() + outLen, &finalLen);
+    ER_ASSERT(rc == 1, "Encryption finalization error");
   } else {  // Decrypt
     rc = EVP_DecryptInit_ex(ctx.get(), cipher, nullptr, key.data(),
                             ivCopy.data());
@@ -48,8 +54,11 @@ ByteDynArray CipherBase::perform_cipher_operation(const ByteArray &data,
     rc = EVP_DecryptUpdate(ctx.get(), resp.data(), &outLen, data.data(),
                            static_cast<int>(data.size()));
     ER_ASSERT(rc == 1, "Decryption error");
-    EVP_DecryptFinal_ex(ctx.get(), resp.data() + outLen, &finalLen);
+    rc = EVP_DecryptFinal_ex(ctx.get(), resp.data() + outLen, &finalLen);
+    ER_ASSERT(rc == 1, "Decryption finalization error");
   }
 
+  resp.resize(static_cast<size_t>(outLen + finalLen), true);
+  OPENSSL_cleanse(ivCopy.data(), ivCopy.size());
   return resp;
 }

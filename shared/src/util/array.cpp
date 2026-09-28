@@ -11,6 +11,7 @@
 
 #include "util/array.h"
 
+#include <openssl/crypto.h>
 #include <openssl/rand.h>
 
 #include <cstring>
@@ -30,7 +31,7 @@ ByteArray::ByteArray(const uint8_t *data, size_t size) {
   _size = size;
 }
 
-ByteDynArray::ByteDynArray(ByteDynArray &&src) {
+ByteDynArray::ByteDynArray(ByteDynArray &&src) noexcept {
   _data = src._data;
   _size = src._size;
   src._data = nullptr;
@@ -45,7 +46,8 @@ ByteArray::ByteArray(const ByteArray &ba, size_t start) {
 }
 
 ByteArray::ByteArray(const ByteArray &ba, size_t start, size_t size) {
-  if (start + size > ba.size()) throw logged_error("Derived array too large");
+  if (start > ba.size() || size > ba.size() - start)
+    throw logged_error("Derived array too large");
   _size = size;
   _data = ba._data + start;
 }
@@ -55,7 +57,9 @@ ByteArray::ByteArray(const ByteArray &src) {
   _data = src._data;
 };
 
-ByteDynArray &ByteDynArray::operator=(ByteDynArray &&src) {
+ByteDynArray &ByteDynArray::operator=(ByteDynArray &&src) noexcept {
+  if (this == &src) return *this;
+  clear();
   _data = src._data;
   _size = src._size;
   src._data = nullptr;
@@ -65,6 +69,7 @@ ByteDynArray &ByteDynArray::operator=(ByteDynArray &&src) {
 
 bool ByteArray::operator==(const ByteArray &src) const {
   if (_size != src._size) return false;
+  if (_size == 0) return true;
   return (memcmp(_data, src._data, _size) == 0);
 };
 
@@ -77,22 +82,25 @@ int ByteArray::atoi() const {
   return val;
 }
 bool ByteArray::operator<(const ByteArray &src) const {
-  if (_size < src._size) return true;
-  return (memcmp(_data, src._data, _size) < 0);
+  size_t cmpLen = std::min(_size, src._size);
+  int cmp = cmpLen > 0 ? memcmp(_data, src._data, cmpLen) : 0;
+  if (cmp != 0) return cmp < 0;
+  return _size < src._size;
 };
 
 bool ByteArray::operator>(const ByteArray &src) const {
-  if (_size > src._size) return true;
-  return (memcmp(_data, src._data, _size) > 0);
+  size_t cmpLen = std::min(_size, src._size);
+  int cmp = cmpLen > 0 ? memcmp(_data, src._data, cmpLen) : 0;
+  if (cmp != 0) return cmp > 0;
+  return _size > src._size;
 };
 
 bool ByteArray::operator!=(const ByteArray &src) const {
-  if (_size != src._size) return true;
-  return (memcmp(_data, src._data, _size) != 0);
+  return !(*this == src);
 };
 
 void ByteArray::copy(const ByteArray &src, size_t start) {
-  if (src._size + start > _size)
+  if (start > _size || src._size > _size - start)
     throw logged_error(
         stdPrintf("Source array size %i too large to copy; maximum size %i",
                   src._size + start, _size));
@@ -101,11 +109,12 @@ void ByteArray::copy(const ByteArray &src, size_t start) {
 }
 
 void ByteArray::rightcopy(const ByteArray &src, size_t end) {
-  if (src._size + end > _size)
+  if (end > _size || src._size > _size - end)
     throw logged_error(
         stdPrintf("Source array size %i too large to copy; maximum size %i",
                   src._size + end, _size));
-  std::memcpy(_data + _size - end - src._size, src._data, src._size);
+  if (src._size > 0 && src._data)
+    std::memcpy(_data + _size - end - src._size, src._data, src._size);
 }
 
 ByteArray &ByteArray::fill(const uint8_t value) {
@@ -151,7 +160,8 @@ ByteArray ByteArray::mid(size_t start) const {
 }
 
 ByteArray ByteArray::mid(size_t start, size_t size) const {
-  if (start + size > _size) throw logged_error("Derived array too large");
+  if (start > _size || size > _size - start)
+    throw logged_error("Derived array too large");
   return (ByteArray(*this, start, size));
 }
 
@@ -161,7 +171,8 @@ ByteArray ByteArray::revmid(size_t toend) const {
 }
 
 ByteArray ByteArray::revmid(size_t toend, size_t size) const {
-  if (toend + size > _size) throw logged_error("Derived array too large");
+  if (toend > _size || size > _size - toend)
+    throw logged_error("Derived array too large");
   return (ByteArray(*this, _size - toend - size, size));
 }
 
@@ -234,7 +245,10 @@ void ByteDynArray::resize(size_t size, bool bKeepData) {
 }
 
 void ByteDynArray::clear() {
-  if (_data != nullptr) delete[] _data;
+  if (_data != nullptr) {
+    if (_size > 0) OPENSSL_cleanse(_data, _size);
+    delete[] _data;
+  }
   _data = nullptr;
   _size = 0;
 }
@@ -293,9 +307,16 @@ ByteDynArray &ByteDynArray::setASN1Tag(unsigned int tag,
 }
 void ByteDynArray::load(const char *fname) {
   std::ifstream file(fname, std::ios::in | std::ios::binary);
+  if (!file) throw logged_error("ByteDynArray::load: cannot open file");
   file.seekg(0, file.end);
   auto fsize = file.tellg();
   file.seekg(0, file.beg);
-  resize((size_t)fsize, false);
-  file.read(reinterpret_cast<char *>(_data), fsize);
+  if (fsize < 0)
+    throw logged_error("ByteDynArray::load: cannot determine file size");
+  resize(static_cast<size_t>(fsize), false);
+  if (fsize > 0) {
+    file.read(reinterpret_cast<char *>(_data), fsize);
+    if (file.gcount() != fsize)
+      throw logged_error("ByteDynArray::load: short read");
+  }
 }

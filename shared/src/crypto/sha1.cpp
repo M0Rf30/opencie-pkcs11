@@ -22,12 +22,14 @@ void CSHA1::Init() {
 }
 void CSHA1::Update(ByteArray data) {
   if (!isInit) throw logged_error("Hash not initialized");
-  EVP_DigestUpdate(ctx, data.data(), data.size());
+  if (EVP_DigestUpdate(ctx, data.data(), data.size()) != 1)
+    throw logged_error("SHA-1 update error");
 }
 ByteDynArray CSHA1::Final() {
   if (!isInit) throw logged_error("Hash not initialized");
   ByteDynArray resp(SHA_DIGEST_LENGTH);
-  EVP_DigestFinal_ex(ctx, resp.data(), nullptr);
+  if (EVP_DigestFinal_ex(ctx, resp.data(), nullptr) != 1)
+    throw logged_error("SHA-1 finalization error");
   isInit = false;
 
   return resp;

@@ -2,11 +2,62 @@
 #include <catch2/catch_test_macros.hpp>
 #include <string>
 
+#include "crypto/aes.h"
 #include "crypto/base64.h"
 #include "crypto/sha1.h"
 #include "crypto/sha256.h"
 #include "crypto/sha512.h"
 #include "util/array.h"
+
+// ── CAES: unaligned input rejection (CIE-CIPHER-001) ───────────────────────
+
+TEST_CASE("CAES::RawDecode throws on non-block-aligned input",
+          "[crypto][aes]") {
+  uint8_t keyBuf[16] = {0};
+  uint8_t ivBuf[16] = {0};
+  CAES aes(ByteArray(keyBuf, 16), ByteArray(ivBuf, 16));
+  uint8_t ciphertext[17] = {0};  // not a multiple of AES_BLOCK_SIZE
+  CHECK_THROWS_AS(aes.RawDecode(ByteArray(ciphertext, sizeof(ciphertext))),
+                  logged_error);
+}
+
+TEST_CASE(
+    "CAES::Decode throws on non-block-aligned input instead of "
+    "returning uninitialized bytes",
+    "[crypto][aes]") {
+  uint8_t keyBuf[16] = {0};
+  uint8_t ivBuf[16] = {0};
+  CAES aes(ByteArray(keyBuf, 16), ByteArray(ivBuf, 16));
+  // Simulates a tampered/malformed SM response: not a multiple of the
+  // block size and empty is also rejected (previously underflowed via
+  // `data.size() - 1`).
+  uint8_t ciphertext[5] = {0};
+  CHECK_THROWS_AS(aes.Decode(ByteArray(ciphertext, sizeof(ciphertext))),
+                  logged_error);
+  ByteDynArray empty;
+  CHECK_THROWS_AS(aes.Decode(empty), logged_error);
+}
+
+TEST_CASE("CAES RawEncode/RawDecode round-trip on aligned data",
+          "[crypto][aes]") {
+  uint8_t keyBuf[16];
+  uint8_t ivBuf[16];
+  for (int i = 0; i < 16; i++) {
+    keyBuf[i] = static_cast<uint8_t>(i);
+    ivBuf[i] = static_cast<uint8_t>(0xF0 + i);
+  }
+  CAES aes(ByteArray(keyBuf, 16), ByteArray(ivBuf, 16));
+  uint8_t plaintext[32];
+  for (int i = 0; i < 32; i++) plaintext[i] = static_cast<uint8_t>(i * 3);
+
+  ByteDynArray ct = aes.RawEncode(ByteArray(plaintext, 32));
+  REQUIRE(ct.size() == 32);
+
+  CAES aes2(ByteArray(keyBuf, 16), ByteArray(ivBuf, 16));
+  ByteDynArray pt = aes2.RawDecode(ct);
+  REQUIRE(pt.size() == 32);
+  for (int i = 0; i < 32; i++) CHECK(pt[i] == plaintext[i]);
+}
 
 // ── SHA-256
 // ───────────────────────────────────────────────────────────────────

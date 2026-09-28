@@ -26,6 +26,10 @@ class CSHA256 {
   /** @brief Constructs a new CSHA256 instance. */
   CSHA256();
 
+  /** @brief Non-copyable: raw EVP_MD_CTX* ownership would double-free. */
+  CSHA256(const CSHA256&) = delete;
+  CSHA256& operator=(const CSHA256&) = delete;
+
   /** @brief Destructor; frees the EVP context. */
   ~CSHA256();
 

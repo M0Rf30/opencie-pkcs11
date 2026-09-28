@@ -62,7 +62,7 @@ CCertificate CSignedData::getSignerCertificate(int index) {
     }
   }
 
-  throw -1;
+  throw logged_error("CSignedData: signer certificate not found");
 }
 
 int CSignedData::verify(int i) { return verify(i, nullptr, nullptr); }

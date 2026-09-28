@@ -24,23 +24,43 @@ TEST_CASE("PutPaddingBT1 produces correct PKCS#1 type-1 block",
 
 TEST_CASE("RemovePaddingBT1 returns offset past separator",
           "[padding][pkcs1]") {
-  // 00 01 FF FF FF 00 AA BB
-  uint8_t raw[] = {0x00, 0x01, 0xFF, 0xFF, 0xFF, 0x00, 0xAA, 0xBB};
-  ByteArray ba(raw, 8);
+  // 00 01 <8 x FF> 00 AA BB
+  uint8_t raw[] = {0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                   0xFF, 0xFF, 0xFF, 0x00, 0xAA, 0xBB};
+  ByteArray ba(raw, sizeof(raw));
   unsigned long offset = RemovePaddingBT1(ba);
-  CHECK(offset == 6);  // data starts at index 6
+  CHECK(offset == 11);  // data starts at index 11
 }
 
 TEST_CASE("RemovePaddingBT1 throws on wrong block type", "[padding][pkcs1]") {
-  uint8_t raw[] = {0x00, 0x02, 0xFF, 0x00, 0xAA};
-  ByteArray ba(raw, 5);
+  uint8_t raw[] = {0x00, 0x02, 0xFF, 0xFF, 0xFF, 0xFF,
+                   0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xAA};
+  ByteArray ba(raw, sizeof(raw));
   CHECK_THROWS(RemovePaddingBT1(ba));
 }
 
 TEST_CASE("RemovePaddingBT1 throws on non-zero first byte",
           "[padding][pkcs1]") {
-  uint8_t raw[] = {0x01, 0x01, 0xFF, 0x00, 0xAA};
-  ByteArray ba(raw, 5);
+  uint8_t raw[] = {0x01, 0x01, 0xFF, 0xFF, 0xFF, 0xFF,
+                   0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xAA};
+  ByteArray ba(raw, sizeof(raw));
+  CHECK_THROWS(RemovePaddingBT1(ba));
+}
+
+TEST_CASE("RemovePaddingBT1 throws when PS run is shorter than 8 bytes",
+          "[padding][pkcs1]") {
+  // Only 3 bytes of 0xFF padding before the separator — must be rejected
+  // even though it is otherwise well-formed (RFC 8017 PS >= 8 octets).
+  uint8_t raw[] = {0x00, 0x01, 0xFF, 0xFF, 0xFF, 0x00,
+                   0xAA, 0xBB, 0xCC, 0xDD, 0xEE};
+  ByteArray ba(raw, sizeof(raw));
+  CHECK_THROWS(RemovePaddingBT1(ba));
+}
+
+TEST_CASE("RemovePaddingBT1 throws on buffer shorter than 11 bytes",
+          "[padding][pkcs1]") {
+  uint8_t raw[] = {0x00, 0x01, 0xFF, 0xFF, 0xFF, 0x00, 0xAA};
+  ByteArray ba(raw, sizeof(raw));
   CHECK_THROWS(RemovePaddingBT1(ba));
 }
 

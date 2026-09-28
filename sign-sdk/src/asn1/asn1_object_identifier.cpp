@@ -42,7 +42,7 @@ CASN1ObjectIdentifier::CASN1ObjectIdentifier(const char* strObjId)
     if (firstVal >= 0) {
       // combine first two components: 40 * first + second
       UINT nFirst = static_cast<UINT>(40 * firstVal + component);
-      if (nFirst > 0xff) throw -1;
+      if (nFirst > 0xff) throw logged_error("Invalid OID component");
       out[nIndex++] = static_cast<BYTE>(nFirst);
       firstVal = -1;  // mark consumed
       continue;

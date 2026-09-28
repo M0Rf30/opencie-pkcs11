@@ -1,19 +1,30 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #include "tlv.h"
 
+#include <cstring>
+
 CLog Log;
 
 CTLV::CTLV(const ByteArray &data) {
-  uint32_t dwPtr = 0;
-  while (dwPtr < data.size()) {
+  size_t dwPtr = 0;
+  size_t total = data.size();
+  while (dwPtr < total) {
+    size_t remaining = total - dwPtr;
+    if (remaining < 2) throw logged_error("CTLV: truncated TLV header");
     uint8_t btLen = data[dwPtr + 1];
     if (btLen < 255) {
-      if (dwPtr + btLen + 2 > data.size()) return;
+      if (remaining < static_cast<size_t>(btLen) + 2)
+        throw logged_error("CTLV: truncated short-form value");
       map[data[dwPtr]] = ByteArray(data.mid(dwPtr, btLen + 2));
       dwPtr += btLen + 2;
     } else {
-      uint32_t dwLen = ByteArrayToVar(data.mid(dwPtr + 2), uint32_t);
-      if (dwPtr + dwLen + 2 + sizeof(uint32_t) > data.size()) return;
+      if (remaining < 2 + sizeof(uint32_t))
+        throw logged_error("CTLV: truncated long-form length");
+      uint32_t dwLen = 0;
+      std::memcpy(&dwLen, data.mid(dwPtr + 2, sizeof(uint32_t)).data(),
+                  sizeof(uint32_t));
+      if (remaining - 2 - sizeof(uint32_t) < dwLen)
+        throw logged_error("CTLV: truncated long-form value");
       map[data[dwPtr]] =
           ByteArray(data.mid(dwPtr, dwLen + 2 + sizeof(uint32_t)));
       dwPtr += dwLen + 2 + sizeof(uint32_t);
@@ -34,7 +45,7 @@ ByteArray *CTLV::getTAG(uint8_t Tag) {
 ByteArray CTLV::getValue(uint8_t Tag) {
   tlvMap::iterator it = map.find(Tag);
   if (it != map.end()) {
-    if (it->second[0] < 0xFF)
+    if (it->second[1] < 0xFF)
       return it->second.mid(2);
     else
       return it->second.mid(6);

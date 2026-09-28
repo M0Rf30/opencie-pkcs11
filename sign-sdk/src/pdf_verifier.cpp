@@ -225,7 +225,13 @@ int PDFVerifier::VerifySignature(const PdfMemDocument *pDoc,
       int _start0_unused;
       std::istringstream brss(cleanRange);
       brss >> _start0_unused >> len >> start1 >> len1;
+      if (brss.fail()) throw logged_error("PDFVerifier: malformed /ByteRange");
     }
+    if (len < 0 || start1 < 0 || len1 < 0 ||
+        static_cast<long long>(len) > m_actualLen ||
+        static_cast<long long>(start1) + static_cast<long long>(len1) >
+            m_actualLen)
+      throw logged_error("PDFVerifier: /ByteRange out of bounds");
 
     // Extract hex-encoded signed data between < and >
     auto ltPos = signdData.find('<');

@@ -101,7 +101,7 @@ CASN1UTCTime CSignerInfo::getSigningTime() {
       return CASN1UTCTime(CASN1SetOf(attr.elementAt(1)).elementAt(0));
   }
 
-  throw -1L;
+  throw logged_error("CSignerInfo: signing-time attribute not found");
 }
 
 CASN1OctetString CSignerInfo::getContentHash() {
@@ -114,7 +114,7 @@ CASN1OctetString CSignerInfo::getContentHash() {
       return CASN1OctetString(CASN1SetOf(attr.elementAt(1)).elementAt(0));
   }
 
-  throw -1L;
+  throw logged_error("CSignerInfo: message-digest attribute not found");
 }
 
 CTimeStampToken CSignerInfo::getTimeStampToken() {
@@ -362,16 +362,24 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
 
   const BYTE* content = baCert.data();
   x509 = d2i_X509(nullptr, &content, baCert.size());
+  if (!x509)
+    throw logged_error(
+        "CSignerInfo::verifySignature: OpenSSL rejected the certificate "
+        "(d2i_X509 failed)");
 
-  EVP_PKEY* evp_pubkey;
-
-  evp_pubkey = X509_get_pubkey(x509);
+  EVP_PKEY* evp_pubkey = X509_get_pubkey(x509);
+  if (!evp_pubkey) {
+    X509_free(x509);
+    throw logged_error(
+        "CSignerInfo::verifySignature: failed to extract public key from "
+        "certificate");
+  }
 
   CASN1OctetString encryptedDigest(signerInfo.getEncryptedDigest());
   const ByteDynArray* pEncDigest = encryptedDigest.getValue();
 
   try {
-    int nModulusLen = evp_pubkey ? EVP_PKEY_get_size(evp_pubkey) : 0;
+    int nModulusLen = EVP_PKEY_get_size(evp_pubkey);
     ByteDynArray decrypted(nModulusLen > 0 ? static_cast<size_t>(nModulusLen)
                                            : 0);
     unsigned int len = 0;
@@ -603,5 +611,5 @@ CCertificate CSignerInfo::getSignatureCertificate(CSignerInfo& signature,
     }
   }
 
-  throw -1;
+  throw logged_error("CSignerInfo: signature certificate not found");
 }

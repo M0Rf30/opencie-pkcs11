@@ -22,12 +22,14 @@ void CSHA256::Init() {
 }
 void CSHA256::Update(ByteArray data) {
   if (!isInit) throw logged_error("Hash not initialized");
-  EVP_DigestUpdate(ctx, data.data(), data.size());
+  if (EVP_DigestUpdate(ctx, data.data(), data.size()) != 1)
+    throw logged_error("SHA-256 update error");
 }
 ByteDynArray CSHA256::Final() {
   if (!isInit) throw logged_error("Hash not initialized");
   ByteDynArray resp(SHA256_DIGEST_LENGTH);
-  EVP_DigestFinal_ex(ctx, resp.data(), nullptr);
+  if (EVP_DigestFinal_ex(ctx, resp.data(), nullptr) != 1)
+    throw logged_error("SHA-256 finalization error");
   isInit = false;
 
   return resp;

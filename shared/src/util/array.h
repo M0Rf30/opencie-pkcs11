@@ -208,14 +208,14 @@ class ByteDynArray : public ByteArray {
   /** @brief Construct by parsing a hex string (e.g. "0A 1B 2C"). */
   explicit ByteDynArray(const std::string &hexdata);
   /** @brief Move constructor — transfers ownership, leaves @p src empty. */
-  ByteDynArray(ByteDynArray &&src);
+  ByteDynArray(ByteDynArray &&src) noexcept;
 
   /** @brief Destructor — frees the owned buffer. */
   ~ByteDynArray() override;
   /** @brief Deep-copy assignment operator. */
   ByteDynArray &operator=(const ByteDynArray &src);
   /** @brief Move assignment — transfers ownership. */
-  ByteDynArray &operator=(ByteDynArray &&src);
+  ByteDynArray &operator=(ByteDynArray &&src) noexcept;
 
   /**
    * @brief Resize the buffer.

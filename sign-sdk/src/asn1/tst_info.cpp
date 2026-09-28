@@ -36,5 +36,5 @@ CName CTSTInfo::getTSAName() {
     }
   }
 
-  throw -1;
+  throw logged_error("CTSTInfo: TSA name not found");
 }

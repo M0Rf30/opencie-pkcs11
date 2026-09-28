@@ -15,6 +15,8 @@
 CSignedDocument::CSignedDocument(const BYTE* content, int len) {
   LOG_DBG((0, "--> CSignedDocument", "CSignedDocument: %d", len));
 
+  if (len <= 0) throw logged_error("CSignedDocument: empty input");
+
   ByteDynArray c;
 
   if (content[0] == 'M' || content[0] == '-') {  // base64
@@ -46,14 +48,14 @@ CSignedDocument::CSignedDocument(const BYTE* content, int len) {
       c.append(ByteArray(decoded.data(), decoded.size()));
 
     } catch (...) {
-      throw 1;
+      throw logged_error("CSignedDocument: base64 decode failed");
     }
   } else {
     c.append(ByteArray(content, len));
   }
 
-  if (!(c[0] == 0x30 && (c[1] & 0x80))) {
-    throw -6;
+  if (c.size() < 2 || !(c[0] == 0x30 && (c[1] & 0x80))) {
+    throw logged_error("CSignedDocument: not a valid ASN.1 SEQUENCE");
   }
 
   BufferedReader r(c);
@@ -62,7 +64,7 @@ CSignedDocument::CSignedDocument(const BYTE* content, int len) {
   if (!m_pCMSSignedData->getContentType().equals(
           CASN1ObjectIdentifier(szSignedDataOID))) {
     m_pCMSSignedData.reset();
-    throw -1;
+    throw logged_error("CSignedDocument: content type is not SignedData");
   }
 
   m_pSignedData = std::make_unique<CSignedData>(m_pCMSSignedData->getContent());
@@ -168,7 +170,7 @@ CCertificate CSignedDocument::getSignerCertificate(int index) {
     }
   }
 
-  throw -1;
+  throw logged_error("CSignedDocument: signer certificate not found");
 }
 
 bool CSignedDocument::isDetached() {

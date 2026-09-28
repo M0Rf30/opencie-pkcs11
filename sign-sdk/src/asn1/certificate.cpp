@@ -45,6 +45,8 @@ CCertificate* CCertificate::createCertificate(ByteDynArray& contentArray) {
   const BYTE* content = contentArray.data();
   int len = contentArray.size();
 
+  if (len <= 0) throw logged_error("CCertificate: empty input");
+
   if (content[0] != 0x30) {  // base64
     std::string encoded(reinterpret_cast<const char*>(content),
                         static_cast<size_t>(len));
@@ -67,15 +69,14 @@ CCertificate* CCertificate::createCertificate(ByteDynArray& contentArray) {
     ByteDynArray decoded;
     CBase64().Decode(encoded.c_str(), decoded);
 
-    if (!(decoded.data()[0] == 0x30 && (decoded.data()[1] & 0x80))) {
-      throw -6;
+    if (decoded.size() < 2 ||
+        !(decoded.data()[0] == 0x30 && (decoded.data()[1] & 0x80))) {
+      throw logged_error("CCertificate: not a valid ASN.1 SEQUENCE");
     }
 
     BufferedReader reader(decoded.data(), decoded.size());
 
     CCertificate* pCert = new CCertificate(reader);
-
-    return pCert;
 
     return pCert;
 
@@ -464,7 +465,8 @@ int CCertificate::verifyStatus(const char* szTime,
     // check for OCSP presence
     CASN1Sequence ocsp(
         getExtension(CASN1ObjectIdentifier(szAuthorityInfoAccess)));
-    if (ocsp.size() == 0) throw 1L;
+    if (ocsp.size() == 0)
+      throw logged_error("CCertificate: no OCSP extension found");
 
     CASN1OctetString val(ocsp.elementAt(1));
     ByteDynArray* pbaVal = const_cast<ByteDynArray*>(val.getValue());
@@ -513,7 +515,7 @@ int CCertificate::verifyStatus(const char* szTime,
 
         if (response.size() == 0) {
           LOG_ERR((0, "CCertificate::verifyStatus", "Empty OCSP response"));
-          throw -1;
+          throw logged_error("CCertificate: empty OCSP response");
         }
 
         LOG_DBG((0, "CCertificate::verifyStatus", "OCSP OK"));
