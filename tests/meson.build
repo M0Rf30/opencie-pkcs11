@@ -23,6 +23,10 @@ test_sources = [
     'test_pcsc_reader_monitor.cpp',
     'test_cie_error.cpp',
     'test_atr.cpp',
+    'test_aes.cpp',
+    'test_des3.cpp',
+    'test_mac.cpp',
+    'test_rsa.cpp',
 ]
 
 # Sources needed by tests (no PCSC/hardware deps)
@@ -50,6 +54,9 @@ test_shared_sources = [
     '../shared/src/crypto/asn_parser.cpp',
     '../shared/src/crypto/cipher_base.cpp',
     '../shared/src/crypto/aes.cpp',
+    '../shared/src/crypto/des3.cpp',
+    '../shared/src/crypto/mac.cpp',
+    '../shared/src/crypto/rsa.cpp',
 ]
 
 # Linux kernel NFC backend (ATR synthesis is pure logic, no hardware needed)

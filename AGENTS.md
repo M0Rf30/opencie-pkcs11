@@ -224,7 +224,7 @@ std::runtime_error
 
 - **Framework**: Catch2 v3.14.0 (with Meson subproject fallback)
 - **Test executable**: `tests/opencie-tests`
-- **Test files** (11): `test_array`, `test_tlv`, `test_crypto`, `test_cache_lib`, `test_md5`, `test_asn_parser`, `test_padding`, `test_ini_settings`, `test_properties`, `test_util`, `test_crypto_util`
+- **Test files** (21, +1 `test_linux_nfc_atr` on Linux only): `test_array`, `test_array_extended`, `test_tlv`, `test_crypto`, `test_crypto_util`, `test_cache_lib`, `test_md5`, `test_asn_parser`, `test_asn_tag`, `test_padding`, `test_util`, `test_properties`, `test_ini_settings`, `test_pcsc_reader_monitor`, `test_cie_error`, `test_atr`, `test_aes`, `test_des3`, `test_mac`, `test_rsa`, `test_linux_nfc_atr` (Linux only)
 - **Run**: `meson test -C build` or `./build/tests/opencie-tests`
 - **Tags**: `./build/tests/opencie-tests "[base64]"`, `"[cache]"`, `"[crypto]"`, etc.
 - **CI sanitizers**: AddressSanitizer + UBSan (`-Db_sanitize=address,undefined`), with `lsan-suppressions.txt`
@@ -246,10 +246,11 @@ std::runtime_error
 | `codeql` | Linux | GCC | CodeQL C/C++ |
 | `semgrep` | Linux | — | SAST (p/default + p/c) |
 | `test` | Linux x86_64 | GCC | ASan + UBSan |
+| `tsan` | Linux x86_64 | GCC | ThreadSanitizer |
 | `linux` | Linux x86_64 | GCC | scan-build static analyzer |
-| `linux-arm64` | Linux aarch64 | GCC cross | `cross-aarch64.ini` |
-| `windows` | Windows x86_64 | Clang + MinGW | vcpkg, `cross-clang-mingw.ini` |
-| `macos` | macOS arm64 | Clang | Native |
+| `linux-arm64` | Linux aarch64 | GCC cross | `cross-aarch64.ini`; tests run under qemu-user emulation |
+| `windows` | Windows x86_64 | Clang + MinGW | vcpkg, `cross-clang-mingw.ini`; tests compiled, not run |
+| `macos` | macOS arm64 | Clang | Native; tests run natively |
 | `android` | Android arm64 | NDK r27c | vcpkg, `cross-android-arm64.ini` |
 | `android-x86_64` | Android x86_64 | NDK r27c | vcpkg, `cross-android-x86_64.ini` |
 | `release` | — | — | Tag-triggered, bundles artifacts |
