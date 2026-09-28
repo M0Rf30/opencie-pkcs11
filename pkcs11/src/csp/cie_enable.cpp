@@ -103,6 +103,72 @@ ScopeGuard<F> makeScopeGuard(F f) {
 }
 }  // namespace
 
+bool CIE_FindCardByPAN(const char* szPAN, ByteDynArray* certOut) {
+  if (szPAN == nullptr) return false;
+
+  try {
+    auto transport = createSmartCardTransport();
+    SCARDCONTEXT hSC;
+    if (transport->EstablishContext(SCARD_SCOPE_USER, &hSC) != SCARD_S_SUCCESS)
+      return false;
+    auto scHandleGuard =
+        makeScopeGuard([&]() noexcept { transport->ReleaseContext(hSC); });
+
+    DWORD len = 0;
+    if (transport->ListReaders(hSC, nullptr, &len) != SCARD_S_SUCCESS ||
+        len <= 1)
+      return false;
+
+    std::vector<char> readers(len);
+    if (transport->ListReaders(hSC, readers.data(), &len) != SCARD_S_SUCCESS)
+      return false;
+
+    for (char* curreader = readers.data(); curreader[0] != 0;
+         curreader += strnlen(curreader, len) + 1) {
+      try {
+        safeConnection conn(*transport, hSC, curreader, SCARD_SHARE_SHARED);
+        if (!conn.hCard) continue;
+
+        DWORD atrLen = 40;
+        if (transport->GetAttrib(conn.hCard, SCARD_ATTR_ATR_STRING, nullptr,
+                                 &atrLen) != SCARD_S_SUCCESS)
+          continue;
+        std::vector<uint8_t> atr(atrLen);
+        if (transport->GetAttrib(conn.hCard, SCARD_ATTR_ATR_STRING, atr.data(),
+                                 &atrLen) != SCARD_S_SUCCESS)
+          continue;
+
+        IAS ias(TokenTransmitCallback, ByteArray(atr.data(), atrLen));
+        ias.SetCardContext(&conn);
+        ias.token.Reset();
+        ias.SelectAID_IAS();
+        ias.ReadPAN();
+
+        if (hexEncode(ias.PAN.data() + 5, 6) != szPAN) continue;
+
+        if (certOut != nullptr) {
+          // No PIN needed: the certificate is public data readable right
+          // after selecting the CIE applet.
+          ByteDynArray resp;
+          ias.SelectAID_CIE();
+          ias.ReadDappPubKey(resp);
+          ByteDynArray certRaw;
+          ias.ReadCertCIE(certRaw);
+          *certOut = ByteDynArray(certRaw.left(GetASN1DataLenght(certRaw)));
+        }
+        return true;
+      } catch (...) {
+        // Not a CIE, no card in this reader, or a transient error --
+        // try the next reader.
+        continue;
+      }
+    }
+  } catch (...) {
+    // Fall through -- caller treats this the same as "no match".
+  }
+  return false;
+}
+
 extern CModuleInfo moduleInfo;
 
 DWORD CardAuthenticateEx(IAS* ias, DWORD PinId, DWORD dwFlags, BYTE* pbPinData,
@@ -123,10 +189,17 @@ int CK_ENTRY cie_reader_name(char* buf, int buf_len);
 }
 
 CK_RV CK_ENTRY cie_is_enabled(const char* szPAN) {
-  if (IAS::IsEnrolled(szPAN))
-    return 1;
-  else
-    return 0;
+  if (IAS::IsEnrolled(szPAN)) return 1;
+
+  // The cache alone cannot distinguish "never enrolled" from "enrolled
+  // through different software whose cache this build can't read" (see
+  // CacheGetCertificate()'s legacy-format fallback for the common case,
+  // the official CIE ID app). If the exact card is physically present,
+  // answer from there instead of reporting "not enrolled" for a card
+  // that plainly is. https://github.com/M0Rf30/opencie-pkcs11/issues/25
+  if (CIE_FindCardByPAN(szPAN, nullptr)) return 1;
+
+  return 0;
 }
 
 CK_RV CK_ENTRY cie_disable(const char* szPAN) {

@@ -5,8 +5,10 @@
 #include <cstring>
 #include <vector>
 
+#include "csp/cie_enable.h"
 #include "logger/logger.h"
 #include "pkcs11/pkcs11_functions.h"
+#include "util/array.h"
 #include "util/cache_lib.h"
 
 using namespace CieIDLogger;
@@ -16,15 +18,21 @@ extern "C" {
 /**
  * @brief Retrieve the DER-encoded X.509 certificate for an enrolled CIE card.
  *
- * Reads the certificate from the local AES-encrypted cache written by
- * cie_enable().  The caller is responsible for freeing *outDer with free().
+ * Prefers the local AES-encrypted DER cache written by cie_enable(); if
+ * that cache is missing or unusable (e.g. this PAN was never enrolled
+ * through cie_enable(), or its cache was written by different CIE
+ * software this build cannot read), falls back to reading the
+ * certificate straight from a physically present card with that PAN --
+ * no PIN is required, since the X.509 certificate is public data. See
+ * github.com/M0Rf30/opencie-pkcs11/issues/25. The caller is responsible
+ * for freeing *outDer with cie_free().
  *
  * @param pan      NUL-terminated PAN string identifying the card.
  * @param outDer   On success, set to a malloc'd buffer containing the DER cert.
  * @param outLen   On success, set to the number of bytes in *outDer.
  * @return CKR_OK on success.
  *         CKR_ARGUMENTS_BAD if pan, outDer, or outLen is NULL.
- *         CKR_DEVICE_ERROR  if the card is not enrolled (cache missing).
+ *         CKR_DEVICE_ERROR  if the card is neither cached nor present.
  *         CKR_HOST_MEMORY   if malloc fails.
  *         CKR_FUNCTION_FAILED for any other error.
  */
@@ -38,20 +46,30 @@ CK_RV CK_ENTRY cie_get_certificate(const char *pan, unsigned char **outDer,
 
   LOG_INFO("cie_get_certificate: looking up PAN='%s'", pan);
 
-  if (!CacheExists(pan)) {
-    LOG_ERROR("cie_get_certificate: card not enrolled (PAN not in cache)");
-    return CKR_DEVICE_ERROR;
-  }
-
   try {
     // Prefer the DER file written by cie_enable() — it contains the raw
     // X.509 cert encrypted with the static cache key and requires no live
     // PACE session to decrypt.
     std::vector<uint8_t> cert;
-    if (!CacheGetDer(pan, cert) || cert.empty()) {
-      LOG_ERROR("cie_get_certificate: DER cert not found in cache for PAN '%s'",
-                pan);
-      return CKR_FUNCTION_FAILED;
+    bool haveCert = CacheGetDer(pan, cert) && !cert.empty();
+
+    if (!haveCert) {
+      LOG_INFO(
+          "cie_get_certificate: no usable DER cache for PAN '%s', trying a "
+          "physically present card instead",
+          pan);
+      ByteDynArray certRaw;
+      if (CIE_FindCardByPAN(pan, &certRaw) && !certRaw.isEmpty()) {
+        cert.assign(certRaw.data(), certRaw.data() + certRaw.size());
+        haveCert = true;
+      }
+    }
+
+    if (!haveCert) {
+      LOG_ERROR(
+          "cie_get_certificate: card not enrolled and not present (PAN '%s')",
+          pan);
+      return CKR_DEVICE_ERROR;
     }
 
     unsigned char *buf = static_cast<unsigned char *>(malloc(cert.size()));
