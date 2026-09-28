@@ -34,7 +34,7 @@ std::string CName::getField(const char* fieldOID) {
 }
 
 void CName::getNameAsString(ByteDynArray& sname) {
-  LOG_DBG((0, "--> CName::getNameAsString", ""));
+  LOG_DBG((0, "--> CName::getNameAsString", "Called"));
 
   int sz = size();
 

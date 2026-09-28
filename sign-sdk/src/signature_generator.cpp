@@ -94,8 +94,8 @@ long CSignatureGenerator::GetCertificate(CCertificate** ppCertificate) {
   ByteDynArray id;
   long nRes = m_pSigner->GetCertificate(m_szAlias, ppCertificate, id);
   if (nRes) {
-    LOG_ERR(
-        (0, "CSignatureGenerator::Generate", "GetCertificate error: %x", nRes));
+    LOG_ERR((0, "CSignatureGenerator::Generate", "GetCertificate error: %lx",
+             nRes));
     return nRes;
   }
 
@@ -105,14 +105,14 @@ long CSignatureGenerator::GetCertificate(CCertificate** ppCertificate) {
 long CSignatureGenerator::Generate(ByteDynArray& pkcs7SignedData,
                                    BOOL bDetached, BOOL bVerifyCertificate) {
   // get the certificate based on alias
-  LOG_DBG((0, "CSignatureGenerator::Generate", ""));
+  LOG_DBG((0, "CSignatureGenerator::Generate", "Called"));
 
   ByteDynArray id;
   CCertificate* pSignerCertificate;
   long nRes = m_pSigner->GetCertificate(m_szAlias, &pSignerCertificate, id);
   if (nRes) {
-    LOG_ERR(
-        (0, "CSignatureGenerator::Generate", "GetCertificate error: %x", nRes));
+    LOG_ERR((0, "CSignatureGenerator::Generate", "GetCertificate error: %lx",
+             nRes));
     m_pSigner->Close();
     return nRes;
   }
@@ -262,7 +262,7 @@ long CSignatureGenerator::Generate(ByteDynArray& pkcs7SignedData,
   // make signature on the digest info
   CK_RV rv = m_pSigner->Sign(digest, id, CKM_RSA_PKCS, signature);
   if (rv) {
-    LOG_DBG((0, "CSignatureGenerator::Generate", "Sign error: %x", rv));
+    LOG_DBG((0, "CSignatureGenerator::Generate", "Sign error: %lx", rv));
     m_pSigner->Close();
     return rv;
   }
@@ -304,7 +304,7 @@ long CSignatureGenerator::Generate(ByteDynArray& pkcs7SignedData,
     if (ptst) {
       m_signerInfoGenerator.setTimestampToken(ptst);
     } else {
-      LOG_DBG((0, "CSignatureGenerator::Generate", "TSA error: %x", nRes));
+      LOG_DBG((0, "CSignatureGenerator::Generate", "TSA error: %lx", nRes));
       delete pSignerCertificate;
       delete ptst;
       return CIE_SIGN_ERROR_TSA;

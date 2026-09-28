@@ -202,7 +202,7 @@ long cie_sign_set_string(int option, char* value) {
 void cie_sign_cleanup() { CCertStore::CleanUp(); }
 
 CIE_SIGN_CTX cie_sign_sign_init(void) {
-  LOG_MSG((0, "--> cie_sign_sign_init", ""));
+  LOG_MSG((0, "--> cie_sign_sign_init", "Called"));
 
   CIE_SIGN_CONTEXT* pContext = new CIE_SIGN_CONTEXT;
 
@@ -291,7 +291,7 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
 
     case CIE_SIGN_OPT_CADES:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %d",
-               ctx, "CIE_SIGN_OPT_CADES", (intptr_t)value));
+               ctx, "CIE_SIGN_OPT_CADES", static_cast<int>((intptr_t)value)));
       // pContext->pSignatureGenerator->SetCAdES((BOOL)(long)value);
       pContext->bCades = static_cast<BOOL>((intptr_t)value);
       break;
@@ -312,13 +312,15 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
 
     case CIE_SIGN_OPT_INPUTFILE_TYPE:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %d",
-               ctx, "CIE_SIGN_OPT_INPUTFILE_TYPE", (intptr_t)value));
+               ctx, "CIE_SIGN_OPT_INPUTFILE_TYPE",
+               static_cast<int>((intptr_t)value)));
       pContext->nInputFileType = (intptr_t)value;
       break;
 
     case CIE_SIGN_OPT_DETACHED:
       LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %d",
-               ctx, "CIE_SIGN_OPT_DETACHED", (intptr_t)value));
+               ctx, "CIE_SIGN_OPT_DETACHED",
+               static_cast<int>((intptr_t)value)));
       pContext->bDetached = static_cast<BOOL>((intptr_t)value);
       break;
 
@@ -399,7 +401,7 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
       break;
 
     case CIE_SIGN_OPT_PDF_PAGE:
-      LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %d",
+      LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %ld",
                ctx, "CIE_SIGN_OPT_PDF_PAGE", *(static_cast<long*>(value))));
       pContext->nPdfPage = *(static_cast<long*>(value));
       break;
@@ -455,7 +457,7 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
       break;
   }
 
-  LOG_MSG((0, "<-- cie_sign_sign_set", "Returns %x", nRet));
+  LOG_MSG((0, "<-- cie_sign_sign_set", "Returns %ld", nRet));
 
   return nRet;
 
@@ -480,14 +482,13 @@ long cie_sign_sign_sign(CIE_SIGN_CTX ctx) {
   LOG_MSG((0, "--> cie_sign_sign_sign", "pContext: %p, pdf_left: %f", pContext,
            pContext->fPdfLeft));
   if (pContext->szInputFile[0] == 0) {
-    LOG_ERR(
-        (0, "cie_sign_sign_sign -> Error: CIE_SIGN_ERROR_INVALID_FILE", ""));
+    LOG_ERR((0, "cie_sign_sign_sign", "Error: CIE_SIGN_ERROR_INVALID_FILE"));
     return CIE_SIGN_ERROR_INVALID_FILE;
   }
 
   ByteDynArray data;
   if (readFileIntoByteArray(pContext->szInputFile, data) != 0) {
-    LOG_ERR((0, "<-- cie_sign_sign_sign", "Context: %p, Error: %x, file: %s",
+    LOG_ERR((0, "<-- cie_sign_sign_sign", "Context: %p, Error: %lx, file: %s",
              pContext, CIE_SIGN_ERROR_FILE_NOT_FOUND, pContext->szInputFile));
     return CIE_SIGN_ERROR_FILE_NOT_FOUND;
   }
@@ -499,8 +500,7 @@ long cie_sign_sign_sign(CIE_SIGN_CTX ctx) {
   if (pContext->pIAS) {
     CCIESigner* pCIESigner = new CCIESigner(pContext->pIAS);
     long ret = pCIESigner->Init(pContext->szPIN);
-
-    LOG_DBG((0, "CIESigner::Init", "ret %x", ret));
+    LOG_DBG((0, "CIESigner::Init", "ret %lx", ret));
 
     if (ret != 0) {
       delete pCIESigner;
@@ -555,7 +555,7 @@ long cie_sign_sign_sign(CIE_SIGN_CTX ctx) {
   nRes = pContext->pSignatureGenerator->Generate(signature, pContext->bDetached,
                                                  pContext->bVerifyCert);
   if (nRes) {
-    LOG_ERR((0, "<-- cie_sign_sign_sign", "Context: %p, Error: %x", pContext,
+    LOG_ERR((0, "<-- cie_sign_sign_sign", "Context: %p, Error: %lx", pContext,
              nRes));
     return nRes;
   }
@@ -569,7 +569,7 @@ long cie_sign_sign_sign(CIE_SIGN_CTX ctx) {
            pContext->szOutputFile));
 
   if (writeByteArrayToFile(pContext->szOutputFile, signature) != 0) {
-    LOG_ERR((0, "<-- cie_sign_sign_sign", "Context: %p, Error: %x, file: %s",
+    LOG_ERR((0, "<-- cie_sign_sign_sign", "Context: %p, Error: %lx, file: %s",
              pContext, CIE_SIGN_ERROR_FILE_NOT_FOUND, pContext->szOutputFile));
     return CIE_SIGN_ERROR_FILE_NOT_FOUND;
   }
@@ -602,9 +602,8 @@ long cie_sign_sign_cleanup(CIE_SIGN_CTX ctx) {
 
   __CATCH
 }
-
 CIE_SIGN_CTX cie_sign_verify_init(void) {
-  LOG_MSG((0, "--> cie_sign_verify_init", ""));
+  LOG_MSG((0, "--> cie_sign_verify_init", "Called"));
   CIE_VERIFY_CONTEXT* pContext = new CIE_VERIFY_CONTEXT;
 
   pContext->szOutputFile[0] = '\0';
@@ -655,9 +654,9 @@ long cie_sign_verify_set(CIE_SIGN_CTX ctx, int option, void* value) {
       snprintf(pContext->szOutputFile, MAX_PATH, "%s",
                static_cast<char*>(value));
       break;
-
     case CIE_SIGN_OPT_VERIFY_REVOCATION:
-      LOG_DBG((0, "cie_sign_verify_set", "Revocation: %d", (intptr_t)value));
+      LOG_DBG((0, "cie_sign_verify_set", "Revocation: %d",
+               static_cast<int>((intptr_t)value)));
       pContext->bVerifyCRL = static_cast<BOOL>((intptr_t)value);
       break;
 
@@ -702,7 +701,7 @@ long cie_sign_verify_verify(CIE_SIGN_CTX ctx, VERIFY_RESULT* pVerifyResult) {
 
   if (pContext->szInputFile[0] == 0) {
     LOG_ERR((0, "cie_sign_verify_verify",
-             "Context: %p, Error: CIE_SIGN_ERROR_INVALID_FILE"));
+             "Context: %p, Error: CIE_SIGN_ERROR_INVALID_FILE", pContext));
     return CIE_SIGN_ERROR_INVALID_FILE;
   }
 
@@ -791,7 +790,7 @@ long cie_sign_verify_verify(CIE_SIGN_CTX ctx, VERIFY_RESULT* pVerifyResult) {
       break;
 
     default:
-      LOG_ERR((0, "<-- cie_sign_verify_verify", "Context: %p, Error: %x",
+      LOG_ERR((0, "<-- cie_sign_verify_verify", "Context: %p, Error: %lx",
                pContext, CIE_SIGN_ERROR_INVALID_FILE));
       nRes = CIE_SIGN_ERROR_INVALID_FILE;
       break;
@@ -1189,7 +1188,7 @@ long verify_m7m(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
 
   nRes = verify_signed_document(pContext, sd, pVerifyInfo);
   if (nRes) {
-    LOG_ERR((0, "<-- verify_m7m", "Context: %p, Error: %x", pContext, nRes));
+    LOG_ERR((0, "<-- verify_m7m", "Context: %p, Error: %d", pContext, nRes));
     return nRes;
   }
 
@@ -1205,7 +1204,7 @@ long verify_m7m(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Winfinite-recursion"
 int getEmbeddedSignatureCount(CSignedDocument& sd) {
-  LOG_DBG((0, "--> getEmbeddedSignatureCount", ""));
+  LOG_DBG((0, "--> getEmbeddedSignatureCount", "Called"));
 
   ByteDynArray content;
   sd.getContent(content);
@@ -1239,7 +1238,7 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
                                      CSignerInfo& si, CASN1SetOf& certificates,
                                      SIGNER_INFO* pSignerInfo,
                                      VERIFY_INFO* pVerifyInfo) {
-  LOG_DBG((0, "--> verify_countersignature", ""));
+  LOG_DBG((0, "--> verify_countersignature", "Called"));
 
   int counterSignatureCount = si.getCountersignatureCount();
   if (counterSignatureCount > 0) {
@@ -1266,7 +1265,7 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
                                                pSI->pRevocationInfo);
 
       LOG_DBG(
-          (0, "verify_countersignature", "verify result: %x", pSI->bitmask));
+          (0, "verify_countersignature", "verify result: %lx", pSI->bitmask));
 
       ByteDynArray issuer;
       cert.getIssuer().getNameAsString(issuer);
@@ -1453,7 +1452,7 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
     }
   }
 
-  LOG_DBG((0, "--> verify_countersignature", ""));
+  LOG_DBG((0, "--> verify_countersignature", "Called"));
 
   return 0;
 }
@@ -1485,7 +1484,8 @@ long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
     pSI->bitmask =
         sd.verify(i, pSI->pRevocationInfo);  // pContext->bVerifyCRL);
 
-    LOG_DBG((0, "verify_signed_document 2", "verify result: %x", pSI->bitmask));
+    LOG_DBG(
+        (0, "verify_signed_document 2", "verify result: %lx", pSI->bitmask));
 
     ByteDynArray issuer;
     cert.getIssuer().getNameAsString(issuer);
@@ -1675,7 +1675,7 @@ long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
     ByteDynArray content;
     sd.getContent(content);
     CSignedDocument sd1(content.data(), content.size());
-    LOG_DBG((0, "<-- verify_signed_document 2", ""));
+    LOG_DBG((0, "<-- verify_signed_document 2", "Called"));
     return verify_signed_document(index, pContext, sd1, pVerifyInfo);
   } catch (...) {
     LOG_DBG((0, "verify_signed_document 2", "no embedded signature"));
@@ -1735,7 +1735,7 @@ long sign_xml(CIE_SIGN_CONTEXT* pContext, const ByteDynArray& data) {
     return CIE_SIGN_ERROR_FILE_NOT_FOUND;
   }
 
-  LOG_MSG((0, "<-- sign_xml", "Context: %p, RetVal: %x", pContext, nRes));
+  LOG_MSG((0, "<-- sign_xml", "Context: %p, RetVal: %lx", pContext, nRes));
 
   return nRes;
 }
@@ -1853,7 +1853,7 @@ long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& /*data*/,
   long nRes = pdfVerifier.Load(pContext->szInputFile);
 
   if (nRes) {
-    LOG_ERR((0, "<-- verify_pdf", "Context: %p, Error: %x", pContext, nRes));
+    LOG_ERR((0, "<-- verify_pdf", "Context: %p, Error: %lx", pContext, nRes));
     return nRes;
   }
 
@@ -1876,7 +1876,7 @@ long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& /*data*/,
     if (nRes) {
       freeSignerInfos(pVerifyInfo->pSignerInfos, i);
       pVerifyInfo->pSignerInfos = nullptr;
-      LOG_ERR((0, "<-- verify_pdf", "Context: %p, Error: %x", pContext, nRes));
+      LOG_ERR((0, "<-- verify_pdf", "Context: %p, Error: %lx", pContext, nRes));
       return nRes;
     }
 
@@ -2326,7 +2326,7 @@ void CIEPdfSigner::ComputeSignature(charbuff& buffer, bool dryrun) {
     nRes = m_pContext->pSignatureGenerator->Generate(signedData, true,
                                                      m_pContext->bVerifyCert);
     if (nRes) {
-      LOG_ERR((0, "CIEPdfSigner::ComputeSignature", "Generate NOK: %x", nRes));
+      LOG_ERR((0, "CIEPdfSigner::ComputeSignature", "Generate NOK: %lx", nRes));
     }
 
     buffer.resize(signedData.size());
