@@ -13,6 +13,7 @@
 #define CACHE_LOG(fmt, ...)
 #elif defined(__ANDROID__)
 #include <android/log.h>
+#include <fcntl.h>
 #include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -27,6 +28,7 @@ extern "C" __attribute__((visibility("default"))) void cie_set_data_dir(
   CACHE_LOG("cie_set_data_dir: %s", g_cie_data_dir.c_str());
 }
 #else
+#include <fcntl.h>
 #include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -50,6 +52,103 @@ extern CLog Log;
 /// which could be extracted by a malicious application. In production
 /// environments, an implementation providing a high level of security is
 /// strongly recommended.
+
+namespace {
+
+/**
+ * @brief Validate a PAN before it is used to build a cache file path.
+ *
+ * The PAN is normally a hex dump of card data, but IAS::IsEnrolled(),
+ * IAS::Unenroll() and CacheGetDer() ultimately take it from the public
+ * cie_* C API, so a caller-controlled value such as "../../foo" must be
+ * rejected before it is concatenated into a path (see finding CIE-CACHE-004
+ * / path traversal through the exported cie_* APIs).
+ *
+ * @param PAN Candidate PAN.
+ * @return true if PAN is 1-32 characters of [0-9A-Fa-f].
+ */
+bool IsValidPAN(const char *PAN) {
+  if (PAN == nullptr) return false;
+  size_t len = strlen(PAN);
+  if (len == 0 || len > 32) return false;
+  for (size_t i = 0; i < len; i++) {
+    char ch = PAN[i];
+    if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') ||
+          (ch >= 'A' && ch <= 'F')))
+      return false;
+  }
+  return true;
+}
+
+void RequireValidPAN(const char *PAN) {
+  if (!IsValidPAN(PAN)) throw logged_error("Invalid PAN");
+}
+
+#ifndef _WIN32
+/**
+ * @brief Write @p data atomically and with owner-only permissions to
+ * @p path.
+ *
+ * Writes to `path + ".tmp"` first (O_CREAT|O_EXCL|O_NOFOLLOW, mode 0600),
+ * fsyncs it, then renames it over the destination. This avoids leaving a
+ * corrupt cache behind on crash or on two concurrent writers, and avoids
+ * following a pre-existing symlink at the target path (see finding
+ * CIE-CACHE-003).
+ */
+void WriteFileAtomic(const std::string &path, const char *data, size_t len) {
+  std::string tmpPath = path + ".tmp";
+  // Remove any stale temp file (e.g. left over from a crashed previous
+  // write) so O_EXCL does not spuriously fail.
+  unlink(tmpPath.c_str());
+
+  int fd = open(tmpPath.c_str(),
+                O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+  if (fd == -1) throw logged_error("Cannot create temporary cache file");
+
+  size_t written = 0;
+  bool ok = true;
+  while (written < len) {
+    ssize_t n = write(fd, data + written, len - written);
+    if (n <= 0) {
+      ok = false;
+      break;
+    }
+    written += static_cast<size_t>(n);
+  }
+  if (ok) ok = (fsync(fd) == 0);
+  close(fd);
+
+  if (!ok) {
+    unlink(tmpPath.c_str());
+    throw logged_error("Failed to write cache file");
+  }
+
+  if (rename(tmpPath.c_str(), path.c_str()) != 0) {
+    unlink(tmpPath.c_str());
+    throw logged_error("Failed to finalize cache file");
+  }
+}
+
+/**
+ * @brief Ensure the cache directory exists, is owned by the current user,
+ * is a real directory (not a symlink), and is mode 0700.
+ *
+ * ~/.CIEPKI may already exist, e.g. created by the official CIE ID app
+ * with looser permissions; this tightens it rather than trusting whatever
+ * is already there (see finding CIE-CACHE-003).
+ */
+void EnsureCacheDirSecure(const std::string &dir) {
+  struct stat st {};
+  if (lstat(dir.c_str(), &st) == -1) {
+    mkdir(dir.c_str(), 0700);
+    return;
+  }
+  if (!S_ISDIR(st.st_mode) || st.st_uid != geteuid()) return;
+  chmod(dir.c_str(), 0700);
+}
+#endif
+
+}  // namespace
 
 #ifdef _WIN32
 bool file_exists(const char *name) { return PathFileExists(name); }
@@ -83,13 +182,16 @@ std::string GetCardDir() {
 #endif
 
   char *home = getenv("HOME");
+  std::string homeStorage;
   if (home == nullptr) {
     const struct passwd *pw = getpwuid(getuid());
-
-    home = pw->pw_dir;
+    if (pw != nullptr && pw->pw_dir != nullptr) {
+      homeStorage = pw->pw_dir;
+      home = homeStorage.data();
+    }
   }
 
-  std::string path(home);
+  std::string path(home != nullptr ? home : "/tmp");
 
   path.append("/.CIEPKI/");
 
@@ -101,6 +203,7 @@ std::string GetCardDir() {
 
 #ifdef _WIN32
 void GetCardPath(const char *PAN, std::string &sPath) {
+  RequireValidPAN(PAN);
   auto Path = GetCardDir();
 
   if (Path[Path.length() - 1] != '\\') Path += '\\';
@@ -111,6 +214,7 @@ void GetCardPath(const char *PAN, std::string &sPath) {
 }
 #else
 void GetCardPath(const char *PAN, std::string &sPath) {
+  RequireValidPAN(PAN);
   auto Path = GetCardDir();
 
   Path += std::string(PAN);
@@ -138,6 +242,7 @@ bool CacheRemove(const char *PAN) {
 }
 
 static void GetDerPath(const char *PAN, std::string &sPath) {
+  RequireValidPAN(PAN);
   auto Path = GetCardDir();
   Path += std::string(PAN);
   Path += ".der";
@@ -150,10 +255,7 @@ void CacheSetDer(const char *PAN, const uint8_t *der, size_t len) {
 
   auto szDir = GetCardDir();
 #ifndef _WIN32
-  struct stat st {};
-  if (stat(szDir.c_str(), &st) == -1) {
-    mkdir(szDir.c_str(), 0700);
-  }
+  EnsureCacheDirSecure(szDir);
 #endif
 
   std::string sPath;
@@ -173,10 +275,14 @@ void CacheSetDer(const char *PAN, const uint8_t *der, size_t len) {
   }
   OPENSSL_cleanse(plaintext.data(), plaintext.size());
 
+#ifndef _WIN32
+  WriteFileAtomic(sPath, ciphertext.data(), ciphertext.size());
+#else
   std::ofstream file(sPath.c_str(), std::ofstream::out | std::ofstream::binary);
   if (!file) throw logged_error("CacheSetDer: cannot open file for writing");
   file.write(ciphertext.c_str(), ciphertext.length());
   file.close();
+#endif
 }
 
 bool CacheGetDer(const char *PAN, std::vector<uint8_t> &certificate) {
@@ -323,17 +429,34 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
   strcpy_s(chDir, szDir.c_str());
 
   if (!PathFileExists(chDir)) {
-    CreateDirectory(chDir, nullptr);
-
-    // Default ACL inherited from user profile is sufficient.
-    // Do NOT widen access to WinBuiltinAnyPackageSid.
+    // %PROGRAMDATA%\CIEPKI inherits the ProgramData ACL by default, which
+    // grants BUILTIN\Users Read&Execute on files and Create-files on the
+    // folder -- so any local user could read another user's cache/log
+    // files, and the first user to create this directory would own it.
+    // Restrict the DACL to the current user (CREATOR OWNER) and SYSTEM
+    // only. NOTE: this only applies to a directory we create ourselves;
+    // if the directory was already created by another local installation
+    // (e.g. an older build of this library, or the official CIE ID app,
+    // which uses this same well-known path for cache-format
+    // compatibility) its existing ACL is left untouched here, since
+    // narrowing an ACL that CIE ID also writes through risks breaking
+    // interoperability with it. See finding CIE-CACHE-001.
+    PSECURITY_DESCRIPTOR pSD = nullptr;
+    SECURITY_ATTRIBUTES sa {};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = FALSE;
+    if (ConvertStringSecurityDescriptorToSecurityDescriptorA(
+            "D:PAI(A;OICI;GA;;;SY)(A;OICI;GA;;;CO)", SDDL_REVISION_1, &pSD,
+            nullptr)) {
+      sa.lpSecurityDescriptor = pSD;
+      CreateDirectory(chDir, &sa);
+      LocalFree(pSD);
+    } else {
+      CreateDirectory(chDir, nullptr);
+    }
   }
 #else
-  struct stat st {};
-
-  if (stat(szDir.c_str(), &st) == -1) {
-    mkdir(szDir.c_str(), 0700);
-  }
+  EnsureCacheDirSecure(szDir);
 #endif
 
   std::string sPath;
@@ -362,8 +485,12 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
   }
   OPENSSL_cleanse(plaintext.data(), plaintext.size());
 
+#ifndef _WIN32
+  WriteFileAtomic(sPath, ciphertext.data(), ciphertext.size());
+#else
   std::ofstream file(sPath.c_str(), std::ofstream::out | std::ofstream::binary);
   if (!file) throw logged_error("CacheSetData: cannot open file for writing");
   file.write(ciphertext.c_str(), ciphertext.length());
   file.close();
+#endif
 }

@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdarg>
 #include <cstdio>
 #include <ctime>
@@ -14,8 +15,12 @@
 
 namespace cie_logging {
 // Simple printf-based logging that avoids spdlog/fmt conflicts entirely
-inline void printf_fallback_log(int level, const char* /* module */,
-                                const char* format, ...) {
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((format(printf, 3, 4)))
+#endif
+inline void
+printf_fallback_log(int level, const char* /* module */, const char* format,
+                    ...) {
   char buffer[2048];
   va_list args;
   va_start(args, format);
@@ -65,15 +70,21 @@ inline void printf_fallback_log(int level, const char* /* module */,
 
   // Get current timestamp
   time_t rawtime;
-  const struct tm* timeinfo;
+  struct tm timeinfo {};
   char timestamp[32];
   time(&rawtime);
-  timeinfo = localtime(&rawtime);
-  strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", timeinfo);
+#ifdef _WIN32
+  localtime_s(&timeinfo, &rawtime);
+#else
+  localtime_r(&rawtime, &timeinfo);
+#endif
+  strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &timeinfo);
 
-  // Print the complete log message
-  printf("[%s] [%s] [%s] %s\n", timestamp, "cie", level_str, buffer);
-  fflush(stdout);
+  // Print the complete log message to stderr, not stdout: stdout may be a
+  // structured protocol stream (e.g. a browser native-messaging host) and
+  // must never carry diagnostic text.
+  fprintf(stderr, "[%s] [%s] [%s] %s\n", timestamp, "cie", level_str, buffer);
+  fflush(stderr);
 #endif
 }
 
@@ -84,13 +95,20 @@ constexpr int INFO_LEVEL = 3;
 constexpr int WARN_LEVEL = 2;
 constexpr int OFF_LEVEL = 0;
 
-// Global log level setting
-static int current_log_level = DEBUG_LEVEL;
+// Global log level setting. `inline` (C++17) gives this a single
+// program-wide definition shared by every translation unit that includes
+// this header, so SET_LOG_LEVEL actually affects every caller instead of
+// only the translation unit that invoked it. std::atomic makes concurrent
+// reads/writes from multiple threads well-defined.
+inline std::atomic<int> current_log_level {WARN_LEVEL};
 
-inline void set_log_level(int level) { current_log_level = level; }
+inline void set_log_level(int level) {
+  current_log_level.store(level, std::memory_order_relaxed);
+}
 
 inline bool should_log(int level) {
-  return level <= current_log_level && level != OFF_LEVEL;
+  return level <= current_log_level.load(std::memory_order_relaxed) &&
+         level != OFF_LEVEL;
 }
 }  // namespace cie_logging
 

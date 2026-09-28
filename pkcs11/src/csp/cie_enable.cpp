@@ -98,6 +98,40 @@ template <typename F>
 ScopeGuard<F> makeScopeGuard(F f) {
   return ScopeGuard<F>(std::move(f));
 }
+
+/**
+ * @brief List PC/SC reader names as a NUL-separated multi-string.
+ *
+ * Factors out the EstablishContext -> ListReaders(nullptr,&len) to size ->
+ * allocate -> ListReaders(buf,&len) pattern that used to be copy-pasted
+ * across cie_enable(), CIE_FindCardByPAN(), cie_change_pin(),
+ * cie_unblock_pin(), cie_reader_count(), cie_reader_watch() and
+ * cie_reader_name() (see finding CIE-PCSC-004). Using a std::vector<char>
+ * instead of raw malloc()/free() also removes the need for each call site
+ * to get its own free()-on-every-return-path right.
+ *
+ * @param transport Transport to enumerate readers on.
+ * @param hContext  Established PC/SC context.
+ * @param outBuf    Receives the NUL-separated, double-NUL-terminated
+ *                  reader name list on success.
+ * @return SCARD_S_SUCCESS on success (outBuf may still be a single NUL if
+ *         there are no readers); any other value indicates failure and
+ *         leaves outBuf unspecified.
+ */
+LONG ListReaderNames(ISmartCardTransport& transport, SCARDCONTEXT hContext,
+                     std::vector<char>& outBuf) {
+  DWORD len = 0;
+  LONG rv = transport.ListReaders(hContext, nullptr, &len);
+  if (rv != SCARD_S_SUCCESS) return rv;
+  if (len == 0) {
+    outBuf.clear();
+    return SCARD_S_SUCCESS;
+  }
+  outBuf.assign(len, '\0');
+  rv = transport.ListReaders(hContext, outBuf.data(), &len);
+  if (rv != SCARD_S_SUCCESS) outBuf.clear();
+  return rv;
+}
 }  // namespace
 
 bool CIE_FindCardByPAN(const char* szPAN, ByteDynArray* certOut) {
@@ -111,17 +145,13 @@ bool CIE_FindCardByPAN(const char* szPAN, ByteDynArray* certOut) {
     auto scHandleGuard =
         makeScopeGuard([&]() noexcept { transport->ReleaseContext(hSC); });
 
-    DWORD len = 0;
-    if (transport->ListReaders(hSC, nullptr, &len) != SCARD_S_SUCCESS ||
-        len <= 1)
-      return false;
-
-    std::vector<char> readers(len);
-    if (transport->ListReaders(hSC, readers.data(), &len) != SCARD_S_SUCCESS)
+    std::vector<char> readers;
+    if (ListReaderNames(*transport, hSC, readers) != SCARD_S_SUCCESS ||
+        readers.size() <= 1)
       return false;
 
     for (char* curreader = readers.data(); curreader[0] != 0;
-         curreader += strnlen(curreader, len) + 1) {
+         curreader += strnlen(curreader, readers.size()) + 1) {
       try {
         safeConnection conn(*transport, hSC, curreader, SCARD_SHARE_SHARED);
         if (!conn.hCard) continue;
@@ -428,7 +458,11 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
         ias.VerificaSODPSS(SOD2, hashSet);
       }
 
-      ByteArray pinBa(reinterpret_cast<const uint8_t*>(szPIN), 4);
+      // Copy into owning storage before cleansing below: szPIN is the
+      // caller's own const char* parameter (documented for direct literal
+      // use), and ByteArray is a non-owning view that would otherwise
+      // zero the caller's buffer.
+      ByteDynArray pinBa(ByteArray(reinterpret_cast<const uint8_t*>(szPIN), 4));
 
       progressCallBack(85, "Memorizzazione in cache");
       LOG_INFO("cie_enable - Saving certificate in cache...");
@@ -492,7 +526,7 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
   } catch (scard_error& e) {
     LOG_ERROR("cie_enable - Smart card error: 0x%04X", e.sw);
     cie_record_sw_error(e.sw);
-    if (ATR) free(ATR);
+    free(ATR);
     cie_error_kind kind = cie_classify_sw(e.sw);
     if (kind == CIE_ERR_PIN_BLOCKED) return CKR_PIN_LOCKED;
     if (kind == CIE_ERR_WRONG_PIN) return CKR_PIN_INCORRECT;
@@ -501,16 +535,16 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
   } catch (std::exception& ex) {
     LOG_ERROR("cie_enable - Exception %s ", ex.what());
     cie_record_transport_error();
-    if (ATR) free(ATR);
+    free(ATR);
     return CKR_GENERAL_ERROR;
   } catch (...) {
     LOG_ERROR("cie_enable - Unknown exception");
     cie_record_transport_error();
-    if (ATR) free(ATR);
+    free(ATR);
     return CKR_GENERAL_ERROR;
   }
 
-  if (ATR) free(ATR);
+  free(ATR);
 
   LOG_INFO("cie_enable - CIE paired successfully");
   progressCallBack(100, "OK!");
@@ -526,8 +560,10 @@ DWORD CardAuthenticateEx(IAS* ias, DWORD PinId, DWORD dwFlags, BYTE* pbPinData,
                          PROGRESS_CALLBACK progressCallBack,
                          int* pcAttemptsRemaining) {
   LOG_INFO("***** Starting CardAuthenticateEx *****");
-  LOG_DEBUG("Pin id: %d, dwFlags: %d, cbPinData: %d, pbSessionPin: %s", PinId,
-            dwFlags, cbPinData, pcbSessionPin);
+  LOG_DEBUG(
+      "Pin id: %lu, dwFlags: %lu, cbPinData: %lu, pbSessionPin: %p",
+      static_cast<unsigned long>(PinId), static_cast<unsigned long>(dwFlags),
+      static_cast<unsigned long>(cbPinData), static_cast<void*>(pcbSessionPin));
 
   LOG_INFO("CardAuthenticateEx - Selecting IAS and CIE AID");
 
@@ -759,21 +795,14 @@ int CK_ENTRY cie_reader_count(void) {
   if (transport.EstablishContext(SCARD_SCOPE_USER, &hCtx) != SCARD_S_SUCCESS)
     return 0;
 
-  DWORD len = 0;
-  LONG rv = transport.ListReaders(hCtx, nullptr, &len);
-  if (rv != SCARD_S_SUCCESS || len <= 1) {
-    transport.ReleaseContext(hCtx);
-    return 0;
-  }
-
-  char* buf = static_cast<char*>(malloc(len));
-  rv = transport.ListReaders(hCtx, buf, &len);
+  std::vector<char> buf;
+  LONG rv = ListReaderNames(transport, hCtx, buf);
   int count = 0;
-  if (rv == SCARD_S_SUCCESS) {
-    for (const char* p = buf; p[0] != '\0'; p += strnlen(p, len) + 1)
+  if (rv == SCARD_S_SUCCESS && buf.size() > 1) {
+    for (const char* p = buf.data(); p[0] != '\0';
+         p += strnlen(p, buf.size()) + 1)
       if (strstr(p, "Virtual") == nullptr) ++count;
   }
-  free(buf);
   transport.ReleaseContext(hCtx);
   return count;
 #endif
@@ -814,15 +843,12 @@ int CK_ENTRY cie_reader_watch([[maybe_unused]] int current_count) {
     }
 
     int count = 0;
-    DWORD len = 0;
-    rv = transport.ListReaders(hCtx, nullptr, &len);
-    if (rv == SCARD_S_SUCCESS && len > 1) {
-      char* buf = static_cast<char*>(malloc(len));
-      if (transport.ListReaders(hCtx, buf, &len) == SCARD_S_SUCCESS) {
-        for (const char* p = buf; p[0] != '\0'; p += strnlen(p, len) + 1)
-          ++count;
-      }
-      free(buf);
+    std::vector<char> buf;
+    if (ListReaderNames(transport, hCtx, buf) == SCARD_S_SUCCESS &&
+        buf.size() > 1) {
+      for (const char* p = buf.data(); p[0] != '\0';
+           p += strnlen(p, buf.size()) + 1)
+        ++count;
     }
 
     if (count != current_count) {
@@ -845,18 +871,17 @@ int CK_ENTRY cie_reader_name(char* buf, int buf_len) {
   if (transport.EstablishContext(SCARD_SCOPE_USER, &hCtx) != SCARD_S_SUCCESS)
     return 0;
 
-  DWORD len = 0;
-  LONG rv = transport.ListReaders(hCtx, nullptr, &len);
-  if (rv != SCARD_S_SUCCESS || len <= 1) {
+  std::vector<char> readers;
+  LONG rv = ListReaderNames(transport, hCtx, readers);
+  if (rv != SCARD_S_SUCCESS || readers.size() <= 1) {
     transport.ReleaseContext(hCtx);
     return 0;
   }
 
-  char* readers = static_cast<char*>(malloc(len));
-  rv = transport.ListReaders(hCtx, readers, &len);
   int found = 0;
-  if (rv == SCARD_S_SUCCESS) {
-    for (const char* p = readers; p[0] != '\0'; p += strnlen(p, len) + 1) {
+  {
+    for (const char* p = readers.data(); p[0] != '\0';
+         p += strnlen(p, readers.size()) + 1) {
       if (strstr(p, "Virtual") != nullptr) continue;
 
       // Probe state without blocking (timeout=0)
@@ -875,7 +900,7 @@ int CK_ENTRY cie_reader_name(char* buf, int buf_len) {
       bool isInternal = strstr(p, "Broadcom") != nullptr;
 
       if (hasCard || (isEmpty && !isInternal)) {
-        size_t nameLen = strnlen(p, len);
+        size_t nameLen = strnlen(p, readers.size());
         if (nameLen >= static_cast<size_t>(buf_len)) {
           // Truncating here would silently hand the caller an unusable,
           // ambiguous reader name. Fail closed: skip this reader (buf
@@ -894,7 +919,6 @@ int CK_ENTRY cie_reader_name(char* buf, int buf_len) {
       }
     }
   }
-  free(readers);
   transport.ReleaseContext(hCtx);
   return found;
 #endif

@@ -112,8 +112,8 @@ class ByteArray {
   inline uint8_t &operator[](size_t pos) const {
     if (pos >= _size)
       throw logged_error(
-          stdPrintf("Array access at position %i not allowed; "
-                    "maximum size %i",
+          stdPrintf("Array access at position %zu not allowed; "
+                    "maximum size %zu",
                     pos, _size));
     return _data[pos];
   }

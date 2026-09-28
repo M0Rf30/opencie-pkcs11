@@ -671,12 +671,7 @@ void IAS::increment(ByteArray &seq) {
 
 ByteDynArray IAS::SM(const ByteArray &keyEnc, const ByteArray &keySig,
                      const ByteArray &apdu, ByteArray &seq) {
-  std::string dmp;
-  Log.writePure("%s", dumpHexData(seq, dmp).c_str());
-
   increment(seq);
-
-  Log.writePure("%s", dumpHexData(seq, dmp).c_str());
 
   ByteDynArray smHead;
   smHead = ByteDynArray(apdu.left(4));
@@ -886,7 +881,6 @@ StatusWord IAS::SendAPDU_SM(ByteArray head, ByteArray data, ByteDynArray &resp,
   ByteDynArray s, curresp;
   ByteArray emptyBa;
   ByteArray leBa = VarToByteArray(*le);
-  std::string str;
 
   StatusWord sw;
   if (data.size() < 0xE7) {
@@ -897,13 +891,6 @@ StatusWord IAS::SendAPDU_SM(ByteArray head, ByteArray data, ByteDynArray &resp,
     sw = token.Transmit(smApdu, &curresp);
     sw = getResp_SM(curresp, sw, resp);
 
-    Log.writePure("%s", std::string()
-                            .append("Clear RESP:")
-                            .append(dumpHexData(resp, str))
-                            .append(HexByte(sw >> 8))
-                            .append(HexByte(sw & 0xff))
-                            .append("\n")
-                            .c_str());
     return sw;
   } else {
     // Note: in some cases the card returns 61xx between commands during
@@ -927,20 +914,10 @@ StatusWord IAS::SendAPDU_SM(ByteArray head, ByteArray data, ByteDynArray &resp,
         smApdu.set(&head,
                    (le == nullptr || i < data.size()) ? &emptyBa : &leBa);
 
-      Log.writePure("%s", std::string("Clear APDU:")
-                              .append(dumpHexData(smApdu, str))
-                              .append("\n")
-                              .c_str());
       smApdu = SM(sessENC, sessMAC, smApdu, sessSSC);
       sw = token.Transmit(smApdu, &curresp);
       sw = getResp_SM(curresp, sw, resp);
 
-      Log.writePure("%s", std::string("Clear RESP:")
-                              .append(dumpHexData(resp, str))
-                              .append(HexByte(sw >> 8))
-                              .append(HexByte(sw & 0xff))
-                              .append("\n")
-                              .c_str());
       if (i == data.size()) return sw;
       if (sw != 0x9000) throw scard_error(sw);
     }

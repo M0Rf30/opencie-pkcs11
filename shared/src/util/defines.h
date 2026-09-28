@@ -76,6 +76,24 @@
 #define logParamBufHide(p, l)
 /** @} */
 
+/**
+ * @brief Enable compiler printf-style format-string checking on a
+ * function declaration.
+ *
+ * Expands to `__attribute__((format(printf, fmt_idx, va_idx)))` on
+ * GCC/Clang (catches %-directive/argument-type mismatches at -Wformat
+ * compile time) and to nothing on MSVC, which has no equivalent
+ * attribute. `fmt_idx`/`va_idx` are 1-based parameter positions
+ * including the implicit `this` for non-static member functions (so a
+ * member function's format string is usually index 2, not 1).
+ */
+#if defined(__GNUC__) || defined(__clang__)
+#define CIE_PRINTF(fmt_idx, va_idx) \
+  __attribute__((format(printf, fmt_idx, va_idx)))
+#else
+#define CIE_PRINTF(fmt_idx, va_idx)
+#endif
+
 /** @brief Initialize function call tracing for the current function. */
 #define init_func CFuncCallInfo info(__FUNCTION__, Log);
 
@@ -87,7 +105,13 @@
  * @param a Condition to assert.
  * @param b Description of the assertion for the error message.
  */
+// NOTE: intentionally NOT wrapped in `do { ... } while (0)`: existing call
+// sites across the codebase use ER_ASSERT(...) without a trailing ';'
+// (relying on it expanding to a single if-statement), and a do/while
+// wrapper would break those call sites. Braces around the throw avoid the
+// dangling-else hazard while keeping semicolon-optional usage working.
 #define ER_ASSERT(a, b)                                               \
-  if (!(a))                                                           \
+  if (!(a)) {                                                         \
     throw logged_error(stdPrintf("Exception in file %s, line %i: %s", \
-                                 __FILE__, __LINE__, b));
+                                 __FILE__, __LINE__, b));             \
+  }

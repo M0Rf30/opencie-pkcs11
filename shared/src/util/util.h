@@ -342,6 +342,7 @@ unsigned long RemoveSha256(const ByteArray &paddedData);
 unsigned long ANSIPadLen(unsigned long Len);
 void ANSIPad(const ByteArray &Data, unsigned long DataLen);
 unsigned long ISOPadLen(unsigned long Len);
+unsigned long ISOPadLen16(unsigned long Len);
 void ISOPad(const ByteArray &Data, unsigned long DataLen);
 long ByteArrayToInt(const ByteArray &ba);
 ByteDynArray ISOPad(const ByteArray &data);

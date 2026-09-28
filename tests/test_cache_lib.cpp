@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #include <openssl/evp.h>
 #include <openssl/sha.h>
+#include <sys/stat.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <cstdlib>
@@ -219,4 +220,77 @@ TEST_CASE(
   CacheGetCertificate(PAN, gotCertAgain);
   REQUIRE(gotCertAgain.size() == cert.size());
   CHECK(std::string(gotCertAgain.begin(), gotCertAgain.end()) == cert);
+}
+
+TEST_CASE("CacheSetData rejects a path-traversal PAN", "[cache]") {
+  char tmpl[] = "/tmp/cie_cache_test_XXXXXX";
+  char *dir = mkdtemp(tmpl);
+  REQUIRE(dir != nullptr);
+  ScopedHomeOverride homeGuard(dir);
+
+  std::string cert = "cert";
+  std::string pin = "1234";
+
+  // A PAN containing path-traversal sequences must be rejected before it
+  // is concatenated into a filesystem path (see finding CIE-CACHE-004),
+  // instead of being allowed to write outside ~/.CIEPKI/.
+  CHECK_THROWS(CacheSetData(
+      "../../evil", reinterpret_cast<uint8_t *>(cert.data()),
+      static_cast<int>(cert.size()), reinterpret_cast<uint8_t *>(pin.data()),
+      static_cast<int>(pin.size())));
+
+  CHECK(!std::filesystem::exists(std::filesystem::path(dir) / ".." / ".." /
+                                 "evil.cache"));
+}
+
+TEST_CASE("CacheExists/CacheRemove/CacheGetDer reject non-hex PANs",
+          "[cache]") {
+  char tmpl[] = "/tmp/cie_cache_test_XXXXXX";
+  char *dir = mkdtemp(tmpl);
+  REQUIRE(dir != nullptr);
+  ScopedHomeOverride homeGuard(dir);
+
+  CHECK_THROWS(CacheExists("../etc/passwd"));
+  CHECK_THROWS(CacheRemove("../etc/passwd"));
+  std::vector<uint8_t> out;
+  CHECK_THROWS(CacheGetDer("not hex!", out));
+  // A plain, empty, or over-long PAN is likewise rejected.
+  CHECK_THROWS(CacheExists(""));
+  CHECK_THROWS(
+      CacheExists("00000000000000000000000000000000000000000000000000"));
+  // A valid hex PAN is still accepted (just reports "not found").
+  CHECK_FALSE(CacheExists("abcdef0123456789"));
+}
+
+TEST_CASE(
+    "CacheSetData writes cache and cache directory with owner-only "
+    "permissions",
+    "[cache]") {
+  char tmpl[] = "/tmp/cie_cache_test_XXXXXX";
+  char *dir = mkdtemp(tmpl);
+  REQUIRE(dir != nullptr);
+  ScopedHomeOverride homeGuard(dir);
+
+  const char *PAN = "abcdef0123456789";
+  std::string cert = "cert-bytes";
+  std::string pin = "1234";
+
+  CacheSetData(PAN, reinterpret_cast<uint8_t *>(cert.data()),
+               static_cast<int>(cert.size()),
+               reinterpret_cast<uint8_t *>(pin.data()),
+               static_cast<int>(pin.size()));
+
+  std::string cieDir = homeGuard.dir() + "/.CIEPKI";
+  std::string cachePath = cieDir + "/" + std::string(PAN) + ".cache";
+
+  struct stat dirSt {};
+  REQUIRE(stat(cieDir.c_str(), &dirSt) == 0);
+  CHECK((dirSt.st_mode & 0777) == 0700);
+
+  struct stat fileSt {};
+  REQUIRE(stat(cachePath.c_str(), &fileSt) == 0);
+  CHECK((fileSt.st_mode & 0777) == 0600);
+
+  // The atomic-write temp file must not be left behind.
+  CHECK(!std::filesystem::exists(cachePath + ".tmp"));
 }

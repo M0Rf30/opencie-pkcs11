@@ -35,7 +35,8 @@ class logged_error : public std::runtime_error {
    * @brief Construct from a const string reference.
    * @param message Error message.
    */
-  explicit logged_error(const std::string &message);
+  explicit logged_error(const std::string &message)
+      : logged_error(message.c_str()) {}
 
   /**
    * @brief Construct from a C string.

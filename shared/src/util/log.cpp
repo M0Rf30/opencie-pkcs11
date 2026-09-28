@@ -11,6 +11,7 @@
 #include <windows.h>
 // clang-format on
 #else
+#include <fcntl.h>
 #include <pwd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -44,8 +45,7 @@ enum logMode {
   LM_Module_Thread
 } LogMode = LM_Module;
 
-void initLog(const char *moduleName, const char * /*iniFile*/,
-             const char *version) {
+void initLog(const char *moduleName, const char *iniFile, const char *version) {
   if (mainInit) return;
 
   mainInit = true;
@@ -54,21 +54,22 @@ void initLog(const char *moduleName, const char * /*iniFile*/,
 
   Properties settings;
 
+  if (iniFile != nullptr) settings.load(iniFile);
+
   LogMode = static_cast<logMode>(
       settings.getIntProperty("LogMode", static_cast<int>(LM_Single)));
 
-  if (LogMode != LM_Single && LogMode != LM_Module && LogMode != LM_Thread &&
-      LogMode != LM_Module_Thread) {
+  if (LogMode != LM_Single && LogMode != LM_Module) {
     LogMode = LM_Single;
   }
 
-  mainEnable = settings.getIntProperty("LogEnable", 1);
+  mainEnable = settings.getIntProperty("LogEnable", 0);
 
-  FunctionLog = settings.getIntProperty("FunctionLog", 1);
+  FunctionLog = settings.getIntProperty("FunctionLog", 0);
 
   GlobalDepth = settings.getIntProperty("FunctionDepth", 10);
 
-  globalLogParam = settings.getIntProperty("ParamLog", 1);
+  globalLogParam = settings.getIntProperty("ParamLog", 0);
 
   globalLogName = moduleName;
 
@@ -99,14 +100,16 @@ void initLog(const char *moduleName, const char * /*iniFile*/,
   std::string path(szLogDir);
 #else
   char *home = getenv("HOME");
+  std::string homeStorage;
   if (home == nullptr) {
     const struct passwd *pw = getpwuid(getuid());
-
-    home = pw->pw_dir;
-    printf("home: %s", home);
+    if (pw != nullptr && pw->pw_dir != nullptr) {
+      homeStorage = pw->pw_dir;
+      home = homeStorage.data();
+    }
   }
 
-  std::string path(home);
+  std::string path(home != nullptr ? home : "/tmp");
 
   path.append("/.CIEPKI/");
 
@@ -129,6 +132,43 @@ CLog::~CLog() {
   FirstLog = false;
 }
 
+namespace {
+/** @brief Build a "YYYY-MM-DD" date string for the current local date. */
+std::string currentLogDate() {
+  time_t T = time(nullptr);
+  struct tm tmBuf {};
+#ifdef _WIN32
+  localtime_s(&tmBuf, &T);
+#else
+  localtime_r(&T, &tmBuf);
+#endif
+  char buf[16] = {0};
+  strftime(buf, sizeof(buf), "%Y-%m-%d", &tmBuf);
+  return std::string(buf);
+}
+
+#ifndef _WIN32
+/**
+ * @brief Open a log file for appending, refusing to follow symlinks and
+ * creating it with owner-only permissions (0600). Replaces the previous
+ * fopen()-then-lstat() sequence, which was subject to a TOCTOU race.
+ */
+FILE *openLogFileAppend(const std::string &path) {
+  int fd = open(path.c_str(),
+                O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_CLOEXEC, 0600);
+  if (fd == -1) return nullptr;
+  struct stat st {};
+  if (fstat(fd, &st) == -1 || !S_ISREG(st.st_mode)) {
+    close(fd);
+    return nullptr;
+  }
+  FILE *lf = fdopen(fd, "a");
+  if (lf == nullptr) close(fd);
+  return lf;
+}
+#endif
+}  // namespace
+
 void CLog::init() {
   Enabled = mainEnable;
   LogParam = globalLogParam;
@@ -136,48 +176,26 @@ void CLog::init() {
   logName = globalLogName;
   logFileName = globalLogName;
 
-  std::stringstream th;
-  th << std::setw(8) << std::setfill('0');
-
-#ifdef _WIN32
-  SYSTEMTIME stTime;
-  GetLocalTime(&stTime);
-  int year = stTime.wYear;
-  int mon = stTime.wMonth;
-  int mday = stTime.wDay;
-#else
-  time_t T = time(nullptr);
-  struct tm t;
-  struct tm tm = *localtime_r(&T, &t);
-  int year = tm.tm_year;
-  int mon = tm.tm_mon;
-  int mday = tm.tm_mday;
-#endif
+  std::string date = currentLogDate();
 
   switch (LogMode) {
     case (LM_Single): {
-      th << logFileName << "_" << std::setw(4) << year << "-" << std::setw(2)
-         << mon << "-" << mday << ".log";
+      logPath = logFileName + "_" + date + ".log";
       break;
     }
     case (LM_Module): {
-      th << std::setw(4) << year << "-" << std::setw(2) << mon << "-" << mday
-         << "_" << logFileName << ".log";
+      logPath = date + "_" + logFileName + ".log";
       break;
     }
     case (LM_Thread): {
-      th << std::setw(4) << year << "-" << std::setw(2) << mon << "-" << mday
-         << "_00000000.log";
+      logPath = date + "_00000000.log";
       break;
     }
     case (LM_Module_Thread): {
-      th << std::setw(4) << year << "-" << std::setw(2) << mon << "-" << mday
-         << "_" << logFileName << "_00000000.log";
+      logPath = date + "_" + logFileName + "_00000000.log";
       break;
     }
   }
-
-  logPath = th.str();
 
   if ((LogMode == LM_Module || LogMode == LM_Module_Thread) &&
       logDir.length() != 0) {
@@ -229,7 +247,7 @@ DWORD CLog::write(const char *format, ...) {
     time_t T = time(nullptr);
     struct tm t;
     struct tm tm = *localtime_r(&T, &t);
-    snprintf(pbtDate, 20, "%05u:[%02d:%02d:0%02d]", *Num, tm.tm_hour, tm.tm_min,
+    snprintf(pbtDate, 20, "%05u:[%02d:%02d:%02d]", *Num, tm.tm_hour, tm.tm_min,
              tm.tm_sec);
 #endif
 
@@ -247,44 +265,18 @@ DWORD CLog::write(const char *format, ...) {
 
 #ifdef _WIN32
     fopen_s(&lf, logPath.c_str(), "a+t");
+    if (lf == nullptr) {
+      va_end(params);
+      return static_cast<long>(ERROR_FILE_NOT_FOUND);
+    }
 #else
-    lf = fopen(logPath.c_str(), "a+t");
+    lf = openLogFileAppend(logPath);
+    if (lf == nullptr) {
+      va_end(params);
+      return static_cast<long>(ERROR_FILE_NOT_FOUND);
+    }
 #endif
-    if (lf) {
-#ifndef _WIN32
-      struct stat lstat_buf;
-      struct stat fstat_buf;
-
-      int r = lstat(logPath.c_str(), &lstat_buf);
-
-      if (r == -1) {
-        fclose(lf);
-        va_end(params);
-        return ERROR_FILE_NOT_FOUND;
-      }
-
-      if (S_ISLNK(lstat_buf.st_mode)) {
-        fclose(lf);
-        va_end(params);
-        return static_cast<long>(ERROR_FILE_NOT_FOUND);
-      }
-
-      r = stat(logPath.c_str(), &fstat_buf);
-      if (r == -1) {
-        fclose(lf);
-        va_end(params);
-        return static_cast<long>(ERROR_FILE_NOT_FOUND);
-      }
-
-      if (lstat_buf.st_dev != fstat_buf.st_dev ||
-          lstat_buf.st_ino != fstat_buf.st_ino ||
-          (S_IFMT & lstat_buf.st_mode) != (S_IFMT & fstat_buf.st_mode)) {
-        fclose(lf);
-        va_end(params);
-        return static_cast<long>(ERROR_FILE_NOT_FOUND);
-      }
-#endif
-
+    {
       switch (LogMode) {
         case (LM_Single):
 #ifdef _WIN32
@@ -365,15 +357,17 @@ void CLog::writePure(const char *format, ...) {
 
       logPath.replace(threadPos, threadPos + 14, th.str());
     }
-#ifdef _WIN32
     FILE *lf = nullptr;
+#ifdef _WIN32
     fopen_s(&lf, logPath.c_str(), "a+t");
+#else
+    lf = openLogFileAppend(logPath);
+#endif
     if (lf) {
       vfprintf(lf, format, params);
       fprintf(lf, "\n");
       fclose(lf);
     }
-#endif
   }
 
   va_end(params);
@@ -403,39 +397,9 @@ void CLog::writeBinData(BYTE *data, size_t datalen) {
 #ifdef _WIN32
   fopen_s(&lf, logPath.c_str(), "a+t");
 #else
-  lf = fopen(logPath.c_str(), "a+t");
+  lf = openLogFileAppend(logPath);
 #endif
   if (lf) {
-#ifndef _WIN32
-    struct stat lstat_buf;
-    struct stat fstat_buf;
-
-    int r = lstat(logPath.c_str(), &lstat_buf);
-
-    if (r == -1) {
-      fclose(lf);
-      return;
-    }
-
-    if (S_ISLNK(lstat_buf.st_mode)) {
-      fclose(lf);
-      return;
-    }
-
-    r = stat(logPath.c_str(), &fstat_buf);
-    if (r == -1) {
-      fclose(lf);
-      return;
-    }
-
-    if (lstat_buf.st_dev != fstat_buf.st_dev ||
-        lstat_buf.st_ino != fstat_buf.st_ino ||
-        (S_IFMT & lstat_buf.st_mode) != (S_IFMT & fstat_buf.st_mode)) {
-      fclose(lf);
-      return;
-    }
-#endif
-
     if (datalen > 100) datalen = 100;
     for (size_t i = 0; i < datalen; i++) fprintf(lf, "%02x ", data[i]);
     fprintf(lf, "\n");

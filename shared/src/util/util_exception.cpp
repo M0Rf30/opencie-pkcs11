@@ -7,11 +7,6 @@
 
 using namespace CieIDLogger;
 
-logged_error::logged_error(const std::string &message)
-    : std::runtime_error(message.c_str()) {
-  logged_error(message.c_str());
-}
-
 logged_error::logged_error(const char *message) : std::runtime_error(message) {
   LOG_ERROR("%s", message);
 }
