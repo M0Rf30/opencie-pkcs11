@@ -22,9 +22,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install system tools required by pre-commit hooks
-        run: sudo apt update && sudo apt install -y clang-format-19 cppcheck
+        run: sudo apt-get update && sudo apt-get install -y clang-format-19 cppcheck python3-pip
 
-      - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+      - run: pip install pre-commit
+
+      - name: Cache pre-commit environments
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-3|${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - run: pre-commit run --all-files --show-diff-on-failure
 
   codeql:
     runs-on: ubuntu-latest
@@ -36,8 +44,8 @@ jobs:
 
       - name: Install dependencies
         run: >
-          sudo apt update;
-          sudo apt install -y cmake g++
+          sudo apt-get update;
+          sudo apt-get install -y cmake g++
           libcurl4-openssl-dev libfontconfig1-dev
           libfreetype6-dev libopenjp2-7-dev libpcsclite-dev libpng-dev
           libssl-dev libxml2-dev
@@ -99,8 +107,8 @@ jobs:
 
       - name: Install dependencies
         run: >
-          sudo apt update;
-          sudo apt install -y cmake g++
+          sudo apt-get update;
+          sudo apt-get install -y cmake g++
           libcurl4-openssl-dev libfontconfig1-dev
           libfreetype6-dev libopenjp2-7-dev libpcsclite-dev libpng-dev
           libssl-dev libxml2-dev
@@ -142,8 +150,8 @@ jobs:
 
       - name: Install dependencies
         run: >
-          sudo apt update;
-          sudo apt install -y cmake g++
+          sudo apt-get update;
+          sudo apt-get install -y cmake g++
           libcurl4-openssl-dev libfontconfig1-dev
           libfreetype6-dev libopenjp2-7-dev libpcsclite-dev libpng-dev
           libssl-dev libxml2-dev
@@ -187,8 +195,8 @@ jobs:
 
       - name: Install dependencies
         run: >
-          sudo apt update;
-          sudo apt install -y clang clang-tools cmake g++
+          sudo apt-get update;
+          sudo apt-get install -y clang clang-tools cmake g++
           libcurl4-openssl-dev libfontconfig1-dev
           libfreetype6-dev libopenjp2-7-dev libpcsclite-dev libpng-dev
           libssl-dev libxml2-dev
@@ -211,14 +219,16 @@ jobs:
         # picking up apt's libxml2-dev here would leave dynamic
         # libicuuc/libicui18n/libicudata NEEDED entries in the shipped .so
         # that are absent on older/other distros (GH issue #25). Build our
-        # own static, ICU-free libxml2 up front and point meson at it via
+        # own static, ICU-free libxml2 up front (outside $GITHUB_WORKSPACE,
+        # so Meson's cmake.subproject() import does not drop its includes
+        # as "inside the root project but not inside the subproject") and
         # LIBXML2_STATIC_PREFIX (read by meson.build) so both this
         # project's own libxml2 use and PoDoFo's cmake find_package(LibXml2)
         # resolve to it instead.
         run: |
           set -eux
           XML2_VER=2.15.4
-          XML2_PREFIX="${GITHUB_WORKSPACE}/vendor/libxml2-static"
+          XML2_PREFIX="${RUNNER_TEMP}/vendor/libxml2-static"
           curl -fsSL -o /tmp/libxml2.tar.xz \
             "https://download.gnome.org/sources/libxml2/${XML2_VER%.*}/libxml2-${XML2_VER}.tar.xz"
           echo "98087fd181d9070724f3fbc65c7377db03038eb92bd882374daff44940138821  /tmp/libxml2.tar.xz" | sha256sum -c -
@@ -298,8 +308,8 @@ jobs:
             'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-updates main restricted universe multiverse' \
             'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-security main restricted universe multiverse' \
             | sudo tee /etc/apt/sources.list.d/arm64-ports.list
-          sudo apt update
-          sudo apt install -y \
+          sudo apt-get update
+          sudo apt-get install -y \
             cmake \
             g++-aarch64-linux-gnu \
             libcurl4-openssl-dev:arm64 \
@@ -365,8 +375,8 @@ jobs:
         # no Windows runtime here, and running the .exe under Wine needs the
         # clang-mingw C++ runtime DLLs, which this runner doesn't provide.
         run: >
-          sudo apt update;
-          sudo apt install -y cmake clang lld mingw-w64
+          sudo apt-get update;
+          sudo apt-get install -y cmake clang lld mingw-w64
           pkg-config python3-pip
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -395,16 +405,28 @@ jobs:
           cache-key: windows
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Relocate vcpkg installed tree outside the workspace
+        # Meson's cmake.subproject() drops -I flags whose path resolves
+        # inside $GITHUB_WORKSPACE but outside the (podofo) subproject dir
+        # ("path ... is inside the root project but not inside the
+        # subproject. --> Ignoring."), which silently breaks the PoDoFo
+        # cmake build's access to vcpkg's libxml2/freetype/etc. headers.
+        # Copy the installed tree to $RUNNER_TEMP (always outside the
+        # workspace) and point every subsequent step at that copy instead.
+        run: |
+          mkdir -p "${RUNNER_TEMP}/vcpkg-installed"
+          cp -a vcpkg/installed/. "${RUNNER_TEMP}/vcpkg-installed/"
+
       - name: Configure
         env:
-          PKG_CONFIG_LIBDIR: ${{ github.workspace }}/vcpkg/installed/x64-mingw-dynamic/lib/pkgconfig
+          PKG_CONFIG_LIBDIR: ${{ runner.temp }}/vcpkg-installed/x64-mingw-dynamic/lib/pkgconfig
           CC: ccache clang
           CXX: ccache clang++
         run: meson setup builddir-clang-win --cross-file toolchains/cross-clang-mingw.ini
 
       - name: Build
         env:
-          PKG_CONFIG_LIBDIR: ${{ github.workspace }}/vcpkg/installed/x64-mingw-dynamic/lib/pkgconfig
+          PKG_CONFIG_LIBDIR: ${{ runner.temp }}/vcpkg-installed/x64-mingw-dynamic/lib/pkgconfig
         run: meson compile -C builddir-clang-win
 
       - name: Strip
@@ -415,7 +437,7 @@ jobs:
           mkdir -p dist-win/runtime
           cp builddir-clang-win/libopencie-pkcs11.dll dist-win/
           # vcpkg runtime DLLs (direct + transitive deps)
-          cp vcpkg/installed/x64-mingw-dynamic/bin/*.dll dist-win/runtime/
+          cp "${RUNNER_TEMP}/vcpkg-installed/x64-mingw-dynamic/bin/"*.dll dist-win/runtime/
           # MinGW runtime DLLs
           cp /usr/x86_64-w64-mingw32/bin/libgcc_s_seh-1.dll \
              /usr/x86_64-w64-mingw32/bin/libstdc++-6.dll \
@@ -527,6 +549,14 @@ jobs:
             zlib
           triplet: arm64-android
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Relocate vcpkg installed tree outside the workspace
+        # See the "windows" job for why: Meson's cmake.subproject() import
+        # ignores -I flags whose path is inside $GITHUB_WORKSPACE but
+        # outside the PoDoFo subproject dir.
+        run: |
+          mkdir -p "${RUNNER_TEMP}/vcpkg-installed"
+          cp -a vcpkg/installed/. "${RUNNER_TEMP}/vcpkg-installed/"
       - name: Configure cross file
         run: |
           sed -i "s|/opt/android-ndk|${{ steps.setup-ndk.outputs.ndk-path }}|g" toolchains/cross-android-arm64.ini
@@ -534,21 +564,21 @@ jobs:
 
       - name: Configure
         env:
-          PKG_CONFIG_LIBDIR: ${{ github.workspace }}/vcpkg/installed/arm64-android/lib/pkgconfig
+          PKG_CONFIG_LIBDIR: ${{ runner.temp }}/vcpkg-installed/arm64-android/lib/pkgconfig
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_ABI: arm64-v8a
           ANDROID_PLATFORM: android-28
-          VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg/installed
+          VCPKG_INSTALLED_DIR: ${{ runner.temp }}/vcpkg-installed
           VCPKG_TARGET_TRIPLET: arm64-android
         run: meson setup builddir-android --cross-file toolchains/cross-android-arm64.ini -Dtests=false
 
       - name: Build
         env:
-          PKG_CONFIG_LIBDIR: ${{ github.workspace }}/vcpkg/installed/arm64-android/lib/pkgconfig
+          PKG_CONFIG_LIBDIR: ${{ runner.temp }}/vcpkg-installed/arm64-android/lib/pkgconfig
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_ABI: arm64-v8a
           ANDROID_PLATFORM: android-28
-          VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg/installed
+          VCPKG_INSTALLED_DIR: ${{ runner.temp }}/vcpkg-installed
           VCPKG_TARGET_TRIPLET: arm64-android
         run: meson compile -C builddir-android
 
@@ -607,6 +637,11 @@ jobs:
             zlib
           triplet: x64-android
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Relocate vcpkg installed tree outside the workspace
+        run: |
+          mkdir -p "${RUNNER_TEMP}/vcpkg-installed"
+          cp -a vcpkg/installed/. "${RUNNER_TEMP}/vcpkg-installed/"
       - name: Configure cross file
         run: |
           sed -i "s|/opt/android-ndk|${{ steps.setup-ndk.outputs.ndk-path }}|g" toolchains/cross-android-x86_64.ini
@@ -614,21 +649,21 @@ jobs:
 
       - name: Configure
         env:
-          PKG_CONFIG_LIBDIR: ${{ github.workspace }}/vcpkg/installed/x64-android/lib/pkgconfig
+          PKG_CONFIG_LIBDIR: ${{ runner.temp }}/vcpkg-installed/x64-android/lib/pkgconfig
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_ABI: x86_64
           ANDROID_PLATFORM: android-28
-          VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg/installed
+          VCPKG_INSTALLED_DIR: ${{ runner.temp }}/vcpkg-installed
           VCPKG_TARGET_TRIPLET: x64-android
         run: meson setup builddir-android-x86_64 --cross-file toolchains/cross-android-x86_64.ini -Dtests=false
 
       - name: Build
         env:
-          PKG_CONFIG_LIBDIR: ${{ github.workspace }}/vcpkg/installed/x64-android/lib/pkgconfig
+          PKG_CONFIG_LIBDIR: ${{ runner.temp }}/vcpkg-installed/x64-android/lib/pkgconfig
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_ABI: x86_64
           ANDROID_PLATFORM: android-28
-          VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg/installed
+          VCPKG_INSTALLED_DIR: ${{ runner.temp }}/vcpkg-installed
           VCPKG_TARGET_TRIPLET: x64-android
         run: meson compile -C builddir-android-x86_64
 

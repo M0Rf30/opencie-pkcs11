@@ -185,7 +185,8 @@ if build_sign_sdk
   # and libtiff.a is linked statically (portable / cross builds).
   lzma_dep = dependency('liblzma', required: false)
 
-  podofo_dep = dependency('libpodofo', version: '>=1.1.0', required: false)
+  podofo_dep = dependency('libpodofo', version: '>=1.1.0', required: false,
+      include_type: 'system')
   if not podofo_dep.found()
     cmake = import('cmake')
     podofo_opts = cmake.subproject_options()
@@ -207,6 +208,20 @@ if build_sign_sdk
       'PODOFO_BUILD_STATIC': true,
       'PODOFO_BUILD_LIB_ONLY': true,
       'CMAKE_POSITION_INDEPENDENT_CODE': true,
+      # Silence CMP0156/CMP0179 dev/policy warnings from PoDoFo's own
+      # add_library() calls (3rdparty/CMakeLists.txt,
+      # src/podofo/CMakeLists.txt, .../private): this is vendored code, so
+      # opting into the newer static-library de-duplication behaviour here
+      # (rather than patching the vendored CMakeLists.txt) is acceptable
+      # and avoids repeated warnings on every configure, on both older
+      # CMake (which only knows CMP0156) and newer CMake (which also
+      # knows CMP0179; unrecognized CMAKE_POLICY_DEFAULT_CMPxxxx entries
+      # are silently ignored by older CMake, so this is safe everywhere).
+      'CMAKE_POLICY_DEFAULT_CMP0156': 'NEW',
+      'CMAKE_POLICY_DEFAULT_CMP0179': 'NEW',
+      # Blanket-suppress remaining CMake dev warnings from this vendored
+      # subproject only (never applied to our own project-wide CMakeLists).
+      'CMAKE_SUPPRESS_DEVELOPER_WARNINGS': true,
     }
     if libxml2_static_prefix != ''
       # Pre-seed CMake's FindLibXml2 cache result variables so
@@ -244,8 +259,12 @@ if build_sign_sdk
       podofo_cmake_defines += {'PODOFO_WITH_FONTMANAGER': false}
     endif
     podofo_opts.add_cmake_defines(podofo_cmake_defines)
-    podofo_opts.append_compile_args('cpp', '-fPIC', '-w')
-    podofo_opts.append_compile_args('c', '-fPIC', '-w')
+    # CMAKE_POSITION_INDEPENDENT_CODE above already makes cmake.subproject()
+    # apply Meson's 'pic' kwarg internally; do not also pass '-fPIC' as a
+    # manual compile arg, or Meson warns "Use the 'pic' kwarg instead of
+    # passing '-fpic' manually" for every podofo_* target.
+    podofo_opts.append_compile_args('cpp', '-w')
+    podofo_opts.append_compile_args('c', '-w')
 
     # Meson's cmake.subproject captures the subproject's own target include
     # directories but does not propagate INTERFACE_INCLUDE_DIRECTORIES of
@@ -296,7 +315,11 @@ if build_sign_sdk
     endif
 
     podofo_sub = cmake.subproject('libpodofo', options: podofo_opts)
-    podofo_dep = podofo_sub.dependency('podofo_static')
+    # Treat PoDoFo as a system include for our own targets: PoDoFo 1.1.1
+    # headers (e.g. PdfObjectStream.h) trigger -Wunnecessary-virtual-specifier
+    # under our -Wall/-Wextra on clang/macOS; system-include suppresses
+    # warnings from headers we don't own without touching vendored code.
+    podofo_dep = podofo_sub.dependency('podofo_static', include_type: 'system')
   endif
   zlib_dep = dependency('zlib')
 endif
