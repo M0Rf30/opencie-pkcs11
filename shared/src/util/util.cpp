@@ -167,8 +167,8 @@ void PutPaddingBT0(const ByteArray &ba, long dwLen) {
 }
 
 void PutPaddingBT1(ByteArray &ba, unsigned long dwLen) {
-  init_func if (dwLen >
-                ba.size() - 3) throw logged_error("Invalid padding length");
+  init_func if (ba.size() < 3 || dwLen > ba.size() - 3) throw logged_error(
+      "Invalid padding length");
 
   ba[0] = 0;
   ba[1] = 1;
@@ -177,8 +177,8 @@ void PutPaddingBT1(ByteArray &ba, unsigned long dwLen) {
 }
 
 void PutPaddingBT2(ByteArray &ba, unsigned long dwLen) {
-  init_func if (dwLen >
-                ba.size() - 3) throw logged_error("Invalid padding length");
+  init_func if (ba.size() < 3 || dwLen > ba.size() - 3) throw logged_error(
+      "Invalid padding length");
 
   ba[0] = 0;
   ba[1] = 2;
@@ -209,10 +209,12 @@ unsigned long RemoveSha256(const ByteArray &paddedData) {
 }
 
 unsigned long RemovePaddingBT1(const ByteArray &paddedData) {
-  init_func if (paddedData[0] != 0) throw logged_error("Padding error");
+  init_func if (paddedData.size() < 11) throw logged_error("Padding error");
+  if (paddedData[0] != 0) throw logged_error("Padding error");
   if (paddedData[1] != 1) throw logged_error("Padding error");
   for (unsigned long i = 2; i < paddedData.size(); i++) {
     if (paddedData[i] == 0) {
+      if (i - 2 < 8) throw logged_error("Padding error");
       return i + 1;
     }
     if (paddedData[i] != 0xff) throw logged_error("Padding error");

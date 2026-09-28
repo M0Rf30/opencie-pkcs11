@@ -202,6 +202,7 @@ void CASNParser::Parse(const ByteArray &data, CASNTagArray &outTags,
     size_t len = 0;
 
     std::vector<uint8_t> tagv;
+    size_t tagStart = l;
     uint8_t curv = cur[0];
     tagv.push_back(curv);
 
@@ -255,7 +256,7 @@ void CASNParser::Parse(const ByteArray &data, CASNTagArray &outTags,
       throw logged_error("Excessive length in ASN.1");
 
     auto tag = std::unique_ptr<CASNTag>(new CASNTag());
-    tag->startPos = startseq + l;
+    tag->startPos = startseq + tagStart;
     tag->tag = tagv;
     if (tag->isSequence()) {
       ByteArray input(&cur[llen + 1], len);
@@ -264,9 +265,10 @@ void CASNParser::Parse(const ByteArray &data, CASNTagArray &outTags,
       // single value
       tag->content = ByteDynArray(ByteArray(&cur[llen + 1], len));
     }
+    size_t tagLen = l - tagStart + 1;
+    tag->endPos = tag->startPos + tagLen + llen + len;
     l += len + llen + 1;
     cur += len + llen + 1;
-    tag->endPos = tag->startPos + len + llen + 1;
     outTags.emplace_back(std::move(tag));
   }
 }

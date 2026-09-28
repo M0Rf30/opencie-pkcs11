@@ -22,12 +22,14 @@ void CMD5::Init() {
 }
 void CMD5::Update(ByteArray data) {
   if (!isInit) throw logged_error("Hash not initialized");
-  EVP_DigestUpdate(ctx, data.data(), data.size());
+  if (EVP_DigestUpdate(ctx, data.data(), data.size()) != 1)
+    throw logged_error("MD5 update error");
 }
 ByteDynArray CMD5::Final() {
   if (!isInit) throw logged_error("Hash not initialized");
   ByteDynArray resp(MD5_DIGEST_LENGTH);
-  EVP_DigestFinal_ex(ctx, resp.data(), nullptr);
+  if (EVP_DigestFinal_ex(ctx, resp.data(), nullptr) != 1)
+    throw logged_error("MD5 finalization error");
   isInit = false;
 
   return resp;

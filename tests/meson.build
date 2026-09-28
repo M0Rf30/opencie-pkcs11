@@ -48,6 +48,8 @@ test_shared_sources = [
     '../shared/src/crypto/sha512.cpp',
     '../shared/src/crypto/md5.cpp',
     '../shared/src/crypto/asn_parser.cpp',
+    '../shared/src/crypto/cipher_base.cpp',
+    '../shared/src/crypto/aes.cpp',
 ]
 
 # Linux kernel NFC backend (ATR synthesis is pure logic, no hardware needed)

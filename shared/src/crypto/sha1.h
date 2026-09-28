@@ -28,6 +28,10 @@ class CSHA1 {
   /** @brief Constructs a new CSHA1 instance. */
   CSHA1();
 
+  /** @brief Non-copyable: raw EVP_MD_CTX* ownership would double-free. */
+  CSHA1(const CSHA1&) = delete;
+  CSHA1& operator=(const CSHA1&) = delete;
+
   /** @brief Destructor; frees the EVP context. */
   ~CSHA1(void);
 

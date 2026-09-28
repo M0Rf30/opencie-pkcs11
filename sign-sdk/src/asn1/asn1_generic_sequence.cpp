@@ -121,7 +121,7 @@ void CASN1GenericSequence::addElement(const CASN1Object& obj) {
 
 void CASN1GenericSequence::addElementAt(const CASN1Object& obj, int nPos) {
   if (nPos < 0 || static_cast<unsigned int>(nPos) > size())
-    throw -1;  // new IllegalArgumentException("Invalid position:" + nPos);
+    throw logged_error("CASN1GenericSequence: invalid position");
 
   ByteDynArray serObj;
   obj.toByteArray(serObj);
@@ -217,7 +217,8 @@ void CASN1GenericSequence::setElementAt(const CASN1Object& obj, int nPos) {
 }
 
 void CASN1GenericSequence::removeElementAt(int nPos) {
-  if (nPos < 0 || static_cast<unsigned int>(nPos) > size()) throw -1;
+  if (nPos < 0 || static_cast<unsigned int>(nPos) > size())
+    throw logged_error("CASN1GenericSequence: invalid position");
 
   ByteDynArray oldVal(*(getValue()));
 
@@ -257,7 +258,7 @@ void CASN1GenericSequence::removeAll() {
 }
 
 bool CASN1GenericSequence::isPresent(int nPos) const {
-  if (nPos < 0) throw -1;
+  if (nPos < 0) throw logged_error("CASN1GenericSequence: invalid position");
 
   return static_cast<unsigned int>(nPos) < size();
 }

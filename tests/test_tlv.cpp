@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #include <catch2/catch_test_macros.hpp>
+#include <cstdint>
+#include <cstring>
 
 #include "util/array.h"
 #include "util/tlv.h"
@@ -53,12 +55,43 @@ TEST_CASE("CTLV getValue returns empty for missing tag", "[tlv]") {
   CHECK(val.isEmpty());
 }
 
-TEST_CASE("CTLV handles truncated data gracefully", "[tlv]") {
-  // Len says 5 bytes but only 2 follow — should stop parsing, not crash
+TEST_CASE("CTLV throws on truncated short-form value", "[tlv]") {
+  // Len says 5 bytes but only 2 follow — must throw, not silently truncate.
   uint8_t raw[] = {0x01, 0x05, 0xAA, 0xBB};
   ByteDynArray data(ByteArray(raw, sizeof(raw)));
+  CHECK_THROWS_AS(CTLV {data}, logged_error);
+}
+
+TEST_CASE("CTLV throws on truncated TLV header (single trailing byte)",
+          "[tlv]") {
+  uint8_t raw[] = {0x01};
+  ByteDynArray data(ByteArray(raw, sizeof(raw)));
+  CHECK_THROWS_AS(CTLV {data}, logged_error);
+}
+
+TEST_CASE("CTLV throws on truncated long-form length header", "[tlv]") {
+  // Tag=0x01, len byte 0xFF (long form) but fewer than 4 length octets
+  // follow.
+  uint8_t raw[] = {0x01, 0xFF, 0x00, 0x00};
+  ByteDynArray data(ByteArray(raw, sizeof(raw)));
+  CHECK_THROWS_AS(CTLV {data}, logged_error);
+}
+
+TEST_CASE("CTLV round-trips a long-form (>=255 byte) value", "[tlv]") {
+  const uint32_t contentLen = 300;
+  ByteDynArray data(2 + sizeof(uint32_t) + contentLen);
+  data[0] = 0x07;
+  data[1] = 0xFF;
+  uint32_t len = contentLen;
+  std::memcpy(data.data() + 2, &len, sizeof(len));
+  for (uint32_t i = 0; i < contentLen; i++)
+    data[2 + sizeof(uint32_t) + i] = static_cast<uint8_t>(i & 0xFF);
+
   CTLV tlv(data);
-  CHECK(tlv.getTAG(0x01) == nullptr);
+  ByteArray val = tlv.getValue(0x07);
+  REQUIRE(val.size() == contentLen);
+  CHECK(val[0] == 0x00);
+  CHECK(val[299] == static_cast<uint8_t>(299 & 0xFF));
 }
 
 // ── CTLVCreate (builder)

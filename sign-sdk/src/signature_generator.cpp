@@ -146,6 +146,16 @@ long CSignatureGenerator::Generate(ByteDynArray& pkcs7SignedData,
       m_pSigner->Close();
       return CIE_SIGN_ERROR_CERT_REVOKED;
     }
+
+    // Not enforced as a hard error: CIE signing certificates carry the
+    // non-repudiation bit in practice, but rejecting here risks breaking
+    // signing for edge-case/legacy certificates that verifySignature()
+    // would still consider valid. Surface it so misuse is visible.
+    if (!pSignerCertificate->isNonRepudiation()) {
+      LOG_ERR((0, "CSignatureGenerator::Generate",
+               "Signing certificate lacks the non-repudiation key-usage "
+               "bit"));
+    }
   }
 
   // extract the cert value

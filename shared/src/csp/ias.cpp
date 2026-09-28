@@ -801,10 +801,14 @@ StatusWord IAS::respSM(const ByteArray &keyEnc, const ByteArray &keySig,
           lgn = (resp[index + 2] << 8) | resp[index + 3];
         else
           throw logged_error(stdPrintf("Invalid ASN.1 length: %i", llen));
+        if (lgn < 1)
+          throw logged_error("Invalid tag 0x87 length: missing padding byte");
         encData = ByteDynArray(resp.mid(index + llen + 3, lgn - 1));
         calcMac.append(resp.mid(index, lgn + llen + 2));
         index += llen + lgn + 2;
       } else {
+        if (resp[index + 1] < 1)
+          throw logged_error("Invalid tag 0x87 length: missing padding byte");
         encData = ByteDynArray(resp.mid(index + 3, resp[index + 1] - 1));
         calcMac.append(resp.mid(index, resp[index + 1] + 2));
         index += resp[index + 1] + 2;

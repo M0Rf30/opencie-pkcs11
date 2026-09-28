@@ -3,15 +3,6 @@
 
 #include <openssl/evp.h>
 
-CSHA512::CSHA512() : ctx(nullptr) {}
-
-CSHA512::~CSHA512() {
-  if (ctx) {
-    EVP_MD_CTX_free(ctx);
-    ctx = nullptr;
-  }
-}
-
 ByteDynArray CSHA512::Digest(const ByteArray& data) {
   ByteDynArray resp(SHA512_DIGEST_LENGTH);
   unsigned int len = 0;

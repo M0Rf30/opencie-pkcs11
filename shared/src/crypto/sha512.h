@@ -20,19 +20,20 @@
  * Provides a single-shot Digest() interface; Init/Update/Final are private.
  */
 class CSHA512 {
-  EVP_MD_CTX *ctx;  ///< OpenSSL EVP message digest context.
-
  public:
   /** @brief Constructs a new CSHA512 instance. */
-  CSHA512();
+  CSHA512() = default;
 
-  /** @brief Destructor; frees the EVP context. */
-  ~CSHA512();
+  /** @brief Destructor. */
+  ~CSHA512() = default;
+
+  CSHA512(const CSHA512&) = default;
+  CSHA512& operator=(const CSHA512&) = default;
 
   /**
    * @brief Computes the SHA-512 digest of the given data in one shot.
    * @param data Input data to hash.
    * @return ByteDynArray containing the 64-byte SHA-512 digest.
    */
-  static ByteDynArray Digest(const ByteArray &data);
+  static ByteDynArray Digest(const ByteArray& data);
 };

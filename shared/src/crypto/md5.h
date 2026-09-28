@@ -29,6 +29,10 @@ class CMD5 {
   /** @brief Constructs a new CMD5 instance. */
   CMD5();
 
+  /** @brief Non-copyable: raw EVP_MD_CTX* ownership would double-free. */
+  CMD5(const CMD5&) = delete;
+  CMD5& operator=(const CMD5&) = delete;
+
   /** @brief Destructor; frees the EVP context. */
   ~CMD5(void);
 

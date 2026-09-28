@@ -102,6 +102,13 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
       m_pSigner->Close();
       return CIE_SIGN_ERROR_CERT_REVOKED;
     }
+
+    // Not enforced as a hard error: see CSignatureGenerator::Generate.
+    if (!pSignerCertificate->isNonRepudiation()) {
+      LOG_ERR((0, "CXAdESGenerator::Generate",
+               "Signing certificate lacks the non-repudiation key-usage "
+               "bit"));
+    }
   }
 
   xmlDocPtr pDoc;

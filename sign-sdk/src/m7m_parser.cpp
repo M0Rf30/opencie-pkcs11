@@ -64,8 +64,9 @@ int M7MParser::Load(const char* m7m, int m7mlen) {
   if (begin == nullptr) return -1;
 
   begin += strlen(toFind);
+  if (begin > firstPart + firstPartLen) return -1;
   char* szContent = const_cast<char*>(begin);
-  int contentLen = firstPartLen - strlen(toFind);
+  int contentLen = static_cast<int>((firstPart + firstPartLen) - begin);
 
   if (strstr(firstPart, "pkcs7-mime") != nullptr)
     m_p7m.append(ByteArray(reinterpret_cast<BYTE*>(szContent), contentLen));

@@ -12,7 +12,7 @@ extern CLog Log;
 APDU::APDU() {}
 APDU::APDU(BYTE CLA, BYTE INS, BYTE P1, BYTE P2, BYTE LC, BYTE *pData,
            BYTE LE) {
-  init_func if (LC > 250) throw;
+  init_func if (LC > 250) throw logged_error("APDU: LC exceeds maximum (250)");
   btINS = INS;
   btCLA = CLA;
   btP1 = P1;
@@ -24,7 +24,7 @@ APDU::APDU(BYTE CLA, BYTE INS, BYTE P1, BYTE P2, BYTE LC, BYTE *pData,
   bLE = true;
 }
 APDU::APDU(BYTE CLA, BYTE INS, BYTE P1, BYTE P2, BYTE LC, BYTE *pData) {
-  if (LC > 251) throw;
+  if (LC > 251) throw logged_error("APDU: LC exceeds maximum (251)");
   btINS = INS;
   btCLA = CLA;
   btP1 = P1;

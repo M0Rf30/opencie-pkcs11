@@ -75,6 +75,25 @@ ByteDynArray CRSA::RSA_PURE(const ByteArray &data) {
   BIGNUM *m = BN_bin2bn(data.data(), static_cast<int>(data.size()), nullptr);
   BIGNUM *c = BN_new();
   BN_CTX *bnctx = BN_CTX_new();
+  if (!m || !c || !bnctx) {
+    BN_free(m);
+    BN_free(c);
+    BN_free(n);
+    BN_free(e);
+    BN_CTX_free(bnctx);
+    throw std::runtime_error("RSA_PURE: BIGNUM/BN_CTX allocation failed");
+  }
+
+  // RFC 8017 RSAVP1: the signature representative must be in [0, n-1].
+  if (BN_is_negative(m) || BN_cmp(m, n) >= 0) {
+    BN_free(m);
+    BN_free(c);
+    BN_free(n);
+    BN_free(e);
+    BN_CTX_free(bnctx);
+    throw std::runtime_error("RSA_PURE: representative out of range");
+  }
+
   if (BN_mod_exp(c, m, e, n, bnctx) != 1) {
     BN_free(m);
     BN_free(c);
@@ -114,8 +133,11 @@ bool CRSA::RSA_PSS(const ByteArray &signatureData, const ByteArray &toSign) {
     EVP_MD_CTX_free(mdctx);
     return false;
   }
-  EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PSS_PADDING);
-  EVP_PKEY_CTX_set_rsa_pss_saltlen(pctx, RSA_PSS_SALTLEN_AUTO);
+  if (EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PSS_PADDING) != 1 ||
+      EVP_PKEY_CTX_set_rsa_pss_saltlen(pctx, RSA_PSS_SALTLEN_AUTO) != 1) {
+    EVP_MD_CTX_free(mdctx);
+    return false;
+  }
 
   if (EVP_DigestVerifyUpdate(mdctx, toSign.data(), toSign.size()) != 1) {
     EVP_MD_CTX_free(mdctx);
