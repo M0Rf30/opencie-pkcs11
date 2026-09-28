@@ -57,7 +57,7 @@ void CCertStore::AddCertificate(CCertificate& certificate) {
       m_certMap[nHash] = pCert;
     }
   } catch (...) {
-    LOG_ERR((0, "CertStore::AddCertificate Exception", ""));
+    LOG_ERR((0, "CertStore::AddCertificate", "Exception"));
   }
 
   // LOG_DBG((0, "<-- CertStore::AddCertificate", ""));
@@ -112,7 +112,7 @@ CCertificate* CCertStore::GetCertificate(CCertificate& certificate) {
 
     return pCert;
   } catch (...) {
-    LOG_ERR((0, "CertStore::AddCertificate Exception", ""));
+    LOG_ERR((0, "CertStore::GetCertificate", "Exception"));
   }
 
   return nullptr;

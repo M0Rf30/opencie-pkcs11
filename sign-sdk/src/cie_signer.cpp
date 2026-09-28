@@ -16,7 +16,7 @@ CCIESigner::~CCIESigner(void) = default;
 long CCIESigner::Init(const char* szPIN) {
   snprintf(m_szPIN, sizeof(m_szPIN), "%s", szPIN);
 
-  LOG_DBG((0, "Init CIESigner\n", ""));
+  LOG_DBG((0, "CCIESigner::Init", "Init CIESigner"));
 
   try {
     m_pIAS->SelectAID_IAS();

@@ -57,7 +57,7 @@ void PdfSignatureGenerator::InitSignature(
     const char* szName, const char* szNameLabel, const char* szLocation,
     const char* szLocationLabel, const char* szFieldName,
     const char* szSubFilter) {
-  LOG_DBG((0, "all zeros\n", ""));
+  LOG_DBG((0, "PdfSignatureGenerator::InitSignature", "all zeros"));
   InitSignature(pageIndex, 0, 0, 0, 0, szReason, szReasonLabel, szName,
                 szNameLabel, szLocation, szLocationLabel, szFieldName,
                 szSubFilter);
@@ -69,7 +69,7 @@ void PdfSignatureGenerator::InitSignature(
     const char* szNameLabel, const char* szLocation,
     const char* szLocationLabel, const char* szFieldName,
     const char* szSubFilter) {
-  LOG_DBG((0, "not all zeros\n", ""));
+  LOG_DBG((0, "PdfSignatureGenerator::InitSignature", "not all zeros"));
   InitSignature(pageIndex, left, bottom, width, height, szReason, szReasonLabel,
                 szName, szNameLabel, szLocation, szLocationLabel, szFieldName,
                 szSubFilter, nullptr, 0, nullptr);

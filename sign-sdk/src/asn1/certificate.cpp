@@ -510,7 +510,7 @@ int CCertificate::verifyStatus(const char* szTime,
                                 "application/ocsp-request", response);
         if (nRet) {
           LOG_ERR((0, "CCertificate::verifyStatus",
-                   "OCSP not available. Error: %x", nRet));
+                   "OCSP not available. Error: %lx", nRet));
         }
 
         if (response.size() == 0) {
@@ -671,7 +671,7 @@ int CCertificate::verifyStatus(const char* szTime,
     LOG_ERR((0, "CCertificate::verifyStatus", "Unexpected ASN1 Exception"));
   } catch (long r) {
     LOG_MSG((0, "CCertificate::verifyStatus",
-             "authorityInfoAccess OCSP not present. Error: %x", r));
+             "authorityInfoAccess OCSP not present. Error: %lx", r));
   } catch (...) {
     LOG_ERR((0, "CCertificate::verifyStatus", "Unexpected Exception"));
   }
@@ -714,10 +714,10 @@ int CCertificate::verifyStatus(const char* szTime,
         long nRet = HTTPRequest(data, szcrlurl, nullptr, response);
         if (nRet) {
           LOG_ERR((0, "CCertificate::verifyStatus",
-                   "CRL not available. Error: %x", nRet));
+                   "CRL not available. Error: %lx", nRet));
           return REVOCATION_STATUS_NOTLOADED;
         } else {
-          LOG_DBG((0, "CCertificate::verifyStatus", "CRL OK, nRet: %d", nRet));
+          LOG_DBG((0, "CCertificate::verifyStatus", "CRL OK, nRet: %ld", nRet));
         }
 
         if (response.size() > 0) {
@@ -1060,7 +1060,7 @@ long HTTPRequest(const ByteDynArray& data, const char* szUrl,
 
   curl_easy_getinfo(ctx, CURLINFO_RESPONSE_CODE, &responseCode);
 
-  LOG_ERR((0, "HTTPRequest", "HttpCode: %d", responseCode));
+  LOG_ERR((0, "HTTPRequest", "HttpCode: %ld", responseCode));
 
   if (responseCode == PROXY_AUTHENTICATION_REQUIRED) {
     LOG_ERR((0, "HTTPRequest",
