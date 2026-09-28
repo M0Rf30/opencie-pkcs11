@@ -70,9 +70,8 @@ The public C interface is declared in `include/opencie/cie_ext.h`.
 meson setup builddir && meson compile -C builddir
 # Output: builddir/libopencie-pkcs11.so
 
-# Portable (container)
-podman build -t libopencie-builder -f Containerfile .
-podman run --rm -v $(pwd)/output:/output libopencie-builder x86_64
+# Portable (static, ICU-free libxml2; libstdc++/libgcc statically linked)
+meson setup builddir -Dportable=true && meson compile -C builddir
 ```
 
 ## Language Bindings

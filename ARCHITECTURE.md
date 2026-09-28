@@ -164,7 +164,7 @@ Output: DER-encoded TimeStampToken (.tst)
 | PC/SC transport | `libpcsclite` / `PCSC.framework` | `WinSCard` | JNI NFC bridge (`android_nfc_transport.cpp`) |
 | Symbol visibility | `--version-script` (`.map`) | `.def` file (`.exp`) | `--version-script` + `--undefined-version` |
 | C++ stdlib | system `libstdc++` (or static for portable) | MinGW-w64 | NDK `libc++` |
-| Portable build | `Containerfile` (Ubuntu 22.04, glibc 2.35) | vcpkg | NDK r27c + vcpkg |
+| Portable build | `-Dportable=true` (static libstdc++/libgcc + static ICU-free libxml2) | vcpkg | NDK r27c + vcpkg |
 
 ---
 
@@ -202,8 +202,7 @@ Meson ≥ 0.56 with Ninja. Key options:
 
 | Option | Default | Effect |
 |---|---|---|
-| `portable` | `false` | Statically link `libstdc++` and `libgcc` |
-| `prefer_static` | `false` | Prefer static dependency variants |
+| `portable` | `false` | Statically link `libstdc++`/`libgcc` and vendor a static, ICU-free libxml2 |
 | `buildtype` | `debug` | `release` for production builds |
 
 Cross-compilation toolchain files live in `toolchains/`:

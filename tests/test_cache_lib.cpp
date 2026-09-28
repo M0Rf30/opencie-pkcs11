@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -14,11 +15,16 @@
 #include "keys.h"
 #include "util/cache_lib.h"
 
+#ifndef _WIN32
 namespace {
 // Redirects HOME to a fresh temp directory for the lifetime of the test so
 // CacheSetData/CacheSetDer never touch the real user's ~/.CIEPKI/, and
 // restores/removes everything afterward — even if a REQUIRE aborts the
 // test case partway through.
+//
+// Windows is excluded: cache_lib's GetCardDir() resolves to
+// %PROGRAMDATA%\CIEPKI there, so overriding HOME would have no effect on
+// where the cache is written.
 class ScopedHomeOverride {
  public:
   explicit ScopedHomeOverride(std::string dir) : dir_(std::move(dir)) {
@@ -48,6 +54,21 @@ class ScopedHomeOverride {
   std::string oldHome_;
   bool hadHome_ = false;
 };
+
+// Creates a fresh, unique temporary directory and returns its path. Portable
+// replacement for POSIX mkdtemp(), which isn't available on Windows.
+std::string MakeTempDir() {
+  auto base = std::filesystem::temp_directory_path();
+  for (int attempt = 0; attempt < 100; ++attempt) {
+    auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    auto candidate = base / ("cie_cache_test_" + std::to_string(stamp) + "_" +
+                             std::to_string(attempt));
+    std::error_code ec;
+    if (std::filesystem::create_directory(candidate, ec))
+      return candidate.string();
+  }
+  throw std::runtime_error("MakeTempDir: could not create a unique dir");
+}
 
 std::string ReadFileBinary(const std::string &path) {
   std::ifstream f(path, std::ios::binary);
@@ -92,11 +113,13 @@ std::string LegacyZeroIvEncrypt(const std::string &plaintext) {
 }
 }  // namespace
 
+// The tests in this file exercise CacheSetData/CacheSetDer's on-disk
+// layout by overriding HOME to point at a scratch directory (see
+// ScopedHomeOverride above); they don't apply on Windows since cache_lib
+// resolves the cache directory from %PROGRAMDATA%, not HOME.
 TEST_CASE("CacheSetData/CacheGetPIN/CacheGetCertificate round-trip via disk",
           "[cache]") {
-  char tmpl[] = "/tmp/cie_cache_test_XXXXXX";
-  char *dir = mkdtemp(tmpl);
-  REQUIRE(dir != nullptr);
+  std::string dir = MakeTempDir();
   ScopedHomeOverride homeGuard(dir);
 
   const char *PAN = "1234567890123456";
@@ -138,9 +161,7 @@ TEST_CASE("CacheSetData/CacheGetPIN/CacheGetCertificate round-trip via disk",
 
 TEST_CASE("CacheSetDer/CacheGetDer round-trip via disk, encrypted at rest",
           "[cache]") {
-  char tmpl[] = "/tmp/cie_cache_test_XXXXXX";
-  char *dir = mkdtemp(tmpl);
-  REQUIRE(dir != nullptr);
+  std::string dir = MakeTempDir();
   ScopedHomeOverride homeGuard(dir);
 
   const char *PAN = "9999888877776666";
@@ -162,9 +183,7 @@ TEST_CASE("CacheSetDer/CacheGetDer round-trip via disk, encrypted at rest",
 }
 
 TEST_CASE("CacheGetDer returns false for a missing PAN", "[cache]") {
-  char tmpl[] = "/tmp/cie_cache_test_XXXXXX";
-  char *dir = mkdtemp(tmpl);
-  REQUIRE(dir != nullptr);
+  std::string dir = MakeTempDir();
   ScopedHomeOverride homeGuard(dir);
 
   std::vector<uint8_t> out;
@@ -174,9 +193,7 @@ TEST_CASE("CacheGetDer returns false for a missing PAN", "[cache]") {
 TEST_CASE(
     "CacheGetCertificate reads a legacy zero-IV cache without modifying it",
     "[cache]") {
-  char tmpl[] = "/tmp/cie_cache_test_XXXXXX";
-  char *dir = mkdtemp(tmpl);
-  REQUIRE(dir != nullptr);
+  std::string dir = MakeTempDir();
   ScopedHomeOverride homeGuard(dir);
 
   const char *PAN = "1111222233334444";
@@ -223,9 +240,7 @@ TEST_CASE(
 }
 
 TEST_CASE("CacheSetData rejects a path-traversal PAN", "[cache]") {
-  char tmpl[] = "/tmp/cie_cache_test_XXXXXX";
-  char *dir = mkdtemp(tmpl);
-  REQUIRE(dir != nullptr);
+  std::string dir = MakeTempDir();
   ScopedHomeOverride homeGuard(dir);
 
   std::string cert = "cert";
@@ -245,9 +260,7 @@ TEST_CASE("CacheSetData rejects a path-traversal PAN", "[cache]") {
 
 TEST_CASE("CacheExists/CacheRemove/CacheGetDer reject non-hex PANs",
           "[cache]") {
-  char tmpl[] = "/tmp/cie_cache_test_XXXXXX";
-  char *dir = mkdtemp(tmpl);
-  REQUIRE(dir != nullptr);
+  std::string dir = MakeTempDir();
   ScopedHomeOverride homeGuard(dir);
 
   CHECK_THROWS(CacheExists("../etc/passwd"));
@@ -266,9 +279,7 @@ TEST_CASE(
     "CacheSetData writes cache and cache directory with owner-only "
     "permissions",
     "[cache]") {
-  char tmpl[] = "/tmp/cie_cache_test_XXXXXX";
-  char *dir = mkdtemp(tmpl);
-  REQUIRE(dir != nullptr);
+  std::string dir = MakeTempDir();
   ScopedHomeOverride homeGuard(dir);
 
   const char *PAN = "abcdef0123456789";
@@ -294,3 +305,4 @@ TEST_CASE(
   // The atomic-write temp file must not be left behind.
   CHECK(!std::filesystem::exists(cachePath + ".tmp"));
 }
+#endif  // !_WIN32

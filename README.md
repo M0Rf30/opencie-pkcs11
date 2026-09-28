@@ -38,7 +38,8 @@ stacks, signing tools — can use them without any card-vendor middleware.
 - PIN management: verify, change, unblock
 - PDF signing and verification via an embedded sign SDK (PoDoFo-backed)
 - Standalone RFC 3161 timestamping via any TSA (no card required)
-- Portable builds with minimal glibc dependency for Linux
+- Portable Linux build (`-Dportable=true`) with a statically linked, ICU-free
+  libxml2 to avoid picking up distro ICU dependencies
 - Native support on Linux, macOS, Windows, and Android (NFC transport on Android)
 
 ---
@@ -161,7 +162,6 @@ sign-sdk/         PDF signing SDK (statically linked into the main library)
 
 toolchains/       Meson cross files (aarch64, MinGW, Android NDK)
 linker/           Symbol export scripts (.map / .exp)
-Containerfile     Reproducible portable Linux build (Ubuntu 22.04 / glibc 2.35)
 ```
 
 ---
@@ -193,7 +193,6 @@ via JNI; smart-card readers are not used.
 - A C++20-capable compiler (GCC, Clang, or MinGW-w64)
 - [vcpkg](https://github.com/microsoft/vcpkg) — required for Windows and Android cross builds
 - Android NDK r27c — required for Android builds
-- Podman or Docker — required for the portable Linux build
 
 ---
 
@@ -217,27 +216,19 @@ Package names are for Debian/Ubuntu. Adapt to your distribution as needed.
 
 ### Linux (portable, distro-independent)
 
-The portable build links every dependency statically except glibc, targeting
-glibc 2.35 (Ubuntu 22.04) for compatibility with Ubuntu 22.04+, Debian 12+,
-Fedora 37+, RHEL 9+, Arch, etc. It runs inside a container.
+The portable build (`-Dportable=true`) statically links `libstdc++`/`libgcc`
+and vendors a static, ICU-disabled libxml2 (see `subprojects/libxml2.wrap`)
+so the resulting `.so` has no dynamic `libicuuc`/`libicui18n`/`libicudata`
+dependency (recent Debian/Ubuntu link their packaged libxml2 against ICU).
+All other runtime libraries (curl, fontconfig, freetype, openssl, libpng,
+openjpeg, PoDoFo, zlib, pcsclite) remain dynamically linked against whatever
+the build host provides. This is the recipe used by the CI `linux` job to
+build the `linux-x86_64` release artifact.
 
 ```bash
-podman build -t libopencie-builder -f Containerfile .
-
-mkdir -p output
-podman run --rm -v $(pwd)/output:/output libopencie-builder x86_64
-podman run --rm -v $(pwd)/output:/output libopencie-builder aarch64
-# Output: output/libopencie-pkcs11-x86_64.so
-#         output/libopencie-pkcs11-aarch64.so
-```
-
-`docker` works equivalently. Internally the build runs:
-
-```
-meson setup builddir-portable-${ARCH} \
-    -Dportable=true -Dprefer_static=true \
-    -Dbuildtype=release -Dstrip=true \
-    [--cross-file toolchains/cross-aarch64.ini]
+meson setup builddir -Dportable=true
+meson compile -C builddir
+# Output: builddir/libopencie-pkcs11.so
 ```
 
 ### macOS

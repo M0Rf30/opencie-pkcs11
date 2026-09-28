@@ -94,7 +94,6 @@ if host_machine.system() == 'windows'
   pcsclite_dep = cpp.find_library('winscard')
   shlwapi_dep = cpp.find_library('shlwapi')
   ws2_32_dep = cpp.find_library('ws2_32')
-  version_dep = cpp.find_library('version', required: false)
 elif host_machine.system() == 'android'
   # Android uses NFC transport instead of PC/SC
   pcsclite_dep = declare_dependency()

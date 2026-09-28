@@ -9,25 +9,30 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Least-privilege default: every job gets read-only contents access unless
+# it overrides `permissions` itself (codeql/semgrep need security-events:write
+# to upload SARIF; release needs contents:write to publish a GitHub Release).
 permissions:
-  contents: write
-  security-events: write
+  contents: read
 
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install system tools required by pre-commit hooks
         run: sudo apt update && sudo apt install -y clang-format-19 cppcheck
 
-      - uses: pre-commit/action@v3.0.1
+      - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
 
   codeql:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install dependencies
         run: >
@@ -38,18 +43,18 @@ jobs:
           libssl-dev libxml2-dev
           pkg-config python3-pip
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
 
       - run: pip install "meson==1.12.0" "ninja==1.13.0"
 
-      - uses: hendrikmuhs/ccache-action@v1.2.24
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
         with:
           key: codeql
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           languages: c-cpp
           build-mode: manual
@@ -63,23 +68,26 @@ jobs:
           CXX: ccache g++
 
       - name: Analyze
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           category: /language:c-cpp
 
   semgrep:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     container:
       image: semgrep/semgrep
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Run Semgrep
         run: semgrep scan --config p/default --config p/c --sarif --output semgrep.sarif .
         continue-on-error: true
 
       - name: Upload Semgrep SARIF
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           sarif_file: semgrep.sarif
           category: semgrep
@@ -87,7 +95,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install dependencies
         run: >
@@ -98,13 +106,13 @@ jobs:
           libssl-dev libxml2-dev
           pkg-config python3-pip
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
 
       - run: pip install "meson==1.12.0" "ninja==1.13.0"
 
-      - uses: hendrikmuhs/ccache-action@v1.2.24
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
         with:
           key: test
 
@@ -121,16 +129,61 @@ jobs:
           LSAN_OPTIONS: suppressions=${{ github.workspace }}/lsan-suppressions.txt
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: failure()
         with:
           name: test-meson-log
           path: builddir-test/meson-logs/
 
+  tsan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install dependencies
+        run: >
+          sudo apt update;
+          sudo apt install -y cmake g++
+          libcurl4-openssl-dev libfontconfig1-dev
+          libfreetype6-dev libopenjp2-7-dev libpcsclite-dev libpng-dev
+          libssl-dev libxml2-dev
+          pkg-config python3-pip
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+
+      - run: pip install "meson==1.12.0" "ninja==1.13.0"
+
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: tsan
+
+      # ThreadSanitizer catches data races between the background PC/SC
+      # reader-monitor thread and the C_* entry points serialized by
+      # p11Mutex (see AGENTS.md "Thread Safety"). ASan/UBSan (the `test`
+      # job) do not catch this class of bug.
+      - name: Configure
+        run: meson setup builddir-tsan -Db_sanitize=thread -Db_lundef=false
+        env:
+          CC: ccache gcc
+          CXX: ccache g++
+
+      - name: Test
+        run: meson test -C builddir-tsan --print-errorlogs
+        env:
+          TSAN_OPTIONS: halt_on_error=1
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: failure()
+        with:
+          name: tsan-meson-log
+          path: builddir-tsan/meson-logs/
+
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install dependencies
         run: >
@@ -141,13 +194,13 @@ jobs:
           libssl-dev libxml2-dev
           pkg-config python3-pip
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
 
       - run: pip install "meson==1.12.0" "ninja==1.13.0"
 
-      - uses: hendrikmuhs/ccache-action@v1.2.24
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
         with:
           key: linux
 
@@ -204,21 +257,21 @@ jobs:
           mkdir -p scan-results
           scan-build --status-bugs -o scan-results meson compile -C builddir-scan
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
           name: scan-build-results
           path: scan-results/
           if-no-files-found: ignore
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: linux-x86_64
           path: |
             builddir/libopencie-pkcs11.so
             builddir/libopencie-sign-sdk.a
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: failure()
         with:
           name: linux-meson-log
@@ -227,7 +280,7 @@ jobs:
   linux-arm64:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Add arm64 architecture and install cross-dependencies
         run: |
@@ -259,13 +312,16 @@ jobs:
             libxml2-dev:arm64 \
             pkg-config python3-pip zlib1g-dev:arm64
 
-      - uses: actions/setup-python@v7
+      - name: Install qemu-user-static (to run the aarch64 test suite under emulation)
+        run: sudo apt-get install -y qemu-user-static
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
 
       - run: pip install "meson==1.12.0" "ninja==1.13.0"
 
-      - uses: hendrikmuhs/ccache-action@v1.2.24
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
         with:
           key: linux-arm64
 
@@ -277,20 +333,23 @@ jobs:
           PKG_CONFIG_LIBDIR: /usr/lib/aarch64-linux-gnu/pkgconfig
           CC: ccache aarch64-linux-gnu-gcc
           CXX: ccache aarch64-linux-gnu-g++
-        run: meson setup builddir-arm64 --cross-file toolchains/cross-aarch64.ini -Dtests=false
+        run: meson setup builddir-arm64 --cross-file toolchains/cross-aarch64.ini
 
       - name: Build
         run: meson compile -C builddir-arm64
 
+      - name: Test (aarch64, under qemu-user emulation)
+        run: meson test -C builddir-arm64 --print-errorlogs
+
       - name: Strip
         run: aarch64-linux-gnu-strip builddir-arm64/libopencie-pkcs11.so
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: linux-aarch64
           path: builddir-arm64/libopencie-pkcs11.so
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: failure()
         with:
           name: linux-arm64-meson-log
@@ -299,26 +358,29 @@ jobs:
   windows:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install Clang and MinGW toolchain
+        # Tests are compiled (not executed) for Windows: the cross build has
+        # no Windows runtime here, and running the .exe under Wine needs the
+        # clang-mingw C++ runtime DLLs, which this runner doesn't provide.
         run: >
           sudo apt update;
           sudo apt install -y cmake clang lld mingw-w64
           pkg-config python3-pip
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
 
       - run: pip install "meson==1.12.0" "ninja==1.13.0"
 
-      - uses: hendrikmuhs/ccache-action@v1.2.24
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
         with:
           key: windows
 
       - name: Install vcpkg
-        uses: johnwason/vcpkg-action@v8
+        uses: johnwason/vcpkg-action@04c68c847bf5196ecaa72331ecf51208583916ef # v8
         with:
           pkgs: >-
             curl
@@ -338,7 +400,7 @@ jobs:
           PKG_CONFIG_LIBDIR: ${{ github.workspace }}/vcpkg/installed/x64-mingw-dynamic/lib/pkgconfig
           CC: ccache clang
           CXX: ccache clang++
-        run: meson setup builddir-clang-win --cross-file toolchains/cross-clang-mingw.ini -Dtests=false
+        run: meson setup builddir-clang-win --cross-file toolchains/cross-clang-mingw.ini
 
       - name: Build
         env:
@@ -360,18 +422,18 @@ jobs:
              /usr/x86_64-w64-mingw32/bin/libwinpthread-1.dll \
              dist-win/runtime/ || true
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: windows-x86_64
           path: dist-win/libopencie-pkcs11.dll
 
       - name: Upload runtime DLL bundle
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: windows-x86_64-runtime-deps
           path: dist-win/runtime/
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: failure()
         with:
           name: windows-meson-log
@@ -380,20 +442,20 @@ jobs:
   macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install dependencies
         run: >
           brew install --quiet curl fontconfig freetype
           libpng libxml2 openjpeg openssl
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
 
       - run: pip install "meson==1.12.0" "ninja==1.13.0"
 
-      - uses: hendrikmuhs/ccache-action@v1.2.24
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
         with:
           key: macos
 
@@ -401,10 +463,13 @@ jobs:
         run: >
           PKG_CONFIG_PATH="$(brew --prefix openssl)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix curl)/lib/pkgconfig"
           CC="ccache clang" CXX="ccache clang++"
-          meson setup builddir-macos -Dtests=false
+          meson setup builddir-macos
 
       - name: Build
         run: meson compile -C builddir-macos
+
+      - name: Test (native arm64)
+        run: meson test -C builddir-macos --print-errorlogs
 
       - name: Strip
         run: strip -x builddir-macos/libopencie-pkcs11.dylib
@@ -418,12 +483,12 @@ jobs:
           echo '=== All exported symbols ==='
           nm -gU builddir-macos/libopencie-pkcs11.dylib | grep ' T '
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: macos-arm64
           path: builddir-macos/libopencie-pkcs11.dylib
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: failure()
         with:
           name: macos-meson-log
@@ -432,9 +497,9 @@ jobs:
   android:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
 
@@ -444,13 +509,13 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y cmake
 
       - name: Set up Android NDK
-        uses: nttld/setup-ndk@v1.6.0
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
         id: setup-ndk
         with:
           ndk-version: r27c
 
       - name: Install vcpkg
-        uses: johnwason/vcpkg-action@v8
+        uses: johnwason/vcpkg-action@04c68c847bf5196ecaa72331ecf51208583916ef # v8
         with:
           pkgs: >-
             curl
@@ -498,12 +563,12 @@ jobs:
           echo '=== Exported symbols ==='
           ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm -D builddir-android/libopencie-pkcs11.so | grep ' T ' | head -20
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: android-arm64
           path: builddir-android/libopencie-pkcs11.so
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: failure()
         with:
           name: android-meson-log
@@ -512,9 +577,9 @@ jobs:
   android-x86_64:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
 
@@ -524,13 +589,13 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y cmake
 
       - name: Set up Android NDK
-        uses: nttld/setup-ndk@v1.6.0
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
         id: setup-ndk
         with:
           ndk-version: r27c
 
       - name: Install vcpkg
-        uses: johnwason/vcpkg-action@v8
+        uses: johnwason/vcpkg-action@04c68c847bf5196ecaa72331ecf51208583916ef # v8
         with:
           pkgs: >-
             curl
@@ -578,12 +643,12 @@ jobs:
           echo '=== Exported symbols ==='
           ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm -D builddir-android-x86_64/libopencie-pkcs11.so | grep ' T ' | head -20
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: android-x86_64
           path: builddir-android-x86_64/libopencie-pkcs11.so
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: failure()
         with:
           name: android-x86_64-meson-log
@@ -593,49 +658,51 @@ jobs:
     name: Release
     if: startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     needs:
       [lint, test, linux, linux-arm64, windows, macos, android, android-x86_64]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Download linux-x86_64
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: linux-x86_64
           path: dist/linux-x86_64
 
       - name: Download linux-aarch64
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: linux-aarch64
           path: dist/linux-aarch64
 
       - name: Download windows-x86_64
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: windows-x86_64
           path: dist/windows-x86_64
 
       - name: Download windows-x86_64-runtime-deps
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: windows-x86_64-runtime-deps
           path: dist/windows-x86_64-runtime-deps
 
       - name: Download macos-arm64
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: macos-arm64
           path: dist/macos-arm64
 
       - name: Download android-arm64
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: android-arm64
           path: dist/android-arm64
 
       - name: Download android-x86_64
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: android-x86_64
           path: dist/android-x86_64

@@ -38,7 +38,8 @@ possano utilizzarli senza alcun middleware proprietario.
 - Firma e verifica PDF tramite un SDK integrato (basato su PoDoFo)
 - Cifratura e decifratura di file tramite la chiave RSA della CIE (RSA-OAEP / ibrido AES-256-GCM)
 - Marcatura temporale RFC 3161 autonoma tramite qualsiasi TSA (senza carta)
-- Build portabili con dipendenza minima da glibc per Linux
+- Build Linux portabile (`-Dportable=true`) con libxml2 collegata staticamente
+  e senza ICU, per evitare dipendenze ICU della distro
 - Supporto nativo su Linux, macOS, Windows e Android (trasporto NFC su Android)
 
 ---
@@ -148,7 +149,6 @@ sign-sdk/         SDK per la firma PDF (collegato staticamente nella libreria pr
 
 toolchains/       Cross file Meson (aarch64, MinGW, Android NDK)
 linker/           Script di esportazione simboli (.map / .exp)
-Containerfile     Build Linux portabile riproducibile (Ubuntu 22.04 / glibc 2.35)
 ```
 
 ---
@@ -180,7 +180,6 @@ JNI; non vengono usati lettori smart card.
 - Un compilatore C++20 (GCC, Clang o MinGW-w64)
 - [vcpkg](https://github.com/microsoft/vcpkg) — necessario per le build cross Windows e Android
 - Android NDK r27c — necessario per le build Android
-- Podman o Docker — necessari per la build Linux portabile
 
 ---
 
@@ -204,27 +203,19 @@ I nomi dei pacchetti si riferiscono a Debian/Ubuntu. Adattali alla tua distribuz
 
 ### Linux (portabile, indipendente dalla distro)
 
-La build portabile collega staticamente tutte le dipendenze tranne glibc,
-puntando a glibc 2.35 (Ubuntu 22.04) per garantire compatibilità con
-Ubuntu 22.04+, Debian 12+, Fedora 37+, RHEL 9+, Arch ecc. Viene eseguita in container.
+La build portabile (`-Dportable=true`) collega staticamente `libstdc++`/`libgcc`
+e integra una libxml2 statica senza ICU (vedi `subprojects/libxml2.wrap`), cosi
+la `.so` risultante non ha dipendenze dinamiche `libicuuc`/`libicui18n`/`libicudata`
+(le recenti Debian/Ubuntu collegano il loro pacchetto libxml2 a ICU). Tutte le
+altre librerie runtime (curl, fontconfig, freetype, openssl, libpng, openjpeg,
+PoDoFo, zlib, pcsclite) restano collegate dinamicamente in base a quanto fornito
+dall'host di build. Questa è la ricetta usata dal job CI `linux` per produrre
+l'artefatto di release `linux-x86_64`.
 
 ```bash
-podman build -t libopencie-builder -f Containerfile .
-
-mkdir -p output
-podman run --rm -v $(pwd)/output:/output libopencie-builder x86_64
-podman run --rm -v $(pwd)/output:/output libopencie-builder aarch64
-# Output: output/libopencie-pkcs11-x86_64.so
-#         output/libopencie-pkcs11-aarch64.so
-```
-
-`docker` funziona allo stesso modo. Internamente la build esegue:
-
-```
-meson setup builddir-portable-${ARCH} \
-    -Dportable=true -Dprefer_static=true \
-    -Dbuildtype=release -Dstrip=true \
-    [--cross-file toolchains/cross-aarch64.ini]
+meson setup builddir -Dportable=true
+meson compile -C builddir
+# Output: builddir/libopencie-pkcs11.so
 ```
 
 ### macOS
