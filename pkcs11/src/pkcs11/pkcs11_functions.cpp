@@ -11,6 +11,7 @@
 #include "pcsc/scard_types.h"
 #include "pcsc/transport_factory.h"
 #ifndef _WIN32
+#include <pthread.h>
 #include <pwd.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -76,6 +77,29 @@ struct PinCleanser {
 
 std::mutex p11Mutex;
 auto_reset_event p11slotEvent /*("CardOS_P11_Event")*/;
+
+#ifndef _WIN32
+// Fork safety: a host process may fork() after C_Initialize (e.g. process
+// spawning in cie_enable.cpp, or a browser/print-filter helper). The child
+// inherits p11Mutex possibly locked and a std::thread whose OS thread does
+// not exist there, so any subsequent C_* call in the child could deadlock
+// forever. Mark the module uninitialized and reset the mutex in the child
+// so C_* calls in the child fail fast with CKR_CRYPTOKI_NOT_INITIALIZED
+// instead of hanging; the child must call C_Initialize again to use the
+// module.
+static void P11AtForkChild() {
+  bP11Initialized = false;
+  bP11Terminate = false;
+  p11Mutex.~mutex();
+  new (&p11Mutex) std::mutex();
+}
+
+static void P11RegisterAtFork() {
+  static std::once_flag once;
+  std::call_once(once,
+                 [] { pthread_atfork(nullptr, nullptr, P11AtForkChild); });
+}
+#endif
 
 // supported mechanisms
 CK_MECHANISM_TYPE p11_mechanisms[] = {
@@ -311,6 +335,9 @@ CK_RV CK_ENTRY C_GetSlotList(CK_BBOOL tokenPresent, CK_SLOT_ID_PTR pSlotList,
 CK_RV CK_ENTRY C_Initialize(CK_VOID_PTR pReserved) {
   return pkcs11_guard(__FUNCTION__, [&]() -> CK_RV {
     std::unique_lock<std::mutex> lock(p11Mutex);
+#ifndef _WIN32
+    P11RegisterAtFork();
+#endif
 
     logParam(pReserved)
 
@@ -374,9 +401,9 @@ CK_RV CK_ENTRY C_Finalize(CK_VOID_PTR pReserved) {
         if (hC != 0) tc->transport.Cancel(hC);
       }
       p11slotEvent.set();
-      p11Mutex.unlock();
+      lock.unlock();
       CSlot::Thread.join();
-      p11Mutex.lock();
+      lock.lock();
     }
 
     bP11Terminate = false;
@@ -754,6 +781,8 @@ CK_RV CK_ENTRY C_DigestInit(CK_SESSION_HANDLE hSession,
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
+
+    if (pMechanism == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     if (!CheckMechanismParam(pMechanism))
       throw p11_error(CKR_MECHANISM_PARAM_INVALID);
@@ -1145,6 +1174,9 @@ CK_RV CK_ENTRY C_SignFinal(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pSignature,
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
+    if (pSession->pSignMechanism == nullptr)
+      throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
+
     if (!pSession->pSignMechanism->SignSupportMultipart())
       throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
 
@@ -1169,6 +1201,8 @@ CK_RV CK_ENTRY C_SignInit(CK_SESSION_HANDLE hSession,
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
+    if (pMechanism == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
+
     if (!CheckMechanismParam(pMechanism))
       throw p11_error(CKR_MECHANISM_PARAM_INVALID);
 
@@ -1189,6 +1223,9 @@ CK_RV CK_ENTRY C_SignUpdate(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pPart,
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
+
+    if (pSession->pSignMechanism == nullptr)
+      throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
 
     if (!pSession->pSignMechanism->SignSupportMultipart())
       throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
@@ -1213,6 +1250,8 @@ CK_RV CK_ENTRY C_SignRecoverInit(CK_SESSION_HANDLE hSession,
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
+
+    if (pMechanism == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     if (!CheckMechanismParam(pMechanism))
       throw p11_error(CKR_MECHANISM_PARAM_INVALID);
@@ -1261,6 +1300,8 @@ CK_RV CK_ENTRY C_VerifyRecoverInit(CK_SESSION_HANDLE hSession,
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
+    if (pMechanism == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
+
     if (!CheckMechanismParam(pMechanism))
       throw p11_error(CKR_MECHANISM_PARAM_INVALID);
 
@@ -1308,6 +1349,8 @@ CK_RV CK_ENTRY C_VerifyInit(CK_SESSION_HANDLE hSession,
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
+    if (pMechanism == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
+
     if (!CheckMechanismParam(pMechanism))
       throw p11_error(CKR_MECHANISM_PARAM_INVALID);
 
@@ -1353,6 +1396,9 @@ CK_RV CK_ENTRY C_VerifyUpdate(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
+    if (pSession->pVerifyMechanism == nullptr)
+      throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
+
     if (!pSession->pVerifyMechanism->VerifySupportMultipart())
       throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
 
@@ -1375,6 +1421,9 @@ CK_RV CK_ENTRY C_VerifyFinal(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pSignature,
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
+
+    if (pSession->pVerifyMechanism == nullptr)
+      throw p11_error(CKR_OPERATION_NOT_INITIALIZED);
 
     if (!pSession->pVerifyMechanism->VerifySupportMultipart())
       throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);

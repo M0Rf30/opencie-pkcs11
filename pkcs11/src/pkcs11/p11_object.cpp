@@ -40,6 +40,7 @@ ByteArray* CP11Object::getAttribute(CK_ATTRIBUTE_TYPE type) {
 CK_ULONG CP11Object::GetAttributeValue(CK_ATTRIBUTE_PTR pTemplate,
                                        CK_ULONG ulCount) {
   bool attribInvalid = false;
+  bool bufferTooSmall = false;
 
   for (unsigned int i = 0; i < ulCount; i++) {
     CK_ULONG ulValLen = pTemplate[i].ulValueLen;
@@ -48,20 +49,23 @@ CK_ULONG CP11Object::GetAttributeValue(CK_ATTRIBUTE_PTR pTemplate,
     if (attr != nullptr) {
       if (pTemplate[i].pValue == nullptr) {
         pTemplate[i].ulValueLen = static_cast<CK_ULONG>(attr->size());
+      } else if (attr->size() > ulValLen) {
+        pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
+        bufferTooSmall = true;
       } else {
-        if (attr->size() > ulValLen) throw p11_error(CKR_BUFFER_TOO_SMALL);
-
         ByteArray(static_cast<uint8_t*>(pTemplate[i].pValue), attr->size())
             .copy(*attr);
         pTemplate[i].ulValueLen = static_cast<CK_ULONG>(attr->size());
       }
     } else {
-      pTemplate[i].ulValueLen = -1;
+      pTemplate[i].ulValueLen = CK_UNAVAILABLE_INFORMATION;
       attribInvalid = true;
     }
   }
 
-  return attribInvalid ? CKR_ATTRIBUTE_TYPE_INVALID : CKR_OK;
+  if (attribInvalid) return CKR_ATTRIBUTE_TYPE_INVALID;
+  if (bufferTooSmall) return CKR_BUFFER_TOO_SMALL;
+  return CKR_OK;
 }
 
 CK_ULONG CP11Object::GetObjectSize() {

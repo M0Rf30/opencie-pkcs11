@@ -223,7 +223,7 @@ ByteDynArray CVerifyRecoverRSA::VerifyRecoverDecryptSignature(
   ER_ASSERT(pObject->ObjClass == CKO_PUBLIC_KEY, ERR_WRONG_OBJECT_TYPE)
   auto pPublicKey = std::static_pointer_cast<CP11PublicKey>(pObject);
 
-  pPublicKey->getAttribute(CKA_PUBLIC_EXPONENT);
+  baKeyExponent = pPublicKey->getAttribute(CKA_PUBLIC_EXPONENT);
   ER_ASSERT(baKeyExponent != nullptr, ERR_CANT_GET_PUBKEY_EXPONENT);
 
   baKeyModule = pPublicKey->getAttribute(CKA_MODULUS);

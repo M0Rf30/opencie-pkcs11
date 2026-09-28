@@ -547,6 +547,10 @@ size_t CSlot::RWSessionCount() {
   return dwRWSessCount;
 }
 
+CK_OBJECT_HANDLE CSlot::GetNewObjectID() {
+  return static_cast<CK_OBJECT_HANDLE>(++dwP11ObjCnt);
+}
+
 CK_OBJECT_HANDLE CSlot::GetIDFromObject(
     const std::shared_ptr<CP11Object> &pObject) {
   if (pObject->IsPrivate() && User != CKU_USER)
@@ -557,8 +561,7 @@ CK_OBJECT_HANDLE CSlot::GetIDFromObject(
     // didn't find the object in the object map;
     // I need to add it
 
-    CK_OBJECT_HANDLE hObject = static_cast<CK_OBJECT_HANDLE>(
-        reinterpret_cast<uintptr_t>(&pObject));  // GetNewObjectID();
+    CK_OBJECT_HANDLE hObject = GetNewObjectID();
     ObjP11Map[pObject] = hObject;
     HandleP11Map[hObject] = pObject;
     return hObject;
