@@ -49,7 +49,7 @@ CK_RV pkcs11_guard(const char *funcName, F &&func) {
     return func();
   } catch (p11_error &p11Err) {
     LOG_ERROR("[PKCS11] EXC: %s", p11Err.what());
-    LOG_ERROR("[PKCS11] P11Error: %x", p11Err.getP11ErrorCode());
+    LOG_ERROR("[PKCS11] P11Error: %lx", p11Err.getP11ErrorCode());
     return p11Err.getP11ErrorCode();
   } catch (std::exception &err) {
     LOG_ERROR("EXCLOG->");
@@ -185,10 +185,10 @@ __attribute__((destructor)) void DllMainDetach() {
 #endif
 
 void WriteAttributes(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
-  LOG_INFO("[PKCS11] WriteAttributes - Attributes: %x", ulCount);
+  LOG_INFO("[PKCS11] WriteAttributes - Attributes: %lx", ulCount);
 
   if (pTemplate == nullptr && ulCount > 0) {
-    LOG_ERROR("[PKCS11] WriteAttributes - NULL template with ulCount=%x",
+    LOG_ERROR("[PKCS11] WriteAttributes - NULL template with ulCount=%lx",
               ulCount);
     return;
   }
@@ -198,7 +198,8 @@ void WriteAttributes(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
       switch (pTemplate[i].type) {
         case CKA_CLASS:
           LOG_DEBUG(
-              "[PKCS11] WriteAttributes - %d) type=%x (%s), value=%x, len=%x",
+              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%lx, "
+              "len=%lx",
               i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
               *static_cast<CK_OBJECT_CLASS_PTR>(pTemplate[i].pValue),
               pTemplate[i].ulValueLen);
@@ -208,7 +209,7 @@ void WriteAttributes(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
         case CKA_PRIVATE:
         case CKA_MODIFIABLE:
           LOG_DEBUG(
-              "[PKCS11] WriteAttributes - %d) type=%x (%s), value=%x, len=%x",
+              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%x, len=%lx",
               i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
               *static_cast<CK_BBOOL *>(pTemplate[i].pValue),
               pTemplate[i].ulValueLen);
@@ -217,7 +218,7 @@ void WriteAttributes(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
         case CKA_LABEL:
         case CKA_OBJECT_ID:
           LOG_DEBUG(
-              "[PKCS11] WriteAttributes - %d) type=%x (%s), value=%s, len=%x",
+              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%s, len=%lx",
               i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
               static_cast<char *>(pTemplate[i].pValue),
               pTemplate[i].ulValueLen);
@@ -225,7 +226,7 @@ void WriteAttributes(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
 
         case CKA_VALUE:
           LOG_DEBUG(
-              "[PKCS11] WriteAttributes - %d) type=%x (%s), value=%s, len=%x",
+              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%s, len=%lx",
               i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
               dumpHexData(ByteArray(static_cast<uint8_t *>(pTemplate[i].pValue),
                                     pTemplate[i].ulValueLen))
@@ -235,14 +236,14 @@ void WriteAttributes(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
 
         default:
           LOG_DEBUG(
-              "[PKCS11] WriteAttributes - %d) type=%x (%s), value=%p, len=%x",
+              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%p, len=%lx",
               i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
               pTemplate[i].pValue, pTemplate[i].ulValueLen);
           break;
       }
     } else {
       LOG_DEBUG(
-          "[PKCS11] WriteAttributes - %d) type=%x (%s), value=NULL, len=%x",
+          "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=NULL, len=%lx",
           i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
           pTemplate[i].ulValueLen);
     }
@@ -250,9 +251,9 @@ void WriteAttributes(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
 }
 
 void WriteMechanism(CK_MECHANISM_PTR pMechanism) {
-  LOG_DEBUG("[PKCS11] WriteMechanism - Mechanism : %x", pMechanism->mechanism);
-  LOG_DEBUG("[PKCS11] WriteMechanism - Parameter: %x", pMechanism->pParameter);
-  LOG_DEBUG("[PKCS11] WriteMechanism - Parameter len: %x",
+  LOG_DEBUG("[PKCS11] WriteMechanism - Mechanism : %lx", pMechanism->mechanism);
+  LOG_DEBUG("[PKCS11] WriteMechanism - Parameter: %p", pMechanism->pParameter);
+  LOG_DEBUG("[PKCS11] WriteMechanism - Parameter len: %lx",
             pMechanism->ulParameterLen);
 }
 
@@ -466,7 +467,7 @@ CK_RV CK_ENTRY C_OpenSession(CK_SLOT_ID slotID, CK_FLAGS flags,
     // add the session to the global list
     *phSession = CSession::AddSession(std::move(pSession));
 
-    LOG_INFO("[PKCS11] C_OpenSession - Sessione: %i", *phSession);
+    LOG_INFO("[PKCS11] C_OpenSession - Sessione: %lu", *phSession);
     LOG_INFO("[PKCS11] C_OpenSession - Lettore: %s", pSlot->szName.c_str());
     LOG_INFO("[PKCS11] C_OpenSession - CardManager: %s",
              pSlot->pTemplate->szName.c_str());
@@ -875,7 +876,7 @@ CK_RV CK_ENTRY C_FindObjects(CK_SESSION_HANDLE hSession,
 
     pSession->FindObjects(phObject, ulMaxObjectCount, pulObjectCount);
 
-    LOG_DEBUG("[PKCS11] C_FindObjects - Objects found: %d", *pulObjectCount);
+    LOG_DEBUG("[PKCS11] C_FindObjects - Objects found: %lu", *pulObjectCount);
 
     return CKR_OK;
   });
@@ -944,7 +945,7 @@ CK_RV CK_ENTRY C_GetAttributeValue(CK_SESSION_HANDLE hSession,
     LOG_DEBUG("[PKCS11] C_GetAttributeValue - Out template");
     WriteAttributes(pTemplate, ulCount);
 
-    LOG_DEBUG("[PKCS11] C_GetAttributeValue - return %x", rv);
+    LOG_DEBUG("[PKCS11] C_GetAttributeValue - return %lx", rv);
 
     return rv;
   });

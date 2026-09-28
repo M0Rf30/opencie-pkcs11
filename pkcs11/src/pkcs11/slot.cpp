@@ -92,7 +92,7 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
         if ((ris = pSlotMap->begin()->second->transport.GetStatusChange(
                  Context, 0, &state[i], 1)) != S_OK) {
           if (ris != static_cast<LONG>(SCARD_E_TIMEOUT)) {
-            LOG_ERROR("slotMonitor - SCardGetStatusChange error: %08X", ris);
+            LOG_ERROR("slotMonitor - SCardGetStatusChange error: %08lX", ris);
             // don't use ExitThread!!!
             // otherwise I don't call destructors, and everything hangs
             // ESPECIALLY the p11Mutex
@@ -135,14 +135,14 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
         }
         if (ris != static_cast<LONG>(SCARD_E_TIMEOUT) &&
             ris != static_cast<LONG>(SCARD_E_NO_READERS_AVAILABLE)) {
-          LOG_ERROR("slotMonitor - SCardGetStatusChange error: %08X", ris);
+          LOG_ERROR("slotMonitor - SCardGetStatusChange error: %08lX", ris);
           p11slotEvent.set();
           CSlot::ThreadContext = nullptr;
           // no exitThread, vedi sopra;
           return 1;
         }
         if (ris == static_cast<LONG>(SCARD_E_NO_READERS_AVAILABLE)) {
-          LOG_INFO("slotMonitor - No smart card reader connected: %08X", ris);
+          LOG_INFO("slotMonitor - No smart card reader connected: %08lX", ris);
           CSlot::ThreadContext = nullptr;
           // no exitThread, vedi sopra;
           return 1;
