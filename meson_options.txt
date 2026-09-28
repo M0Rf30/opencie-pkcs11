@@ -1,7 +1,7 @@
 option('portable',
   type : 'boolean',
   value : false,
-  description : 'Build a distro-independent binary by statically linking libstdc++ and libgcc. Use with prefer_static=true and a vcpkg prefix for fully portable builds.')
+  description : 'Build a distro-independent binary by statically linking libstdc++, libgcc and libxml2 (built from source with ICU disabled -- see subprojects/libxml2.wrap). Use with prefer_static=true and a vcpkg prefix for fully portable builds.')
 
 option('tests',
   type : 'boolean',

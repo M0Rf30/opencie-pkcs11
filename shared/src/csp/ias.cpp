@@ -1186,22 +1186,49 @@ void IAS::GetCertificate(ByteDynArray &certificate, bool askEnable) {
 
   std::string PANStr;
   dumpHexData(PAN.mid(5, 6), PANStr, false);
-  if (!CacheExists(PANStr.c_str())) {
-    if (askEnable) {
-      notifyCardNotRegistered(PANStr.c_str());
+
+  // Prefer the cache when present and decryptable -- it avoids a redundant
+  // on-card read. Any failure here (corrupted file, or a cache in a
+  // container this build cannot make sense of at all) falls through to
+  // reading the certificate straight from the card below, rather than
+  // failing the whole session: at this point in CIEtemplateInitSession a
+  // live IAS/PACE session to the card is already open and no PIN is
+  // required to read the public certificate.
+  if (CacheExists(PANStr.c_str())) {
+    try {
+      std::vector<BYTE> certEncBuf;
+      CacheGetCertificate(PANStr.c_str(), certEncBuf);
+
+      CAES enc(CardEncKey, CardEncIv);
+      certificate = enc.Decode(ByteArray(certEncBuf.data(), certEncBuf.size()));
+      Certificate = certificate;
       return;
-    } else {
+    } catch (const std::exception &e) {
+      Log.writePure(
+          "IAS::GetCertificate - cache unusable (%s), falling back to "
+          "reading the certificate from the card",
+          e.what());
       certificate.clear();
-      return;
     }
   }
 
-  std::vector<BYTE> certEncBuf;
-  CacheGetCertificate(PANStr.c_str(), certEncBuf);
+  try {
+    ByteDynArray certRaw;
+    ReadCertCIE(certRaw);
+    certificate = ByteDynArray(certRaw.left(GetASN1DataLenght(certRaw)));
+    Certificate = certificate;
+    return;
+  } catch (const std::exception &e) {
+    Log.writePure(
+        "IAS::GetCertificate - failed to read certificate from "
+        "the card: %s",
+        e.what());
+  }
 
-  CAES enc(CardEncKey, CardEncIv);
-  certificate = enc.Decode(ByteArray(certEncBuf.data(), certEncBuf.size()));
-  Certificate = certificate;
+  if (askEnable) {
+    notifyCardNotRegistered(PANStr.c_str());
+  }
+  certificate.clear();
 }
 
 uint8_t IAS::GetSODDigestAlg(const ByteArray &SOD) {

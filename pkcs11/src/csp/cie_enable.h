@@ -85,3 +85,25 @@ DWORD CardAuthenticateEx(IAS* ias, DWORD PinId, DWORD dwFlags, BYTE* pbPinData,
                          DWORD* pcbSessionPin,
                          PROGRESS_CALLBACK progressCallBack,
                          int* pcAttemptsRemaining);
+
+/**
+ * @brief Scan PC/SC readers for a CIE whose PAN matches @p szPAN, without
+ * requiring a PIN.
+ *
+ * Used to answer enrolment/certificate questions directly from a physically
+ * present card when the local cache (~/.CIEPKI/<PAN>.cache or .der) has
+ * nothing usable for that PAN -- notably a card paired through the official
+ * CIE ID app, whose cache may be in a container this build cannot decrypt.
+ * See github.com/M0Rf30/opencie-pkcs11/issues/25.
+ *
+ * @param szPAN    PAN to look for (same hex-encoded PAN.mid(5,6) key used
+ *                 throughout the cache and IAS::IsEnrolled()).
+ * @param certOut  If non-null, filled with the DER certificate (truncated to
+ *                 its actual ASN.1 length) read from the matching card.
+ *                 Ignored if no match is found.
+ * @return true if a card with that PAN was found (and, if @p certOut was
+ *         requested, its certificate was read successfully); false on any
+ *         failure -- no readers, no matching card, or a card/APDU error.
+ *         Never throws.
+ */
+bool CIE_FindCardByPAN(const char* szPAN, ByteDynArray* certOut);

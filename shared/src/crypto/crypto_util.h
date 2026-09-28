@@ -179,6 +179,84 @@ inline int encrypt(const std::string& message, std::string& ciphertext) {
 };
 
 /**
+ * @brief Decrypts a cache blob written in the legacy AES-128-CBC/zero-IV
+ *        format used by the original CIE middleware this project was
+ *        forked from (github.com/italia/cie-middleware, cie-middleware-linux),
+ *        which is also what the official IPZS "CIE ID" application still
+ *        writes to ~/.CIEPKI/<PAN>.cache today.
+ *
+ * That format has no magic header, an all-zero IV, and no integrity tag:
+ * PKCS#7-padded AES-128-CBC(message) with key = first 16 bytes of
+ * SHA-1(ENCRYPTION_KEY). It predates every hardening applied to encrypt()/
+ * decrypt() in this file.
+ *
+ * This function exists ONLY so a cache written by third-party CIE software
+ * (chiefly the official CIE ID app) can still be read for interoperability;
+ * it is never used to write new caches -- encrypt() always produces the
+ * authenticated format. Because the legacy container carries no integrity
+ * protection, treat its output as untrusted: it is safe for the public
+ * X.509 certificate, but callers must not rely on it for the cached PIN.
+ *
+ * @param ciphertext Input encrypted data string.
+ * @param message Output string receiving the decrypted plaintext.
+ * @return 0 on success, non-zero if the input is empty, not a multiple of
+ *         the AES block size, has invalid PKCS#7 padding (a strong signal
+ *         it is not actually a legacy blob), or OpenSSL fails to
+ *         initialize/finalize the cipher.
+ */
+inline int decryptLegacyZeroIv(const std::string& ciphertext,
+                               std::string& message) {
+  if (ciphertext.empty() || ciphertext.size() % kAesBlockSize != 0) return 1;
+
+  unsigned char key[kAesKeyLength];
+  unsigned char digest[SHA_DIGEST_LENGTH];
+  std::string enckey = ENCRYPTION_KEY;
+  SHA1(reinterpret_cast<const unsigned char*>(enckey.c_str()), enckey.length(),
+       digest);
+  memcpy(key, digest, kAesKeyLength);
+  OPENSSL_cleanse(digest, sizeof(digest));
+
+  unsigned char iv[kAesBlockSize];
+  memset(iv, 0, sizeof(iv));
+
+  EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+  if (!ctx) {
+    OPENSSL_cleanse(key, sizeof(key));
+    return 1;
+  }
+  if (EVP_DecryptInit_ex(ctx, EVP_aes_128_cbc(), nullptr, key, iv) != 1) {
+    EVP_CIPHER_CTX_free(ctx);
+    OPENSSL_cleanse(key, sizeof(key));
+    return 1;
+  }
+
+  std::string decBuf(ciphertext.size(), '\0');
+  int outLen = 0, finalLen = 0;
+  if (EVP_DecryptUpdate(
+          ctx, reinterpret_cast<unsigned char*>(decBuf.data()), &outLen,
+          reinterpret_cast<const unsigned char*>(ciphertext.data()),
+          static_cast<int>(ciphertext.size())) != 1) {
+    EVP_CIPHER_CTX_free(ctx);
+    OPENSSL_cleanse(key, sizeof(key));
+    return 1;
+  }
+  if (EVP_DecryptFinal_ex(
+          ctx, reinterpret_cast<unsigned char*>(decBuf.data()) + outLen,
+          &finalLen) != 1) {
+    // Invalid PKCS#7 padding: either corrupted or simply not a legacy blob.
+    EVP_CIPHER_CTX_free(ctx);
+    OPENSSL_cleanse(key, sizeof(key));
+    return 1;
+  }
+  EVP_CIPHER_CTX_free(ctx);
+  decBuf.resize(outLen + finalLen);
+  message = decBuf;
+
+  OPENSSL_cleanse(key, sizeof(key));
+  return 0;
+}
+
+/**
  * @brief Decrypts and authenticates ciphertext produced by encrypt().
  *
  * The input must start with the 4-byte magic header followed by the

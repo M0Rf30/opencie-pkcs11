@@ -129,8 +129,57 @@ if build_sign_sdk
 
   # Discover libxml2 before the libpodofo cmake.subproject so we can forward
   # its include flags into the subproject's compile commands (see below).
-  libxml2_dep = dependency('libxml-2.0', required: false)
-  xml2_dep = dependency('xml2', required: false)
+  #
+  # Portable builds (-Dportable=true) must not pick up a distro libxml2 that
+  # was itself built against ICU: recent Debian/Ubuntu (>=24.04 "noble")
+  # link their libxml2 package against libicuuc/libicui18n/libicudata,
+  # which then leaks into our output as extra dynamic NEEDED entries that
+  # are absent on older/other distros (see GH issue #25). Two sources feed
+  # libxml2_dep here, in priority order:
+  #
+  #   1. LIBXML2_STATIC_PREFIX env var: the portable CI job pre-builds
+  #      libxml2 from source with ICU disabled and installs it to this
+  #      prefix *before* meson runs (see .github/workflows/main.yml). This
+  #      is the only path that also fixes the libpodofo cmake.subproject()
+  #      below (its own find_package(LibXml2) runs at meson-configure time,
+  #      too early to consume a Meson subproject_dep's build output).
+  #   2. subprojects/libxml2.wrap: a from-source fallback so a bare
+  #      `meson setup -Dportable=true` still configures and still yields a
+  #      static, ICU-free libxml2 for this project's own direct uses
+  #      (sign-sdk XAdES generation, pkcs11_extra_deps below) even without
+  #      the CI bootstrap step. It cannot help libpodofo's XMP support for
+  #      the same ordering reason as (1); on a plain local portable build
+  #      PoDoFo's libxml2 linkage stays whatever the host's CMake
+  #      find_package(LibXml2) resolves to.
+  libxml2_static_prefix = ''
+  if get_option('portable')
+    libxml2_static_prefix = run_command(
+      'sh', '-c', 'echo "${LIBXML2_STATIC_PREFIX:-}"', check: false,
+    ).stdout().strip()
+  endif
+
+  if libxml2_static_prefix != ''
+    libxml2_dep = declare_dependency(
+      compile_args: ['-I' + libxml2_static_prefix + '/include/libxml2'],
+      link_args: [libxml2_static_prefix + '/lib/libxml2.a'],
+    )
+    xml2_dep = declare_dependency()
+  elif get_option('portable')
+    libxml2_sub = subproject('libxml2', default_options: [
+        'default_library=static',
+        'icu=disabled',
+        'python=disabled',
+        'http=disabled',
+        'readline=disabled',
+        'history=disabled',
+        'docs=disabled',
+    ])
+    libxml2_dep = libxml2_sub.get_variable('xml_dep')
+    xml2_dep = declare_dependency()
+  else
+    libxml2_dep = dependency('libxml-2.0', required: false)
+    xml2_dep = dependency('xml2', required: false)
+  endif
 
   # liblzma is a transitive dep of libtiff (pulled in by podofo >=1.1.0).
   # Declare it here so it is linked when podofo is built as a cmake subproject
@@ -160,6 +209,17 @@ if build_sign_sdk
       'PODOFO_BUILD_LIB_ONLY': true,
       'CMAKE_POSITION_INDEPENDENT_CODE': true,
     }
+    if libxml2_static_prefix != ''
+      # Pre-seed CMake's FindLibXml2 cache result variables so
+      # find_package(LibXml2 REQUIRED) in PoDoFo's CMakeLists.txt skips its
+      # own search and resolves to the same static, ICU-free libxml2 build
+      # used above, instead of the distro/vcpkg one it would otherwise find
+      # via CMAKE_PREFIX_PATH / pkg-config.
+      podofo_cmake_defines += {
+        'LIBXML2_INCLUDE_DIR': libxml2_static_prefix + '/include/libxml2',
+        'LIBXML2_LIBRARY': libxml2_static_prefix + '/lib/libxml2.a',
+      }
+    endif
     if cmake_prefix != ''
       podofo_cmake_defines += {
         'CMAKE_PREFIX_PATH': cmake_prefix,
@@ -190,23 +250,39 @@ if build_sign_sdk
 
     # Meson's cmake.subproject captures the subproject's own target include
     # directories but does not propagate INTERFACE_INCLUDE_DIRECTORIES of
-    # imported find_package() targets (LibXml2::LibXml2, Freetype::Freetype,
-    # PNG::PNG, OpenSSL::SSL, ...). Without this, podofo's 3rdparty/afdko
-    # fails with 'libxml/tree.h not found' on cross-compiles where the
-    # toolchain's default include path doesn't include the dep's headers.
-    # Forward include flags from pkg-config (PKG_CONFIG_LIBDIR is set per
-    # arch by CI / Containerfile) so the flags reach the actual compile
-    # commands.
+    # imported find_package() targets (Freetype::Freetype, PNG::PNG,
+    # OpenSSL::SSL, ...). Without this, podofo's 3rdparty/afdko fails with
+    # 'libxml/tree.h not found' on cross-compiles where the toolchain's
+    # default include path doesn't include the dep's headers. Forward
+    # include flags from pkg-config (PKG_CONFIG_LIBDIR is set per arch by
+    # CI / Containerfile) so the flags reach the actual compile commands.
+    #
+    # libxml-2.0 is deliberately excluded from this list when
+    # libxml2_static_prefix is set: pkg-config would otherwise resolve it
+    # to the distro's libxml2-dev package (e.g. /usr/include/libxml2) and
+    # that -I ends up on the CXX_FLAGS ahead of the per-target include
+    # dirs CMake derives from the LIBXML2_INCLUDE_DIR seed above, so the
+    # system 2.9.x headers would win the compiler's search order over the
+    # vendored static libxml2 (GH issue #25 follow-up: XMPUtils.cpp failing
+    # to find xmlRelaxNGValidCtxtClearErrors from the older system header).
     pkgcfg = find_program('pkg-config', required: false)
     if pkgcfg.found()
       podofo_pkg_deps = [
-        'libxml-2.0',
         'freetype2',
         'libpng',
         'libssl',
         'libcrypto',
         'fontconfig',
       ]
+      if libxml2_static_prefix == ''
+        podofo_pkg_deps += ['libxml-2.0']
+      else
+        # Meson drops CMake's interface includes for the imported LibXml2
+        # target, so hand the vendored headers to every PoDoFo target.
+        xml_inc = '-I' + libxml2_static_prefix + '/include/libxml2'
+        podofo_opts.append_compile_args('c', xml_inc)
+        podofo_opts.append_compile_args('cpp', xml_inc)
+      endif
       foreach pkg : podofo_pkg_deps
         r = run_command(pkgcfg, '--cflags-only-I', pkg, check: false)
         if r.returncode() == 0

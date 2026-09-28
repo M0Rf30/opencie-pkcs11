@@ -42,6 +42,9 @@ extern "C" __attribute__((visibility("default"))) void cie_set_data_dir(
 #include "crypto/crypto_util.h"
 #include "util/util.h"
 
+/** @brief Global diagnostic logger, defined in the PKCS#11 module. */
+extern CLog Log;
+
 /// This PIN and certificate cache implementation is provided for demonstration
 /// purposes only. This version does NOT adequately protect the user's PIN,
 /// which could be extracted by a malicious application. In production
@@ -223,8 +226,20 @@ void CacheGetCertificate(const char *PAN, std::vector<uint8_t> &certificate) {
     std::string ciphertext(reinterpret_cast<const char *>(data.data()),
                            data.size());
     std::string plaintext;
-    if (decrypt(ciphertext, plaintext) != 0)
-      throw logged_error("CacheGetCertificate: failed to decrypt cache");
+    if (decrypt(ciphertext, plaintext) != 0) {
+      // Our own authenticated format didn't match. This is also exactly
+      // what a cache written by third-party CIE software looks like --
+      // notably the official IPZS "CIE ID" application, which still uses
+      // the original AES-128-CBC/zero-IV container this project forked
+      // from. Try that format before giving up, so a card already
+      // enrolled through that app works here without re-pairing.
+      if (decryptLegacyZeroIv(ciphertext, plaintext) != 0)
+        throw logged_error("CacheGetCertificate: failed to decrypt cache");
+      Log.writePure(
+          "CacheGetCertificate: cache for PAN is in the legacy "
+          "unauthenticated format (likely written by the official CIE ID "
+          "app); read-only, leaving the file untouched");
+    }
 
     uint8_t *ptr =
         reinterpret_cast<uint8_t *>(const_cast<char *>(plaintext.c_str()));
@@ -256,6 +271,7 @@ void CacheGetCertificate(const char *PAN, std::vector<uint8_t> &certificate) {
 
     certificate.resize(Cert.size());
     ByteArray(certificate.data(), certificate.size()).copy(Cert);
+
   } else {
     throw logged_error("CIE not enabled");
   }

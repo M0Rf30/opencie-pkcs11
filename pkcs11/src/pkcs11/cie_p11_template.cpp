@@ -166,6 +166,18 @@ void CIEtemplateInitSession(void *pTemplateData) {
       cie->ias.ReadDappPubKey(resp);
       cie->ias.InitEncKey();
       cie->ias.GetCertificate(certRaw, true);
+      if (certRaw.isEmpty()) {
+        // GetCertificate() already tried the local cache (including a
+        // legacy-format fallback for third-party caches) and a direct
+        // on-card read; if we still have nothing, the card genuinely has
+        // no certificate available right now. Fail clearly here instead
+        // of letting an empty buffer reach GetCertInfo(), which would
+        // otherwise report a confusing "Failed to parse X.509 certificate".
+        throw logged_error(
+            "CIEtemplateInitSession: certificate unavailable -- cache "
+            "missing/undecryptable and on-card read failed; card may not "
+            "be enrolled or may be unreachable");
+      }
     }
 
     CK_BBOOL vtrue = TRUE;

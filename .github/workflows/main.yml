@@ -151,8 +151,37 @@ jobs:
         with:
           key: linux
 
+      - name: Build static libxml2 without ICU for the portable release artifact
+        # This job's output (linux-x86_64) is the artifact shipped in
+        # releases and documented as "portable" (README.md). Debian/Ubuntu
+        # link their packaged libxml2 against ICU since 24.04 "noble", so
+        # picking up apt's libxml2-dev here would leave dynamic
+        # libicuuc/libicui18n/libicudata NEEDED entries in the shipped .so
+        # that are absent on older/other distros (GH issue #25). Build our
+        # own static, ICU-free libxml2 up front and point meson at it via
+        # LIBXML2_STATIC_PREFIX (read by meson.build) so both this
+        # project's own libxml2 use and PoDoFo's cmake find_package(LibXml2)
+        # resolve to it instead.
+        run: |
+          set -eux
+          XML2_VER=2.15.4
+          XML2_PREFIX="${GITHUB_WORKSPACE}/vendor/libxml2-static"
+          curl -fsSL -o /tmp/libxml2.tar.xz \
+            "https://download.gnome.org/sources/libxml2/${XML2_VER%.*}/libxml2-${XML2_VER}.tar.xz"
+          echo "98087fd181d9070724f3fbc65c7377db03038eb92bd882374daff44940138821  /tmp/libxml2.tar.xz" | sha256sum -c -
+          tar -C /tmp -xf /tmp/libxml2.tar.xz
+          meson setup /tmp/libxml2-build "/tmp/libxml2-${XML2_VER}" \
+            --prefix="${XML2_PREFIX}" --libdir=lib --buildtype=release \
+            -Ddefault_library=static -Dicu=disabled -Dpython=disabled \
+            -Dhttp=disabled -Dreadline=disabled -Dhistory=disabled -Ddocs=disabled
+          meson install -C /tmp/libxml2-build
+          echo "LIBXML2_STATIC_PREFIX=${XML2_PREFIX}" >> "$GITHUB_ENV"
+        env:
+          CC: ccache gcc
+          CXX: ccache g++
+
       - name: Configure
-        run: meson setup builddir -Dtests=false
+        run: meson setup builddir -Dtests=false -Dportable=true
         env:
           CC: ccache gcc
           CXX: ccache g++
@@ -162,6 +191,12 @@ jobs:
 
       - name: Strip
         run: strip builddir/libopencie-pkcs11.so
+
+      - name: Verify portable artifact has no dynamic libxml2/ICU dependency
+        run: |
+          set -eux
+          readelf -d builddir/libopencie-pkcs11.so | tee needed.txt
+          ! grep -Ei 'libxml2|libicu' needed.txt
 
       - name: Scan-build (Clang Static Analyzer)
         run: |

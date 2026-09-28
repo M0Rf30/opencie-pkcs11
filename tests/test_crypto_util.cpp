@@ -124,3 +124,32 @@ TEST_CASE("decrypt rejects ciphertext shorter than one AES block",
   std::string empty;
   CHECK(decrypt(empty, decrypted) != 0);
 }
+
+TEST_CASE("decryptLegacyZeroIv recovers plaintext from a legacy zero-IV blob",
+          "[crypto][cache]") {
+  std::string plaintext = "legacy cached PIN";
+  std::string legacyCiphertext = LegacyZeroIvEncrypt(plaintext);
+
+  std::string decrypted;
+  REQUIRE(decryptLegacyZeroIv(legacyCiphertext, decrypted) == 0);
+  CHECK(decrypted == plaintext);
+}
+
+TEST_CASE("decryptLegacyZeroIv rejects our own authenticated CIE1 blobs",
+          "[crypto][cache]") {
+  std::string plaintext = "authenticated cached PIN";
+  std::string ciphertext;
+  REQUIRE(encrypt(plaintext, ciphertext) == 0);
+
+  // magic(4) + iv(16) + AES-CBC body + tag(32) is never a multiple of the
+  // AES block size (52 + 16k), so this is rejected outright.
+  std::string decrypted;
+  CHECK(decryptLegacyZeroIv(ciphertext, decrypted) != 0);
+}
+
+TEST_CASE("decryptLegacyZeroIv rejects malformed input sizes",
+          "[crypto][cache]") {
+  std::string decrypted;
+  CHECK(decryptLegacyZeroIv("", decrypted) != 0);
+  CHECK(decryptLegacyZeroIv("not-block-aligned", decrypted) != 0);
+}
