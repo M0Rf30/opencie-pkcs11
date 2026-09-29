@@ -1032,6 +1032,18 @@ long cie_sign_get_file_from_p7m(CIE_SIGN_CTX ctx) {
   }
 }
 
+// Build the "oid-name:hex-value" string stored in SIGNER_INFO::pszExtensions.
+// Allocated with new[] (released with delete[] in the SIGNER_INFO cleanup).
+// The previous code allocated strlen+1 bytes but told snprintf the buffer
+// held MAX_LEN * 2, which _FORTIFY_SOURCE=3 rightly aborts on ("buffer
+// overflow detected") while verifying any signed document.
+static char* newExtensionString(const char* szoid, const char* hexval) {
+  std::string s = std::string(szoid) + ":" + hexval;
+  char* out = new char[s.size() + 1];
+  memcpy(out, s.c_str(), s.size() + 1);
+  return out;
+}
+
 long verify_xml(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
   LOG_MSG((0, "--> verify_xml", "Context: %p", pContext));
 
@@ -1111,12 +1123,7 @@ long verify_xml(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
       std::string hexvalStr =
           dumpHexData(*(const_cast<ByteDynArray*>(value.getValue())));
       const char* hexval = hexvalStr.c_str();
-      char* szAux = new char[strlen(szoid) + strlen(hexval) + 5];
-      snprintf(szAux, strlen(szoid) + strlen(hexval) + 5, "%s:%s", szoid,
-               hexval);
-      pSI->pszExtensions[j] = new char[strlen(szAux) + 1];
-      snprintf(pSI->pszExtensions[j], MAX_LEN * 2, "%s", szAux);
-      delete[] szAux;
+      pSI->pszExtensions[j] = newExtensionString(szoid, hexval);
     }
 
     ByteDynArray issuer;
@@ -1316,12 +1323,7 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
         std::string hexvalStr =
             dumpHexData(*(const_cast<ByteDynArray*>(value.getValue())));
         const char* hexval = hexvalStr.c_str();
-        char* szAux = new char[strlen(szoid) + strlen(hexval) + 5];
-        snprintf(szAux, strlen(szoid) + strlen(hexval) + 5, "%s:%s", szoid,
-                 hexval);
-        pSI->pszExtensions[j] = new char[strlen(szAux) + 1];
-        snprintf(pSI->pszExtensions[j], MAX_LEN * 2, "%s", szAux);
-        delete[] szAux;
+        pSI->pszExtensions[j] = newExtensionString(szoid, hexval);
       }
 
       cert.getExpiration().getUTCTime(pSI->szExpiration);
@@ -1536,12 +1538,7 @@ long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
       std::string hexvalStr =
           dumpHexData(*(const_cast<ByteDynArray*>(value.getValue())));
       const char* hexval = hexvalStr.c_str();
-      char* szAux = new char[strlen(szoid) + strlen(hexval) + 5];
-      snprintf(szAux, strlen(szoid) + strlen(hexval) + 5, "%s:%s", szoid,
-               hexval);
-      pSI->pszExtensions[j] = new char[strlen(szAux) + 1];
-      snprintf(pSI->pszExtensions[j], MAX_LEN * 2, "%s", szAux);
-      delete[] szAux;
+      pSI->pszExtensions[j] = newExtensionString(szoid, hexval);
     }
 
     cert.getExpiration().getUTCTime(pSI->szExpiration);
@@ -1958,12 +1955,7 @@ long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& /*data*/,
       std::string hexvalStr =
           dumpHexData(*(const_cast<ByteDynArray*>(value.getValue())));
       const char* hexval = hexvalStr.c_str();
-      char* szAux = new char[strlen(szoid) + strlen(hexval) + 5];
-      snprintf(szAux, strlen(szoid) + strlen(hexval) + 5, "%s:%s", szoid,
-               hexval);
-      pSI->pszExtensions[j] = new char[strlen(szAux) + 1];
-      snprintf(pSI->pszExtensions[j], MAX_LEN * 2, "%s", szAux);
-      delete[] szAux;
+      pSI->pszExtensions[j] = newExtensionString(szoid, hexval);
     }
 
     cert.getExpiration().getUTCTime(pSI->szExpiration);

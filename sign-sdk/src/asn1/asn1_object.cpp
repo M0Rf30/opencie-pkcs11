@@ -133,7 +133,9 @@ void CASN1Object::toByteArray(ByteDynArray& byteArray) const {
     serialized[0] = getTag();
     serialized[1] = static_cast<BYTE>(nLen);
 
-    memcpy((serialized.data() + 2), getValue()->data(), nLen);
+    // Zero-length values (e.g. ASN.1 NULL) may have no backing buffer;
+    // memcpy with a null source is UB even for 0 bytes.
+    if (nLen > 0) memcpy((serialized.data() + 2), getValue()->data(), nLen);
 
   } else {  // if (nLen >= 0x80)
     // Long Form
