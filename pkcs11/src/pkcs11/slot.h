@@ -43,6 +43,58 @@ class CCardTemplate;
 enum class SlotEvent { NoEvent, Removed, Inserted };
 
 /**
+ * @brief std::thread wrapper that never calls std::terminate() if it is
+ * destroyed while still joinable.
+ *
+ * CSlot::Thread (below) is a namespace-scope static. When the host
+ * process exits without ever calling C_Finalize() -- e.g. NSS
+ * command-line tools such as `pdfsig` that skip NSS_Shutdown -- its
+ * destructor runs directly from exit()'s atexit-handler processing,
+ * *before* this library's __attribute__((destructor)) hook
+ * (DllMainDetach, pkcs11_functions.cpp) gets a chance to run via
+ * _dl_fini(); confirmed with gdb (`std::thread::~thread` for
+ * CSlot::Thread called straight out of exit(), no DllMainDetach frame
+ * anywhere on the stack). A plain std::thread's destructor calls
+ * std::terminate() whenever joinable() is still true at that point
+ * ("terminate called without an active exception"), aborting the whole
+ * process.
+ *
+ * At that point in process teardown the destruction order of *other*
+ * namespace-scope statics across translation units (p11Mutex,
+ * p11slotEvent, g_transport in pkcs11_functions.cpp) is unspecified, so
+ * this destructor must not depend on any of them being alive. It only
+ * flips lock-free atomics (std::atomic<bool> has a trivial, side-effect
+ * free destructor, so writing them stays safe regardless of the other
+ * TU's teardown state) to ask the monitor loop to notice it must stop on
+ * its own, then detaches: detach() only touches this object's own thread
+ * handle (pthread_detach()), so it can never call std::terminate() and
+ * never touches memory owned by another static. An earlier version also
+ * cancelled the pending PC/SC call through the monitor thread's
+ * transport reference to unblock it immediately; that reference
+ * ultimately resolves to the polymorphic g_transport global in another
+ * translation unit, and calling a virtual method through it after
+ * g_transport was already destroyed produced "pure virtual method
+ * called" -- exactly the class of crash this type exists to prevent. See
+ * the destructor definition in slot.cpp.
+ *
+ * The normal shutdown path (C_Finalize / DllMainDetach) is unaffected:
+ * it calls Thread.join() explicitly while every other static is still
+ * fully alive, so joinable() is already false by the time this
+ * destructor runs during ordinary program exit -- this is then a no-op.
+ */
+class ScopedMonitorThread : public std::thread {
+ public:
+  using std::thread::thread;
+
+  ScopedMonitorThread &operator=(std::thread &&other) noexcept {
+    std::thread::operator=(std::move(other));
+    return *this;
+  }
+
+  ~ScopedMonitorThread();
+};
+
+/**
  * @brief Represents a single PKCS#11 slot backed by a physical card reader.
  *
  * Each CSlot owns two bidirectional maps (handle-to-object and
@@ -135,7 +187,7 @@ class CSlot {
   void *pTemplateData;  ///< Opaque template-specific data managed by the card
                         ///< plugin.
 
-  static std::thread Thread;  ///< Background card-event monitor thread.
+  static ScopedMonitorThread Thread;  ///< Background card-event monitor thread.
   static std::atomic<CCardContext *>
       ThreadContext;  ///< PC/SC context used by the monitor.
 
