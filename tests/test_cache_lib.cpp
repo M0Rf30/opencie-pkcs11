@@ -190,6 +190,35 @@ TEST_CASE("CacheGetDer returns false for a missing PAN", "[cache]") {
   CHECK_FALSE(CacheGetDer("0000000000000000", out));
 }
 
+TEST_CASE("CacheGetDer reads a legacy zero-IV .der cache", "[cache]") {
+  std::string dir = MakeTempDir();
+  ScopedHomeOverride homeGuard(dir);
+
+  // .der caches written before the authenticated format hold certlen|cert
+  // in the legacy zero-IV container (seen on a real CIE enrolled in May).
+  const char *PAN = "1111222233334444";
+  std::string cert = "legacy-der-cache-certificate-payload";
+  uint32_t certlen = static_cast<uint32_t>(cert.size());
+  std::string plaintext;
+  plaintext.append(reinterpret_cast<const char *>(&certlen), sizeof(certlen));
+  plaintext.append(cert);
+  std::string legacyCiphertext = LegacyZeroIvEncrypt(plaintext);
+
+  std::filesystem::create_directories(homeGuard.dir() + "/.CIEPKI");
+  std::string derPath =
+      homeGuard.dir() + "/.CIEPKI/" + std::string(PAN) + ".der";
+  std::ofstream out(derPath, std::ios::binary);
+  out.write(legacyCiphertext.data(),
+            static_cast<std::streamsize>(legacyCiphertext.size()));
+  out.close();
+
+  std::vector<uint8_t> got;
+  REQUIRE(CacheGetDer(PAN, got));
+  CHECK(std::string(got.begin(), got.end()) == cert);
+  // Read-only: the legacy file is left byte-for-byte intact.
+  CHECK(ReadFileBinary(derPath) == legacyCiphertext);
+}
+
 TEST_CASE(
     "CacheGetCertificate reads a legacy zero-IV cache without modifying it",
     "[cache]") {
