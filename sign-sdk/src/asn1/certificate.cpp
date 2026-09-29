@@ -32,6 +32,14 @@
 
 char g_szResolveList[4096] = {0};
 
+// Response accumulator for HTTPRequest. OCSP responses are a few KB; the
+// CIE CRL is ~35 MB, so the cap leaves room to grow without letting a
+// broken or hostile server exhaust memory.
+static constexpr size_t kMaxHttpResponseBytes = 128u * 1024u * 1024u;
+struct HttpBody {
+  std::vector<BYTE> bytes;
+};
+
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb,
                             void* userp);
 long HTTPRequest(const ByteDynArray& data, const char* szUrl,
@@ -993,13 +1001,30 @@ long HTTPRequest(const ByteDynArray& data, const char* szUrl,
     }
   }
 
+  // OCSP/CRL endpoints redirect (the CIE CRL URL answers 307 from http:// to
+  // https://). Follow a bounded number of redirects, never to anything but
+  // HTTP(S).
+  curl_easy_setopt(ctx, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(ctx, CURLOPT_MAXREDIRS, 5L);
+#if LIBCURL_VERSION_NUM >= 0x075500  // 7.85.0
+  curl_easy_setopt(ctx, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+#else
+  curl_easy_setopt(ctx, CURLOPT_REDIR_PROTOCOLS,
+                   static_cast<long>(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+#endif
+
+  // Never hang a verification forever on an unresponsive responder. The
+  // overall limit is generous: the CIE CRL alone is ~35 MB.
+  curl_easy_setopt(ctx, CURLOPT_CONNECTTIMEOUT, 15L);
+  curl_easy_setopt(ctx, CURLOPT_TIMEOUT, 300L);
+
   if (data.size() > 0) {
     // set POST method
     curl_easy_setopt(ctx, CURLOPT_POST, 1);
 
     // give the data you want to post
     curl_easy_setopt(ctx, CURLOPT_POSTFIELDS, data.data());
-    LOG_ERR((0, "HTTPRequest", "POST data content: %s", data.data()));
+    LOG_DBG((0, "HTTPRequest", "POST %zu bytes", data.size()));
     // give the data lenght
     curl_easy_setopt(ctx, CURLOPT_POSTFIELDSIZE, data.size());
   }
@@ -1021,18 +1046,18 @@ long HTTPRequest(const ByteDynArray& data, const char* szUrl,
     }
 
     if (g_szVerifyProxyUsrPass != nullptr) {
-      LOG_MSG((0, "HTTPRequest", "Proxy UserPass: %s", g_szVerifyProxyUsrPass));
+      // Never log the credentials themselves.
+      LOG_MSG((0, "HTTPRequest", "Proxy authentication configured"));
       curl_easy_setopt(ctx, CURLOPT_PROXYUSERPWD, g_szVerifyProxyUsrPass);
     }
   }
 
-  // set the callback function that handle the data return from server
-  // if you don't set this, the return data just show up on the screen
-  // size_t write_callback(void *ptr, size_t size, size_t nmemb, void *userp)
+  // Accumulate into a growable buffer (ByteDynArray::append reallocates to
+  // the exact size on every chunk, which is quadratic for a 35 MB CRL) and
+  // cap the size so a hostile or broken server cannot exhaust memory.
+  HttpBody body;
   curl_easy_setopt(ctx, CURLOPT_WRITEFUNCTION, WriteCallback);
-
-  // we pass our 'chunk' struct to the callback function
-  curl_easy_setopt(ctx, CURLOPT_WRITEDATA, static_cast<void*>(&response));
+  curl_easy_setopt(ctx, CURLOPT_WRITEDATA, static_cast<void*>(&body));
 
   struct curl_slist* headers = nullptr;
 
@@ -1053,7 +1078,9 @@ long HTTPRequest(const ByteDynArray& data, const char* szUrl,
 
   /* Check for errors */
   if (ret != CURLE_OK) {
-    LOG_ERR((0, "HTTPRequest", "Unable to connect to: %s", szUrl));
+    LOG_ERR((0, "HTTPRequest", "Unable to connect to: %s (%s)", szUrl,
+             curl_easy_strerror(ret)));
+    if (headers) curl_slist_free_all(headers);
     if (resolve_list) curl_slist_free_all(resolve_list);
     curl_easy_cleanup(ctx);
     return ret;
@@ -1066,31 +1093,44 @@ long HTTPRequest(const ByteDynArray& data, const char* szUrl,
   if (responseCode == PROXY_AUTHENTICATION_REQUIRED) {
     LOG_ERR((0, "HTTPRequest",
              "Unable to connect to: %s. Proxy authentication required", szUrl));
+    if (headers) curl_slist_free_all(headers);
     if (resolve_list) curl_slist_free_all(resolve_list);
     curl_easy_cleanup(ctx);
     return responseCode;
   }
-
-  LOG_ERR((0, "HTTPRequest", "connect to: %s OK", szUrl));
 
   // clean up
   if (headers) curl_slist_free_all(headers);
   if (resolve_list) curl_slist_free_all(resolve_list);
   curl_easy_cleanup(ctx);
 
-  if (response.size() == 0) {
+  // Only a final 200 carries an OCSP response or a CRL; an error page must
+  // never be handed to the ASN.1 parsers.
+  if (responseCode != 200) {
+    LOG_ERR((0, "<-- HTTPRequest", "HTTP %ld from %s", responseCode, szUrl));
+    return responseCode > 0 ? responseCode : -1;
+  }
+  if (body.bytes.empty()) {
     LOG_ERR((0, "<-- HTTPRequest", "empty response"));
     return -1;
   }
+  LOG_DBG(
+      (0, "HTTPRequest", "OK, %zu bytes from %s", body.bytes.size(), szUrl));
 
+  response = ByteDynArray(ByteArray(body.bytes.data(), body.bytes.size()));
   return 0;
 }
 
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb,
                             void* userp) {
-  ByteDynArray* pResponse = static_cast<ByteDynArray*>(userp);
+  HttpBody* pBody = static_cast<HttpBody*>(userp);
   size_t realsize = size * nmemb;
-  pResponse->append(ByteArray(static_cast<BYTE*>(contents), realsize));
-
+  if (pBody->bytes.size() + realsize > kMaxHttpResponseBytes) {
+    LOG_ERR((0, "HTTPRequest", "response exceeds %zu bytes, aborting",
+             kMaxHttpResponseBytes));
+    return 0;  // makes libcurl abort the transfer with CURLE_WRITE_ERROR
+  }
+  const BYTE* p = static_cast<const BYTE*>(contents);
+  pBody->bytes.insert(pBody->bytes.end(), p, p + realsize);
   return realsize;
 }
