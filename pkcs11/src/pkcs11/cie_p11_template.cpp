@@ -323,8 +323,9 @@ void CIEtemplateGetModel(CSlot & /*pSlot*/, std::string &szModel) {
   szModel = "CIE 3.0";
 }
 void CIEtemplateGetTokenFlags(CSlot & /*pSlot*/, CK_FLAGS &dwFlags) {
+  // The CIE token is read-only (no on-card credential writes are supported).
   dwFlags = CKF_LOGIN_REQUIRED | CKF_USER_PIN_INITIALIZED |
-            CKF_TOKEN_INITIALIZED | CKF_REMOVABLE_DEVICE;
+            CKF_TOKEN_INITIALIZED | CKF_WRITE_PROTECTED;
 }
 
 void CIEtemplateLogin(void *pTemplateData, CK_USER_TYPE userType,
