@@ -620,6 +620,14 @@ CIE_SIGN_CTX cie_sign_verify_init(void) {
   }
 
   g_nVerifyProxyPort = -1;
+
+  // CIE-signed CMS commonly carries only the signer certificate (no
+  // chain), and the CIE issuing sub-CAs are not present in generic OS/
+  // browser trust stores. Without this, OCSP response and CRL signature
+  // verification can never find the issuer and revocation checks fail
+  // closed with "issuer certificate not found".
+  CCertStore::LoadBuiltInCieCertificates();
+
   LOG_MSG((0, "<-- cie_sign_verify_init", "Context: %p", pContext));
 
   return reinterpret_cast<CIE_SIGN_CTX>(pContext);

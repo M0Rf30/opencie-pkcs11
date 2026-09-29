@@ -132,6 +132,7 @@ constexpr const char* szEncDataOID = "1.2.840.113549.1.7.6";
 constexpr const char* szMessageDigestOID = "1.2.840.113549.1.9.4";
 constexpr const char* szSigningTimeOID = "1.2.840.113549.1.9.5";
 constexpr const char* szSha256WithRsaEncryptionOID = "1.2.840.113549.1.1.11";
+constexpr const char* szSha1WithRsaEncryptionOID = "1.2.840.113549.1.1.5";
 constexpr const char* szSignedDataOID = "1.2.840.113549.1.7.2";
 constexpr const char* szCounterSignatureOID = "1.2.840.113549.1.9.6";
 constexpr const char* szCrlDistributionPointsOID = "2.5.29.31";

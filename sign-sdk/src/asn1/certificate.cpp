@@ -269,26 +269,52 @@ CASN1Sequence CCertificate::getCertificatePolicies() {
 }
 
 CASN1OctetString CCertificate::getAuthorithyKeyIdentifier() {
-  CASN1Sequence keyIdentifier(
+  // AuthorityKeyIdentifier ::= SEQUENCE {
+  //   keyIdentifier [0] IMPLICIT KeyIdentifier OPTIONAL, ... }
+  // extnValue's content is the DER encoding of that SEQUENCE (tag 0x30),
+  // not of an OCTET STRING: it must be unwrapped one level further than
+  // the extnValue octet string itself to reach the raw keyIdentifier
+  // bytes carried in the context-tagged [0] field. Returning the
+  // SEQUENCE's content directly (as before) left the [0] field's own
+  // tag/length prefix attached, producing a value store lookups could
+  // never match against a Subject Key Identifier.
+  CASN1Sequence extension(
       getExtension(CASN1ObjectIdentifier(szAuthorityKeyIdentifier)));
 
-  CASN1OctetString val(keyIdentifier.elementAt(1));
+  if (extension.size() < 2) return CASN1OctetString("");
 
-  BufferedReader reader(*val.getValue());
-  return CASN1OctetString(reader);
+  CASN1OctetString extnValue(extension.elementAt(1));
+
+  BufferedReader reader(*extnValue.getValue());
+  CASN1Sequence authorityKeyId(reader);
+
+  if (authorityKeyId.size() == 0) return CASN1OctetString("");
+
+  CASN1Object keyIdField(authorityKeyId.elementAt(0));
+  if (keyIdField.getTag() != 0x80) {
+    // keyIdentifier [0] is OPTIONAL; not every issuer sets it first (or at
+    // all). Fail closed rather than returning an unrelated field's bytes.
+    return CASN1OctetString("");
+  }
+
+  return CASN1OctetString(*keyIdField.getValue());
 }
 
 CASN1OctetString CCertificate::getSubjectKeyIdentifier() {
-  CASN1Sequence keyIdentifier(
+  // SubjectKeyIdentifier ::= KeyIdentifier (OCTET STRING). extnValue's
+  // content is the DER encoding of that OCTET STRING, i.e. another
+  // tag/length/value nested inside extnValue's own octets, so it needs
+  // one more unwrap to reach the raw key id bytes -- not the whole nested
+  // TLV (tag + length + bytes), which is what was returned before.
+  CASN1Sequence extension(
       getExtension(CASN1ObjectIdentifier(szSubjectKeyIdentifier)));
 
-  if (keyIdentifier.size() > 0) {
-    CASN1OctetString val(keyIdentifier.elementAt(1));
-    return val;
-  } else {
-    CASN1OctetString val("");
-    return val;
-  }
+  if (extension.size() < 2) return CASN1OctetString("");
+
+  CASN1OctetString extnValue(extension.elementAt(1));
+
+  BufferedReader reader(*extnValue.getValue());
+  return CASN1OctetString(reader);
 }
 
 // A.1 OCSP over HTTP
@@ -869,13 +895,33 @@ bool CCertificate::verifySignature(CCertificate& cert) {
         return false;
       }
 
-      // Cross-check the recovered signature's digest algorithm against
-      // the algorithm declared in the certificate's own signatureAlgorithm
-      // field; without this a signature computed with one hash could be
-      // reinterpreted under a different declared algorithm.
+      // Cross-check the recovered signature's digest algorithm against the
+      // algorithm declared in the certificate's own signatureAlgorithm
+      // field, so a signature computed with one hash cannot be
+      // reinterpreted under a different declared algorithm. The two
+      // fields use different OID arcs for the *same* hash -- declaredSigAlgo
+      // is the combined "...WithRSAEncryption" signature algorithm (e.g.
+      // sha256WithRSAEncryption, 1.2.840.113549.1.1.11), while digestAlgo
+      // (recovered from inside the PKCS#1 v1.5 DigestInfo per RFC 3447
+      // EMSA-PKCS1-v1_5) is the plain hash algorithm (e.g. id-sha256,
+      // 2.16.840.1.101.3.4.2.1); they are never byte-identical for a
+      // legitimate signature, so comparing them directly always fails.
+      // Map the declared signature algorithm to its expected plain hash
+      // OID instead.
       CAlgorithmIdentifier digestAlgo(digestInfo.getDigestAlgorithm());
       CAlgorithmIdentifier declaredSigAlgo(elementAt(1));
-      if (digestAlgo.elementAt(0) != declaredSigAlgo.elementAt(0)) {
+      CAlgorithmIdentifier sha256Algo(szSHA256OID);
+      CAlgorithmIdentifier sha1Algo(szSHA1OID);
+      CAlgorithmIdentifier sha256WithRsaAlgo(szSha256WithRsaEncryptionOID);
+      CAlgorithmIdentifier sha1WithRsaAlgo(szSha1WithRsaEncryptionOID);
+
+      bool consistentSha256 =
+          declaredSigAlgo.elementAt(0) == sha256WithRsaAlgo.elementAt(0) &&
+          digestAlgo.elementAt(0) == sha256Algo.elementAt(0);
+      bool consistentSha1 =
+          declaredSigAlgo.elementAt(0) == sha1WithRsaAlgo.elementAt(0) &&
+          digestAlgo.elementAt(0) == sha1Algo.elementAt(0);
+      if (!consistentSha256 && !consistentSha1) {
         return false;
       }
 
@@ -892,9 +938,7 @@ bool CCertificate::verifySignature(CCertificate& cert) {
       buff = const_cast<BYTE*>(content2.data());
       bufflen = content2.size();
 
-      CAlgorithmIdentifier sha256Algo(szSHA256OID);
-      CAlgorithmIdentifier sha1Algo(szSHA1OID);
-      if (digestAlgo.elementAt(0) == sha256Algo.elementAt(0)) {
+      if (consistentSha256) {
         ByteDynArray hash = CSHA256::Digest(ByteArray(buff, bufflen));
 
         if (hash.size() == SHA256_DIGEST_LENGTH &&
@@ -904,7 +948,7 @@ bool CCertificate::verifySignature(CCertificate& cert) {
           return true;
         }
 
-      } else if (digestAlgo.elementAt(0) == sha1Algo.elementAt(0)) {
+      } else if (consistentSha1) {
         ByteDynArray hash = CSHA1().Digest(ByteArray(buff, bufflen));
 
         if (hash.size() == SHA_DIGEST_LENGTH &&

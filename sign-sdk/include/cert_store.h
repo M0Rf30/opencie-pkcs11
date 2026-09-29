@@ -29,6 +29,16 @@ class CCertStore {
    */
   static CCertificate* GetCertificate(CCertificate& certificate);
 
+  /**
+   * Load the embedded set of public Italian CIE root/sub-CA certificates
+   * (see sign-sdk/src/cie_ca_certs_data.h) into the store, so that OCSP
+   * response and CRL signature verification can find the issuing CA even
+   * when the CMS being verified carries only the signer certificate (the
+   * common case for CIE-signed PDFs). Idempotent and safe to call before
+   * every verification -- repeated calls are cheap map re-insertions.
+   */
+  static void LoadBuiltInCieCertificates();
+
   /** Free all stored certificates. */
   static void CleanUp();
 
