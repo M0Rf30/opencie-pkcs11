@@ -567,8 +567,9 @@ C_GetInfo(CK_INFO_PTR pInfo /* location that receives information */) {
 
         if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
 
-    pInfo->cryptokiVersion.major = 2;   /* Cryptoki interface ver */
-    pInfo->cryptokiVersion.minor = 11;  // 12345678901234567890123456789012
+    /* Cryptoki interface version; must match the CK_FUNCTION_LIST version */
+    pInfo->cryptokiVersion.major = 2;
+    pInfo->cryptokiVersion.minor = 40;
     std::memcpy(reinterpret_cast<char *>(pInfo->manufacturerID),
                 "opencie                         ", 32);
 
