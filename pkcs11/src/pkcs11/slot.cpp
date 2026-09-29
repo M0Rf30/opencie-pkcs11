@@ -248,6 +248,11 @@ void CSlot::InitSlotList(ISmartCardTransport &transport) {
   CCardContext Context(transport);
 
   if (!bP11Initialized) return;
+  // No PC/SC service (e.g. pcscd not running): CCardContext left hContext
+  // at 0 on purpose. Report an empty slot list instead of passing a null
+  // context to SCardListReaders, which fails with SCARD_E_INVALID_HANDLE
+  // and would make C_Initialize() return CKR_GENERAL_ERROR.
+  if (Context.hContext == 0) return;
 
   auto ris = Context.transport.ListReaders(Context, nullptr, &readersLen);
   if (ris != S_OK) {
