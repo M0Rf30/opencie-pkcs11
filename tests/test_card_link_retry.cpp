@@ -169,3 +169,20 @@ TEST_CASE(
   // regardless of maxAttempts.
   CHECK(calls == 1);
 }
+
+TEST_CASE(
+    "RetryOnCardLinkError does not retry a link drop during PIN verification",
+    "[retry]") {
+  int calls = 0;
+  REQUIRE_THROWS_AS(RetryOnCardLinkError("test-op", 3,
+                                         [&](int /*attempt*/) -> int {
+                                           ++calls;
+                                           throw card_link_error(
+                                               "link lost during VERIFY",
+                                               /*retryable=*/false);
+                                         }),
+                    card_link_error);
+  // The card may have counted a wrong PIN whose answer never arrived:
+  // resending it automatically could consume a second attempt.
+  CHECK(calls == 1);
+}
