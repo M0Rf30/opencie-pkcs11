@@ -170,6 +170,25 @@ void IAS::readDGbySFI(uint8_t sfi, ByteDynArray &content) {
   // Read remaining bytes in chunks using absolute offset (P1=0, P2=offset).
   // 224 bytes fits within the SM APDU overhead budget for all CIE variants;
   // the 6C retry loop below handles cards that return fewer bytes.
+  //
+  // Why not the theoretical short-APDU max (Le = 0xE7/231 or 0xFF/255)?
+  // The *plaintext* Le only bounds part of the wire response: under SM
+  // the card must also fit the DO'87 (encrypted data, ISO-padded to an
+  // 8-byte DES block: up to +8 bytes) or DO'85 wrapper, the DO'99 status
+  // word DO (+4 bytes) and the DO'8E MAC DO (+10 bytes), plus their own
+  // ASN.1 tag/length bytes (~4-6 bytes), inside the same short-APDU
+  // 256-byte response buffer most CIE profiles (Gemalto/NXP/STM/STM2/
+  // STM3/Actalis/Bit4id -- see CIE_Type) still use. 224 + 8 (padding) +
+  // ~18 (SM envelope overhead) sits safely under that 256-byte ceiling;
+  // 231 or 255 would not, and overflowing it looks exactly like the
+  // RF-link-drop symptom this file's card_link_error handling exists
+  // for (short/garbled SM response) -- except reproducible on every
+  // read, on every reader, not just contactless. Raising this value (or
+  // switching to extended-length APDUs, which the CIE protocol does
+  // support and would cut the ~60-round-trip DG2 read to 1-2) needs a
+  // hardware pass across the card-type matrix above and both PC/SC and
+  // Android NFC (IsoDep.transceive() has its own vendor-dependent max
+  // transceive size) transports before it can be safely changed here.
   WORD cnt = static_cast<WORD>(content.size());
   chunk = 224;
   while (cnt < fileSize) {
@@ -757,63 +776,77 @@ StatusWord IAS::respSM(const ByteArray &keyEnc, const ByteArray &keySig,
   CDES3 encDes(keyEnc, iv);
   CMAC sigMac(keySig, iv);
 
-  calcMac = ByteDynArray(seq);
-  index = 0;
-  do {
-    if (resp[index] == 0x99) {
-      if (resp[index + 1] != 0x02)
-        throw logged_error("Invalid status word length");
-      calcMac.append(resp.mid(index, resp[index + 1] + 2));
-      sw = resp[index + 2] << 8 | resp[index + 3];
-      index += 4;
-    } else if (resp[index] == 0x8e) {
-      if (resp[index + 1] != 0x08) throw logged_error("Invalid MAC length");
-      respMac = ByteDynArray(resp.mid(index + 2, 8));
-      index += 10;
-    } else if (resp[index] == 0x85) {
-      if (resp[index + 1] > 0x80) {
-        llen = resp[index + 1] - 0x80;
-        if (llen == 1)
-          lgn = resp[index + 2];
-        else if (llen == 2)
-          lgn = (resp[index + 2] << 8) | resp[index + 3];
-        else
-          throw logged_error(stdPrintf("Invalid ASN.1 length: %i", llen));
-        encData = ByteDynArray(resp.mid(index + llen + 2, lgn));
-        calcMac.append(resp.mid(index, lgn + llen + 2));
-        index += llen + lgn + 2;
-      } else {
-        encData = ByteDynArray(resp.mid(index + 2, resp[index + 1]));
+  // A truncated or bit-flipped Secure Messaging response (typical of an
+  // RF link drop on a contactless reader) can fail in several different
+  // ways in the block below: an out-of-bounds tag/length byte access
+  // (ByteArray::operator[] throws logged_error), an explicit malformed-tag
+  // check, or a MAC mismatch. None of these mean the card *deliberately*
+  // reported an error -- they are all symptoms of "the bytes we got
+  // cannot be trusted", so every logged_error raised while parsing or
+  // verifying this response is reclassified as card_link_error so
+  // callers can retry with a fresh PACE/DH session instead of failing
+  // silently or misclassifying this as a permanent card error.
+  try {
+    calcMac = ByteDynArray(seq);
+    index = 0;
+    do {
+      if (resp[index] == 0x99) {
+        if (resp[index + 1] != 0x02)
+          throw logged_error("Invalid status word length");
         calcMac.append(resp.mid(index, resp[index + 1] + 2));
-        index += resp[index + 1] + 2;
-      }
-    } else if (resp[index] == 0x87) {
-      if (resp[index + 1] > 0x80) {
-        llen = resp[index + 1] - 0x80;
-        if (llen == 1)
-          lgn = resp[index + 2];
-        else if (llen == 2)
-          lgn = (resp[index + 2] << 8) | resp[index + 3];
-        else
-          throw logged_error(stdPrintf("Invalid ASN.1 length: %i", llen));
-        if (lgn < 1)
-          throw logged_error("Invalid tag 0x87 length: missing padding byte");
-        encData = ByteDynArray(resp.mid(index + llen + 3, lgn - 1));
-        calcMac.append(resp.mid(index, lgn + llen + 2));
-        index += llen + lgn + 2;
-      } else {
-        if (resp[index + 1] < 1)
-          throw logged_error("Invalid tag 0x87 length: missing padding byte");
-        encData = ByteDynArray(resp.mid(index + 3, resp[index + 1] - 1));
-        calcMac.append(resp.mid(index, resp[index + 1] + 2));
-        index += resp[index + 1] + 2;
-      }
-    } else
-      throw logged_error("Unrecognized tag in Secure Messaging response");
-  } while (index < resp.size());
+        sw = resp[index + 2] << 8 | resp[index + 3];
+        index += 4;
+      } else if (resp[index] == 0x8e) {
+        if (resp[index + 1] != 0x08) throw logged_error("Invalid MAC length");
+        respMac = ByteDynArray(resp.mid(index + 2, 8));
+        index += 10;
+      } else if (resp[index] == 0x85) {
+        if (resp[index + 1] > 0x80) {
+          llen = resp[index + 1] - 0x80;
+          if (llen == 1)
+            lgn = resp[index + 2];
+          else if (llen == 2)
+            lgn = (resp[index + 2] << 8) | resp[index + 3];
+          else
+            throw logged_error(stdPrintf("Invalid ASN.1 length: %i", llen));
+          encData = ByteDynArray(resp.mid(index + llen + 2, lgn));
+          calcMac.append(resp.mid(index, lgn + llen + 2));
+          index += llen + lgn + 2;
+        } else {
+          encData = ByteDynArray(resp.mid(index + 2, resp[index + 1]));
+          calcMac.append(resp.mid(index, resp[index + 1] + 2));
+          index += resp[index + 1] + 2;
+        }
+      } else if (resp[index] == 0x87) {
+        if (resp[index + 1] > 0x80) {
+          llen = resp[index + 1] - 0x80;
+          if (llen == 1)
+            lgn = resp[index + 2];
+          else if (llen == 2)
+            lgn = (resp[index + 2] << 8) | resp[index + 3];
+          else
+            throw logged_error(stdPrintf("Invalid ASN.1 length: %i", llen));
+          if (lgn < 1)
+            throw logged_error("Invalid tag 0x87 length: missing padding byte");
+          encData = ByteDynArray(resp.mid(index + llen + 3, lgn - 1));
+          calcMac.append(resp.mid(index, lgn + llen + 2));
+          index += llen + lgn + 2;
+        } else {
+          if (resp[index + 1] < 1)
+            throw logged_error("Invalid tag 0x87 length: missing padding byte");
+          encData = ByteDynArray(resp.mid(index + 3, resp[index + 1] - 1));
+          calcMac.append(resp.mid(index, resp[index + 1] + 2));
+          index += resp[index + 1] + 2;
+        }
+      } else
+        throw logged_error("Unrecognized tag in Secure Messaging response");
+    } while (index < resp.size());
 
-  auto smMac = sigMac.Mac(ISOPad(calcMac));
-  ER_ASSERT(smMac == respMac, "Chip response checksum error")
+    auto smMac = sigMac.Mac(ISOPad(calcMac));
+    ER_ASSERT(smMac == respMac, "Chip response checksum error")
+  } catch (const logged_error &e) {
+    throw card_link_error(std::string("SM response: ") + e.what());
+  }
 
   if (!encData.isEmpty()) {
     elabResp = encDes.RawDecode(encData);
