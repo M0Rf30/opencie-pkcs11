@@ -396,8 +396,14 @@ void CacheGetPIN(const char *PAN, std::vector<uint8_t> &PIN) {
     std::string ciphertext(reinterpret_cast<const char *>(data.data()),
                            data.size());
     std::string plaintext;
-    if (decrypt(ciphertext, plaintext) != 0)
-      throw logged_error("CacheGetPIN: failed to decrypt cache");
+    if (decrypt(ciphertext, plaintext) != 0) {
+      // Same fallback as CacheGetCertificate: a card paired through the
+      // official IPZS "CIE ID" app has its cache in the legacy AES-128-CBC
+      // zero-IV container. Without this, such a card lists its certificate
+      // but every C_Login with the last 4 PIN digits fails.
+      if (decryptLegacyZeroIv(ciphertext, plaintext) != 0)
+        throw logged_error("CacheGetPIN: failed to decrypt cache");
+    }
 
     uint8_t *ptr =
         reinterpret_cast<uint8_t *>(const_cast<char *>(plaintext.c_str()));
