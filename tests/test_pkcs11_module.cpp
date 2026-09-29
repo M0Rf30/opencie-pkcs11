@@ -74,6 +74,8 @@ TEST_CASE("Module initializes without a PC/SC service", "[pkcs11][nss]") {
     CHECK(info.cryptokiVersion.minor == fl->version.minor);
     CHECK(info.cryptokiVersion.major == 2);
     CHECK(info.cryptokiVersion.minor == 40);
+    CHECK(info.libraryVersion.major == OPENCIE_VERSION_MAJOR);
+    CHECK(info.libraryVersion.minor == OPENCIE_VERSION_MINOR);
   }
 
   CHECK(fl->C_Finalize(nullptr) == CKR_OK);

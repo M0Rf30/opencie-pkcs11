@@ -579,8 +579,9 @@ C_GetInfo(CK_INFO_PTR pInfo /* location that receives information */) {
     std::memcpy(reinterpret_cast<char *>(pInfo->libraryDescription),
                 "opencie-pkcs11                  ", 32);
 
-    pInfo->libraryVersion.major = 1; /* version of library */
-    pInfo->libraryVersion.minor = 0; /* version of library */
+    // From meson.build's project version, so it can never drift.
+    pInfo->libraryVersion.major = OPENCIE_VERSION_MAJOR;
+    pInfo->libraryVersion.minor = OPENCIE_VERSION_MINOR;
 
     return CKR_OK;
   });

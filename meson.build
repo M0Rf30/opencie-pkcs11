@@ -116,6 +116,14 @@ if openjp2_dep.found()
   add_project_arguments('-DHAVE_LIBOPENJP2=1', language: 'cpp')
 endif
 
+# Library version reported by C_GetInfo (CK_VERSION holds major.minor only).
+version_parts = meson.project_version().split('.')
+add_project_arguments(
+    '-DOPENCIE_VERSION_MAJOR=' + version_parts[0],
+    '-DOPENCIE_VERSION_MINOR=' + version_parts[1],
+    language: 'cpp',
+)
+
 # Sign SDK is available on all platforms (dependencies now built for Android too)
 build_sign_sdk = true
 
