@@ -72,3 +72,32 @@ class windows_error : public logged_error {
    */
   explicit windows_error(long ris);
 };
+
+/**
+ * @brief Exception representing a smart-card *transport* failure: the
+ * command APDU could not be delivered, or the bytes that came back
+ * cannot be trusted.
+ *
+ * Thrown for an SCardTransmit()/transceive() failure, a response shorter
+ * than the mandatory 2-byte status word, or a Secure Messaging
+ * MAC/decrypt failure caused by a garbled frame (all symptomatic of an
+ * RF link drop on contactless readers/NFC rather than the card
+ * deliberately answering with an ISO 7816 status word).
+ *
+ * Deliberately distinct from scard_error: callers may safely retry a
+ * card_link_error with a fresh card reset + full PACE/DH + SM (a link
+ * drop, not a card decision), but must NEVER retry a scard_error that
+ * carries a PIN status word (63Cx/6983/6700/6300) -- doing so could
+ * consume an extra wrong-PIN attempt. See cie_read_dgs()/CardAuthenticateEx()
+ * retry policy for the call sites that rely on this distinction.
+ */
+class card_link_error : public logged_error {
+ public:
+  /**
+   * @brief Construct from a description of the transport failure.
+   * @param message Human-readable description (e.g. "SCardTransmit
+   *                failed: (...)", "short/empty smart card response",
+   *                "Secure Messaging MAC verification failed").
+   */
+  explicit card_link_error(const std::string &message);
+};
