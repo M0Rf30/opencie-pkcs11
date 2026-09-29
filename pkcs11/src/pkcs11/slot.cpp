@@ -46,9 +46,40 @@ namespace p11 {
 
 DWORD CSlot::dwSlotCnt = 0;
 SlotMap CSlot::g_mSlots;
-std::thread CSlot::Thread;
+ScopedMonitorThread CSlot::Thread;
 std::atomic<CCardContext *> CSlot::ThreadContext {nullptr};
 std::atomic<bool> CSlot::bMonitorUpdate {false};
+
+ScopedMonitorThread::~ScopedMonitorThread() {
+  if (!joinable()) return;
+
+  // Best-effort: ask the monitor loop to notice it must stop, using only
+  // lock-free atomics with trivial destructors (std::atomic<bool> has no
+  // side effect on "destruction", so writing them remains safe no matter
+  // the relative destruction order of the translation unit that defines
+  // them, pkcs11_functions.cpp). Deliberately nothing else is touched: an
+  // earlier version of this destructor also called
+  // ThreadContext->transport.Cancel(...) to unblock the pending
+  // SCardGetStatusChange() immediately, but that transport reference
+  // ultimately resolves to the g_transport global in
+  // pkcs11_functions.cpp -- a polymorphic object in another translation
+  // unit whose destruction order relative to this one is unspecified.
+  // When g_transport had already been destroyed first, calling a virtual
+  // method through the dangling reference produced "pure virtual method
+  // called" / SIGABRT, i.e. exactly the same class of crash this
+  // destructor exists to prevent. The monitor thread will instead simply
+  // notice bP11Terminate on its own within its normal <=1s
+  // SCardGetStatusChange() timeout and exit on its own; see slotMonitor()
+  // above.
+  bP11Terminate = true;
+  bP11Initialized = false;
+
+  // Never join here: slotMonitor() may still touch p11Mutex / p11slotEvent
+  // (pkcs11_functions.cpp), whose destruction order relative to this one
+  // is unspecified. detach() only touches this object's own thread
+  // handle, so it can never call std::terminate() or block.
+  detach();
+}
 
 CSlot::CSlot(ISmartCardTransport &transport, const char *szReader)
     : transport(transport), Context(transport) {
@@ -432,7 +463,8 @@ void CSlot::GetTokenInfo(CK_TOKEN_INFO_PTR pInfo) {
   pInfo->ulRwSessionCount = dwRWSessCount;
   pInfo->ulMaxRwSessionCount = MAXSESSIONS;
 
-  pInfo->ulMinPinLen = 8;
+  // Full 8-digit PIN, or its last 4 digits once the card is paired.
+  pInfo->ulMinPinLen = 4;
   pInfo->ulMaxPinLen = 8;
 
   pInfo->hardwareVersion.major = 0;
