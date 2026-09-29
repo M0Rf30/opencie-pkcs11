@@ -54,6 +54,7 @@ extern char** environ;
 #include "util/cache_lib.h"
 #include "util/definitions.h"
 #include "util/module_info.h"
+#include "util/retry.h"
 
 using namespace CieIDLogger;
 
@@ -138,62 +139,75 @@ bool CIE_FindCardByPAN(const char* szPAN, ByteDynArray* certOut) {
   if (szPAN == nullptr) return false;
 
   try {
-    auto transport = createSmartCardTransport();
-    SCARDCONTEXT hSC;
-    if (transport->EstablishContext(SCARD_SCOPE_USER, &hSC) != SCARD_S_SUCCESS)
-      return false;
-    auto scHandleGuard =
-        makeScopeGuard([&]() noexcept { transport->ReleaseContext(hSC); });
+    return RetryOnCardLinkError("CIE_FindCardByPAN", 3, [&](int /*attempt*/) {
+      auto transport = createSmartCardTransport();
+      SCARDCONTEXT hSC;
+      if (transport->EstablishContext(SCARD_SCOPE_USER, &hSC) !=
+          SCARD_S_SUCCESS)
+        return false;
+      auto scHandleGuard =
+          makeScopeGuard([&]() noexcept { transport->ReleaseContext(hSC); });
 
-    std::vector<char> readers;
-    if (ListReaderNames(*transport, hSC, readers) != SCARD_S_SUCCESS ||
-        readers.size() <= 1)
-      return false;
+      std::vector<char> readers;
+      if (ListReaderNames(*transport, hSC, readers) != SCARD_S_SUCCESS ||
+          readers.size() <= 1)
+        return false;
 
-    for (char* curreader = readers.data(); curreader[0] != 0;
-         curreader += strnlen(curreader, readers.size()) + 1) {
-      try {
-        safeConnection conn(*transport, hSC, curreader, SCARD_SHARE_SHARED);
-        if (!conn.hCard) continue;
+      for (char* curreader = readers.data(); curreader[0] != 0;
+           curreader += strnlen(curreader, readers.size()) + 1) {
+        try {
+          safeConnection conn(*transport, hSC, curreader, SCARD_SHARE_SHARED);
+          if (!conn.hCard) continue;
 
-        DWORD atrLen = 40;
-        if (transport->GetAttrib(conn.hCard, SCARD_ATTR_ATR_STRING, nullptr,
-                                 &atrLen) != SCARD_S_SUCCESS)
+          DWORD atrLen = 40;
+          if (transport->GetAttrib(conn.hCard, SCARD_ATTR_ATR_STRING, nullptr,
+                                   &atrLen) != SCARD_S_SUCCESS)
+            continue;
+          std::vector<uint8_t> atr(atrLen);
+          if (transport->GetAttrib(conn.hCard, SCARD_ATTR_ATR_STRING,
+                                   atr.data(), &atrLen) != SCARD_S_SUCCESS)
+            continue;
+
+          IAS ias(TokenTransmitCallback, ByteArray(atr.data(), atrLen));
+          ias.SetCardContext(&conn);
+          ias.token.Reset();
+          ias.SelectAID_IAS();
+          ias.ReadPAN();
+
+          if (hexEncode(ias.PAN.data() + 5, 6) != szPAN) continue;
+
+          if (certOut != nullptr) {
+            // No PIN needed: the certificate is public data readable
+            // right after selecting the CIE applet.
+            ByteDynArray resp;
+            ias.SelectAID_CIE();
+            ias.ReadDappPubKey(resp);
+            ByteDynArray certRaw;
+            ias.ReadCertCIE(certRaw);
+            *certOut = ByteDynArray(certRaw.left(GetASN1DataLenght(certRaw)));
+          }
+          return true;
+        } catch (const card_link_error&) {
+          // A link drop is not "this reader has no CIE" -- surface it
+          // so the outer retry can reset and rescan from scratch
+          // instead of silently moving on to the next reader.
+          throw;
+        } catch (...) {
+          // Not a CIE, no card in this reader, or a transient error --
+          // try the next reader.
           continue;
-        std::vector<uint8_t> atr(atrLen);
-        if (transport->GetAttrib(conn.hCard, SCARD_ATTR_ATR_STRING, atr.data(),
-                                 &atrLen) != SCARD_S_SUCCESS)
-          continue;
-
-        IAS ias(TokenTransmitCallback, ByteArray(atr.data(), atrLen));
-        ias.SetCardContext(&conn);
-        ias.token.Reset();
-        ias.SelectAID_IAS();
-        ias.ReadPAN();
-
-        if (hexEncode(ias.PAN.data() + 5, 6) != szPAN) continue;
-
-        if (certOut != nullptr) {
-          // No PIN needed: the certificate is public data readable right
-          // after selecting the CIE applet.
-          ByteDynArray resp;
-          ias.SelectAID_CIE();
-          ias.ReadDappPubKey(resp);
-          ByteDynArray certRaw;
-          ias.ReadCertCIE(certRaw);
-          *certOut = ByteDynArray(certRaw.left(GetASN1DataLenght(certRaw)));
         }
-        return true;
-      } catch (...) {
-        // Not a CIE, no card in this reader, or a transient error --
-        // try the next reader.
-        continue;
       }
-    }
+      return false;
+    });
+  } catch (const card_link_error& e) {
+    LOG_ERROR("CIE_FindCardByPAN - giving up after retries: %s", e.what());
+    cie_record_transport_error();
+    return false;
   } catch (...) {
     // Fall through -- caller treats this the same as "no match".
+    return false;
   }
-  return false;
 }
 
 extern CModuleInfo moduleInfo;
@@ -402,11 +416,22 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
       free(ATR);
       ATR = nullptr;
 
-      LONG rs =
-          CardAuthenticateEx(&ias, ROLE_USER, FULL_PIN,
-                             reinterpret_cast<BYTE*>(const_cast<char*>(szPIN)),
-                             static_cast<DWORD>(strnlen(szPIN, 9)), nullptr, 0,
-                             progressCallBack, attempts);
+      LONG rs = RetryOnCardLinkError(
+          "cie_enable - CardAuthenticateEx", 3, [&](int attempt) {
+            if (attempt > 1) {
+              LOG_INFO(
+                  "cie_enable - retrying CardAuthenticateEx (attempt %d/3) "
+                  "after a card link error: resetting card",
+                  attempt);
+              progressCallBack(20, "Riconnessione alla CIE...");
+              ias.token.Reset();
+            }
+            return CardAuthenticateEx(
+                &ias, ROLE_USER, FULL_PIN,
+                reinterpret_cast<BYTE*>(const_cast<char*>(szPIN)),
+                static_cast<DWORD>(strnlen(szPIN, 9)), nullptr, 0,
+                progressCallBack, attempts);
+          });
       if (rs == static_cast<LONG>(SCARD_W_WRONG_CHV)) {
         LOG_ERROR("cie_enable - CardAuthenticateEx Wrong Pin");
         free(ATR);
@@ -534,6 +559,11 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
     if (kind == CIE_ERR_WRONG_PIN) return CKR_PIN_INCORRECT;
     if (kind == CIE_ERR_CARD_COMMUNICATION) return CKR_DEVICE_ERROR;
     return CKR_GENERAL_ERROR;
+  } catch (const card_link_error& e) {
+    LOG_ERROR("cie_enable - card link error after retries: %s", e.what());
+    cie_record_transport_error();
+    free(ATR);
+    return CKR_DEVICE_ERROR;
   } catch (std::exception& ex) {
     LOG_ERROR("cie_enable - Exception %s ", ex.what());
     cie_record_transport_error();

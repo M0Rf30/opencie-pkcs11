@@ -24,10 +24,12 @@
 #include <vector>
 
 #include "csp/cie_enable.h"
+#include "csp/cie_error.h"
 #include "csp/ias.h"
 #include "logger/logger.h"
 #include "pcsc/transport_factory.h"
 #include "pkcs11/pkcs11_functions.h"
+#include "util/retry.h"
 
 // OpenJPEG for JPEG2000 decoding (HAVE_LIBOPENJP2 defined by meson when found)
 #ifdef HAVE_LIBOPENJP2
@@ -344,11 +346,17 @@ class ScardContextGuard {
 }  // namespace
 
 /**
- * @brief Single-session helper: PACE once, read DG1 and DG2 in sequence.
+ * @brief Single attempt of the single-session helper: PACE once, read DG1
+ * and DG2 in sequence.
  *
  * Avoids the cost of a second full PACE session when both data groups are
  * needed.  The SM session (sessENC/sessMAC/sessSSC) persists across the two
  * ReadDG calls because they operate on the same IAS object.
+ *
+ * A card_link_error (RF link drop / short response / SM MAC failure --
+ * see util/util_exception.h) propagates to the caller uncaught so
+ * readBothDGs() can retry the whole attempt with a fresh connection; any
+ * other exception is handled here and turned into a CK_RV.
  *
  * @param szPIN      NUL-terminated 8-digit numeric PIN.
  * @param dg1Out     Buffer for raw DG1 TLV bytes.
@@ -356,15 +364,11 @@ class ScardContextGuard {
  * @param dg2Out     Buffer for raw DG2 TLV bytes.
  * @param dg2Len     In: capacity; out: bytes written.
  * @return CKR_OK on success.
+ * @throws card_link_error on a transport/link failure -- not handled
+ *         here, see readBothDGs().
  */
-static CK_RV readBothDGs(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
-                         uint8_t* dg2Out, size_t* dg2Len) {
-  if (!szPIN || !dg1Out || !dg1Len || !dg2Out || !dg2Len)
-    return CKR_ARGUMENTS_BAD;
-  if (strnlen(szPIN, 9) != 8) return CKR_PIN_LEN_RANGE;
-  for (int i = 0; i < 8; ++i)
-    if (szPIN[i] < '0' || szPIN[i] > '9') return CKR_PIN_INVALID;
-
+static CK_RV readBothDGsOnce(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
+                             uint8_t* dg2Out, size_t* dg2Len) {
   char* readers = nullptr;
   try {
     auto transport = createSmartCardTransport();
@@ -439,6 +443,10 @@ static CK_RV readBothDGs(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
       try {
         ias.ReadDG1(dg1Data);
         ias.ReadDG2(dg2Data);
+      } catch (const card_link_error&) {
+        // Let readBothDGs() retry the whole attempt from scratch; freed
+        // once by the outer catch below.
+        throw;
       } catch (const std::exception& e) {
         LOG_ERROR("readBothDGs - DG read threw: %s", e.what());
         free(readers);
@@ -460,6 +468,9 @@ static CK_RV readBothDGs(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
     free(readers);
     if (!found) return CKR_TOKEN_NOT_RECOGNIZED;
 
+  } catch (const card_link_error&) {
+    free(readers);
+    throw;
   } catch (const std::exception& ex) {
     LOG_ERROR("readBothDGs - exception: %s", ex.what());
     free(readers);
@@ -470,6 +481,51 @@ static CK_RV readBothDGs(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
     return CKR_GENERAL_ERROR;
   }
   return CKR_OK;
+}
+
+/**
+ * @brief Read DG1 and DG2, retrying the whole attempt (fresh connection,
+ * reset, PACE/DH, SM, VERIFY PIN, DG1+DG2 read) up to two more times if a
+ * card_link_error (RF link drop / short response / SM MAC failure) is
+ * detected.
+ *
+ * A card_link_error means the previous attempt never got a trustworthy
+ * status word back from the card, so no PIN attempt is known to have
+ * been consumed by a *wrong* PIN; retrying with the same PIN is safe
+ * (see util/retry.h and AGENTS.md PIN-safety rules). A wrong/blocked PIN
+ * is reported by readBothDGsOnce() as an ordinary CK_RV, never as an
+ * exception, so it is never retried here.
+ *
+ * @param szPIN      NUL-terminated 8-digit numeric PIN.
+ * @param dg1Out     Buffer for raw DG1 TLV bytes.
+ * @param dg1Len     In: capacity; out: bytes written.
+ * @param dg2Out     Buffer for raw DG2 TLV bytes.
+ * @param dg2Len     In: capacity; out: bytes written.
+ * @return CKR_OK on success.
+ */
+static CK_RV readBothDGs(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
+                         uint8_t* dg2Out, size_t* dg2Len) {
+  if (!szPIN || !dg1Out || !dg1Len || !dg2Out || !dg2Len)
+    return CKR_ARGUMENTS_BAD;
+  if (strnlen(szPIN, 9) != 8) return CKR_PIN_LEN_RANGE;
+  for (int i = 0; i < 8; ++i)
+    if (szPIN[i] < '0' || szPIN[i] > '9') return CKR_PIN_INVALID;
+
+  try {
+    return RetryOnCardLinkError("cie_read_dgs", 3, [&](int /*attempt*/) {
+      return readBothDGsOnce(szPIN, dg1Out, dg1Len, dg2Out, dg2Len);
+    });
+  } catch (const card_link_error& e) {
+    LOG_ERROR("readBothDGs - giving up after retries: %s", e.what());
+    cie_record_transport_error();
+    return CKR_DEVICE_ERROR;
+  } catch (const std::exception& ex) {
+    LOG_ERROR("readBothDGs - exception: %s", ex.what());
+    return CKR_GENERAL_ERROR;
+  } catch (...) {
+    LOG_ERROR("readBothDGs - unknown exception");
+    return CKR_GENERAL_ERROR;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -506,6 +562,7 @@ CK_RV CK_ENTRY cie_read_dgs(const char* pin, char* mrzOut, size_t* mrzLen,
              static_cast<unsigned long>(rv));
     return rv;
   }
+  cie_clear_error();
   dg2Raw.resize(dg2RawLen);
 
 #ifdef HAVE_OPENJPEG
