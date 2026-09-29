@@ -237,6 +237,12 @@ TEST_CASE(
   CacheGetCertificate(PAN, gotCertAgain);
   REQUIRE(gotCertAgain.size() == cert.size());
   CHECK(std::string(gotCertAgain.begin(), gotCertAgain.end()) == cert);
+
+  // C_Login needs the cached first PIN half from the same legacy file.
+  std::vector<uint8_t> gotPin;
+  CacheGetPIN(PAN, gotPin);
+  CHECK(std::string(gotPin.begin(), gotPin.end()) == pin);
+  CHECK(ReadFileBinary(cachePath) == legacyCiphertext);
 }
 
 TEST_CASE("CacheSetData rejects a path-traversal PAN", "[cache]") {
