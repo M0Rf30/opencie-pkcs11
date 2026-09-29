@@ -16,6 +16,52 @@ unsigned int* allocOffsets(unsigned int count) {
   }
   return static_cast<unsigned int*>(p);
 }
+
+// Returns the total encoded size (tag + length octets + value) of the TLV
+// starting at `data`, without copying or parsing its value -- or 0 if that
+// cannot be determined from the `available` bytes (indefinite length,
+// truncated header, or a length that would read past `available`).
+//
+// Every CASN1Object/BufferedReader constructor that takes a pointer+length
+// copies the *entire* span handed to it up front (BufferedReader owns a
+// std::vector<BYTE> copy of its input; see buffered_reader.cpp). The
+// element accessors below used to hand such constructors "everything from
+// this element's offset to the end of the sequence's content" instead of
+// just this element's own span, so walking a SEQUENCE of N elements from
+// front to back copied ~N, ~N-1, ~N-2, ... elements' worth of trailing
+// bytes -- an O(N^2) copy storm that is negligible for a handful of
+// certificate extensions but catastrophic for e.g. a CRL with hundreds of
+// thousands of revokedCertificates entries (multi-minute hangs on a
+// multi-hundred-megabyte "remaining buffer" copied per entry). Bounding
+// the span to just this element's own encoded length restores O(N) total
+// cost for a full sequential scan, with identical parse results for
+// well-formed DER.
+size_t PeekTlvSpan(const BYTE* data, size_t available) {
+  if (available < 2) return 0;
+
+  size_t pos = 1;  // tag octet
+  BYTE lenByte = data[pos++];
+  size_t valueLen;
+
+  if (lenByte == 0x80) {
+    return 0;  // indefinite length (BER): let the caller fall back
+  } else if (lenByte & 0x80) {
+    size_t nLenOctets = lenByte & 0x7F;
+    if (nLenOctets == 0 || nLenOctets > sizeof(unsigned int) ||
+        pos + nLenOctets > available) {
+      return 0;
+    }
+    valueLen = 0;
+    for (size_t i = 0; i < nLenOctets; i++)
+      valueLen = (valueLen << 8) | data[pos++];
+  } else {
+    valueLen = lenByte;
+  }
+
+  size_t total = pos + valueLen;
+  if (total < pos || total > available) return 0;  // overflow or truncated
+  return total;
+}
 }  // namespace
 
 CASN1GenericSequence::CASN1GenericSequence(BYTE btTag)
@@ -160,8 +206,10 @@ void CASN1GenericSequence::addElementAt(const CASN1Object& obj, int nPos) {
 CASN1Object CASN1GenericSequence::elementAt(int nPos) {
   if (this->size() > static_cast<unsigned int>(nPos)) {
     int offset = m_pnOffsets[nPos];
-    ByteDynArray curObj(
-        ByteArray(getValue()->data() + offset, getLength() - offset));
+    size_t available = getLength() - offset;
+    size_t span = PeekTlvSpan(getValue()->data() + offset, available);
+    if (span == 0) span = available;
+    ByteDynArray curObj(ByteArray(getValue()->data() + offset, span));
     CASN1Object curAsn1Obj(curObj);
 
     m_nextOffset = offset + curAsn1Obj.getSerializedLength();
@@ -176,8 +224,10 @@ CASN1Object CASN1GenericSequence::nextElement() {
     throw CASN1ParsingException();
   }
 
-  ByteDynArray curObj(
-      ByteArray(getValue()->data() + m_nextOffset, getLength() - m_nextOffset));
+  size_t available = getLength() - m_nextOffset;
+  size_t span = PeekTlvSpan(getValue()->data() + m_nextOffset, available);
+  if (span == 0) span = available;
+  ByteDynArray curObj(ByteArray(getValue()->data() + m_nextOffset, span));
 
   CASN1Object curAsn1Obj(curObj);
 
@@ -189,7 +239,11 @@ CASN1Object CASN1GenericSequence::nextElement() {
 CASN1Object CASN1GenericSequence::elementAtOpt(int nPos) {
   if (this->size() > static_cast<unsigned int>(nPos)) {
     int offset = m_pnOffsets[nPos];
-    CASN1Object curAsn1Obj(getValue()->data() + offset, getLength() - offset);
+    size_t available = getLength() - offset;
+    size_t span = PeekTlvSpan(getValue()->data() + offset, available);
+    if (span == 0) span = available;
+    CASN1Object curAsn1Obj(getValue()->data() + offset,
+                           static_cast<long>(span));
 
     m_nextOffset = offset + curAsn1Obj.getSerializedLength();
 
@@ -203,8 +257,11 @@ CASN1Object CASN1GenericSequence::nextElementOpt() {
     throw CASN1ParsingException();
   }
 
+  size_t available = getLength() - m_nextOffset;
+  size_t span = PeekTlvSpan(getValue()->data() + m_nextOffset, available);
+  if (span == 0) span = available;
   CASN1Object curAsn1Obj(getValue()->data() + m_nextOffset,
-                         getLength() - m_nextOffset);
+                         static_cast<long>(span));
 
   m_nextOffset += curAsn1Obj.getSerializedLength();
 
@@ -286,8 +343,11 @@ int CASN1GenericSequence::makeOffset() {
 
     // Current object
     try {
+      size_t available = pContent->size() - offset;
+      size_t span = PeekTlvSpan(pContent->data() + offset, available);
+      if (span == 0) span = available;
       CASN1Object currentObj(pContent->data() + offset,
-                             pContent->size() - offset);
+                             static_cast<long>(span));
       int iLen = currentObj.getOrigLenLen() + currentObj.getLength() + 2;
       offset += iLen;
       i++;
