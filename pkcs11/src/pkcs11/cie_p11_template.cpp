@@ -328,6 +328,24 @@ void CIEtemplateGetTokenFlags(CSlot & /*pSlot*/, CK_FLAGS &dwFlags) {
             CKF_TOKEN_INITIALIZED | CKF_WRITE_PROTECTED;
 }
 
+// CIE PINs are 8 digits. After pairing, the first 4 are kept in the local
+// cache so apps may ask only for the last 4 (like the IPZS middleware).
+// Accept either: a full 8-digit PIN is sent as-is and needs no cache, so
+// hosts such as NSS/GNOME Papers that ask for "the PIN" work even when the
+// cache is missing or unreadable.
+static constexpr size_t kCiePinLen = 8;
+static constexpr size_t kCiePinSecondHalfLen = 4;
+
+static bool isValidCiePinLength(size_t len) {
+  return len == kCiePinLen || len == kCiePinSecondHalfLen;
+}
+
+static void buildFullPIN(CIEData *cie, const ByteArray &Pin,
+                         ByteDynArray &FullPIN) {
+  if (Pin.size() != kCiePinLen) cie->ias.GetFirstPIN(FullPIN);
+  FullPIN.append(Pin);
+}
+
 void CIEtemplateLogin(void *pTemplateData, CK_USER_TYPE userType,
                       const ByteArray &Pin) {
   init_func CToken token;
@@ -335,6 +353,11 @@ void CIEtemplateLogin(void *pTemplateData, CK_USER_TYPE userType,
 
   cie->SessionPIN.clear();
   cie->userType = -1;
+
+  // Reject wrong lengths before any APDU: a malformed VERIFY would still
+  // cost the user one of their three PIN attempts.
+  if (userType == CKU_USER && !isValidCiePinLength(Pin.size()))
+    throw p11_error(CKR_PIN_LEN_RANGE);
 
   cie->slot.Connect();
   cie->ias.SetCardContext(&cie->slot);
@@ -364,8 +387,7 @@ void CIEtemplateLogin(void *pTemplateData, CK_USER_TYPE userType,
       cie->ias.Callback(3, "Verify PIN", cie->ias.CallbackData);
     if (userType == CKU_USER) {
       ByteDynArray FullPIN;
-      cie->ias.GetFirstPIN(FullPIN);
-      FullPIN.append(Pin);
+      buildFullPIN(cie, Pin, FullPIN);
       sw = cie->ias.VerifyPIN(FullPIN);
     } else if (userType == CKU_SO) {
       sw = cie->ias.VerifyPUK(Pin);
@@ -430,8 +452,7 @@ void CIEtemplateSign(void *pCardTemplateData, CP11PrivateKey * /*pPrivKey*/,
       cie->ias.DAPP();
 
       ByteDynArray FullPIN;
-      cie->ias.GetFirstPIN(FullPIN);
-      FullPIN.append(Pin);
+      buildFullPIN(cie, Pin, FullPIN);
       if (cie->ias.VerifyPIN(FullPIN) != 0x9000)
         throw p11_error(CKR_PIN_INCORRECT);
       cie->ias.Sign(baSignBuffer, baSignature);
