@@ -127,7 +127,9 @@ void CCertStore::CleanUp() {
 }
 
 unsigned long getHash(const char* szKey) {
-  int h = 0;
+  // Unsigned: the multiply-add is meant to wrap; with int it was signed
+  // overflow (UB, flagged by UBSan while verifying signed documents).
+  unsigned int h = 0;
   int off = 0;
   const char* val = szKey;
   int len = strlen(szKey);
