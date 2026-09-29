@@ -171,6 +171,74 @@ modutil -dbdir sql:$HOME/.pki/nssdb -add "CIE" \
         -libfile /usr/lib/libopencie-pkcs11.so
 ```
 
+### GNOME Papers, Okular and other poppler-based signers
+
+These applications sign PDFs with poppler's NSS backend. poppler opens its
+own NSS database, which is often not the Chromium one, so the module must be
+registered in whichever database poppler actually picks:
+
+1. **A Firefox profile**, if Firefox is installed. `poppler` searches
+   `$XDG_CONFIG_HOME/mozilla/firefox` (or `~/.config/mozilla/firefox`) first,
+   then `~/.mozilla/firefox`, and picks the profile directory whose name
+   contains `default` with the most recently modified `cert9.db`.
+2. Otherwise `sql:/etc/pki/nssdb`, if that directory exists.
+3. Otherwise `~/.pki/nssdb`.
+
+Find the exact profile `poppler` will pick with:
+
+```bash
+ls -t ~/.config/mozilla/firefox/*default*/cert9.db \
+      ~/.mozilla/firefox/*default*/cert9.db 2>/dev/null | head -1
+```
+
+**Firefox users** must load the module into that profile, not into
+`~/.pki/nssdb`: use `about:preferences` → Privacy & Security → Security
+Devices → **Load**, or close Firefox and run:
+
+```bash
+modutil -dbdir sql:<firefox-profile-dir> -add "CIE" \
+        -libfile /usr/lib/libopencie-pkcs11.so
+```
+
+**Non-Firefox users** register the module in `/etc/pki/nssdb` (root, if
+present) or fall back to `~/.pki/nssdb` as shown in the Chromium example
+above.
+
+Verify with `pdfsig` (uses the same poppler NSS backend as Papers/Okular):
+
+```bash
+pdfsig -nssdir sql:<db-dir> -list-nicks
+pdfsig in.pdf out.pdf -add-signature -nick "CIE:<label>" -nssdir sql:<db-dir>
+```
+
+Before opening the "Sign Digitally" dialog, make sure `pcscd` is running and
+the card is already inserted:
+
+```bash
+systemctl enable --now pcscd.socket
+```
+
+Behaviour to expect:
+
+- The PIN is requested when certificates are *listed* (right when the sign
+  dialog opens), not when the signature is actually applied.
+- The CIE PIN is 8 digits; 3 wrong attempts block the PIN (a PUK is then
+  required to unblock it).
+- The signature is `adbe.pkcs7.detached` or `ETSI.CAdES.detached` (PAdES
+  B-B), SHA-256, RSA PKCS#1 v1.5, **without a trusted timestamp**. If you
+  need a timestamped signature, use the SDK's `cie_sign` API with a TSA.
+- The CIE authentication/signature certificate is **not** a qualified
+  signature certificate; it does not produce a legally qualified electronic
+  signature.
+
+Known limitations:
+
+- Flatpak builds of Papers cannot reach `pcscd`/`p11-kit` or load a module
+  from `/usr/lib`; use your distribution's native package instead.
+- Ubuntu's AppArmor profile for `/usr/bin/papers` blocks signing with a
+  hardware token ([LP #2106133](https://bugs.launchpad.net/bugs/2106133),
+  Debian #1099688, #1120163).
+
 ### OpenSSL (engine / provider)
 
 ```bash

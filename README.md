@@ -309,6 +309,12 @@ modutil -dbdir sql:$HOME/.pki/nssdb -add "CIE" \
 modutil -dbdir sql:$HOME/.pki/nssdb -list
 ```
 
+> **Note:** GNOME Papers, Okular and other `poppler`-based apps read the
+> Firefox profile's NSS database (if Firefox is installed) instead of
+> `~/.pki/nssdb`. See
+> [docs/usage.md#gnome-papers-okular-and-other-poppler-based-signers](docs/usage.md#gnome-papers-okular-and-other-poppler-based-signers)
+> for details.
+
 ---
 
 ## CI & Downloads
