@@ -223,13 +223,43 @@ Behaviour to expect:
 - The PIN is requested when certificates are *listed* (right when the sign
   dialog opens), not when the signature is actually applied.
 - The CIE PIN is 8 digits; 3 wrong attempts block the PIN (a PUK is then
-  required to unblock it).
+  required to unblock it). Enter all 8 digits; on a paired card the last 4
+  digits alone also work. Any other length is rejected
+  before anything is sent to the card.
 - The signature is `adbe.pkcs7.detached` or `ETSI.CAdES.detached` (PAdES
   B-B), SHA-256, RSA PKCS#1 v1.5, **without a trusted timestamp**. If you
   need a timestamped signature, use the SDK's `cie_sign` API with a TSA.
 - The CIE authentication/signature certificate is **not** a qualified
   signature certificate; it does not produce a legally qualified electronic
   signature.
+- Papers shows the signature as valid but says it **cannot verify the
+  certificate**. There are two causes:
+  1. The CIE CAs (Ministero dell'Interno) are not in the NSS/Mozilla
+     root store. They are published only in
+     [AgID's trusted list](https://eidas.agid.gov.it/TL/TSL-IT.xml).
+  2. The CIE certificate is issued for TLS client authentication only (no
+     e-mail protection EKU). poppler ≤ 26.08 checks signers only for
+     e-mail signing, so this check fails even with the CA trusted. The
+     upstream fix (poppler commit `2341db9`, "Be a bit more lenient on
+     what we consider valid cert usage") also accepts client-auth
+     certificates, and is expected in the next poppler release.
+
+  With a poppler that includes that fix, trust the CIE root **only for
+  issuing client certificates** (`T,,`, so Firefox does not accept it for
+  websites) in the database found above, with Firefox closed:
+
+  ```bash
+  # CN=National root CA for the Italian Electronic Identity Card (2036)
+  # SHA-256 87:36:4F:B4:76:E7:49:62:E7:C4:95:B9:BB:AF:72:78:
+  #         13:EE:00:7C:B5:6A:0A:DA:6A:B9:86:81:23:DB:26:7E
+  certutil -A -d sql:<db-dir> -n "CIE National Root CA" -t "T,," -i cie-root.pem
+  certutil -A -d sql:<db-dir> -n "CIE SUBCA002" -t ",," -i cie-subca002.pem
+  ```
+
+  Extract both certificates from the AgID list and compare the fingerprint
+  before importing. The card certificate carries no CA Issuers URL, so the
+  sub-CA must be imported as well; use the SUBCA named in your
+  certificate's issuer (`SUBCA1`, `SUBCA002`, `SUBCA003`).
 
 Known limitations:
 
