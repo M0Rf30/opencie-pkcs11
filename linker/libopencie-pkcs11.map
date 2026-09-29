@@ -110,9 +110,16 @@
     cie_set_data_dir;
     JNI_OnLoad;
 
-    /* JNI-named wrappers for it.m0rf30.opencie.CieNfcBridge.
-     * Lets the downstream Flutter app's Kotlin `external fun` declarations
-     * resolve directly against this library without an extra cpp bridge. */
+    /* JNI-named wrappers for io.github.m0rf30.opencie.CieNfcBridge
+     * (current app package). Lets the downstream Flutter app's Kotlin
+     * `external fun` declarations resolve directly against this library
+     * without an extra cpp bridge. */
+    Java_io_github_m0rf30_opencie_CieNfcBridge_nativeSetNfcTag;
+    Java_io_github_m0rf30_opencie_CieNfcBridge_nativeClearNfcTag;
+    Java_io_github_m0rf30_opencie_CieNfcBridge_nativeSetDataDir;
+
+    /* Thin aliases for the legacy it.m0rf30.opencie.CieNfcBridge package
+     * name, kept so older app builds (or forks) still resolve. */
     Java_it_m0rf30_opencie_CieNfcBridge_nativeSetNfcTag;
     Java_it_m0rf30_opencie_CieNfcBridge_nativeClearNfcTag;
     Java_it_m0rf30_opencie_CieNfcBridge_nativeSetDataDir;

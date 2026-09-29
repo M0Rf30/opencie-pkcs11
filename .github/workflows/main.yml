@@ -591,7 +591,23 @@ jobs:
           file builddir-android/libopencie-pkcs11.so
           echo ''
           echo '=== Exported symbols ==='
-          ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm -D builddir-android/libopencie-pkcs11.so | grep ' T ' | head -20
+          NM="${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          $NM -D builddir-android/libopencie-pkcs11.so | grep ' T ' | head -20
+          echo ''
+          echo '=== JNI bridge symbols (both app package names, OC-02) ==='
+          $NM -D builddir-android/libopencie-pkcs11.so | grep '_CieNfcBridge_' || true
+          for sym in \
+            Java_io_github_m0rf30_opencie_CieNfcBridge_nativeSetNfcTag \
+            Java_io_github_m0rf30_opencie_CieNfcBridge_nativeClearNfcTag \
+            Java_io_github_m0rf30_opencie_CieNfcBridge_nativeSetDataDir \
+            Java_it_m0rf30_opencie_CieNfcBridge_nativeSetNfcTag \
+            Java_it_m0rf30_opencie_CieNfcBridge_nativeClearNfcTag \
+            Java_it_m0rf30_opencie_CieNfcBridge_nativeSetDataDir; do
+            $NM -D builddir-android/libopencie-pkcs11.so | grep -q " T ${sym}\$" || {
+              echo "::error::Missing exported JNI symbol: ${sym}"
+              exit 1
+            }
+          done
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -676,7 +692,23 @@ jobs:
           file builddir-android-x86_64/libopencie-pkcs11.so
           echo ''
           echo '=== Exported symbols ==='
-          ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm -D builddir-android-x86_64/libopencie-pkcs11.so | grep ' T ' | head -20
+          NM="${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          $NM -D builddir-android-x86_64/libopencie-pkcs11.so | grep ' T ' | head -20
+          echo ''
+          echo '=== JNI bridge symbols (both app package names, OC-02) ==='
+          $NM -D builddir-android-x86_64/libopencie-pkcs11.so | grep '_CieNfcBridge_' || true
+          for sym in \
+            Java_io_github_m0rf30_opencie_CieNfcBridge_nativeSetNfcTag \
+            Java_io_github_m0rf30_opencie_CieNfcBridge_nativeClearNfcTag \
+            Java_io_github_m0rf30_opencie_CieNfcBridge_nativeSetDataDir \
+            Java_it_m0rf30_opencie_CieNfcBridge_nativeSetNfcTag \
+            Java_it_m0rf30_opencie_CieNfcBridge_nativeClearNfcTag \
+            Java_it_m0rf30_opencie_CieNfcBridge_nativeSetDataDir; do
+            $NM -D builddir-android-x86_64/libopencie-pkcs11.so | grep -q " T ${sym}\$" || {
+              echo "::error::Missing exported JNI symbol: ${sym}"
+              exit 1
+            }
+          done
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
