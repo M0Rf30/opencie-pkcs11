@@ -825,7 +825,8 @@ StatusWord IAS::respSM(const ByteArray &keyEnc, const ByteArray &keySig,
           else if (llen == 2)
             lgn = (resp[index + 2] << 8) | resp[index + 3];
           else
-            throw logged_error(stdPrintf("Invalid ASN.1 length: %i", llen));
+            throw logged_error(stdPrintf("Invalid ASN.1 length: %lu",
+                                         static_cast<unsigned long>(llen)));
           encData = ByteDynArray(resp.mid(index + llen + 2, lgn));
           calcMac.append(resp.mid(index, lgn + llen + 2));
           index += llen + lgn + 2;
@@ -842,7 +843,8 @@ StatusWord IAS::respSM(const ByteArray &keyEnc, const ByteArray &keySig,
           else if (llen == 2)
             lgn = (resp[index + 2] << 8) | resp[index + 3];
           else
-            throw logged_error(stdPrintf("Invalid ASN.1 length: %i", llen));
+            throw logged_error(stdPrintf("Invalid ASN.1 length: %lu",
+                                         static_cast<unsigned long>(llen)));
           if (lgn < 1)
             throw logged_error("Invalid tag 0x87 length: missing padding byte");
           encData = ByteDynArray(resp.mid(index + llen + 3, lgn - 1));
