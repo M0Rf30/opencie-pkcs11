@@ -6,6 +6,7 @@
 
 #include "pcsc/apdu.h"
 #include "util/tlv.h"
+#include "util/util.h"
 
 extern CLog Log;
 
@@ -56,13 +57,17 @@ StatusWord CToken::Transmit(const ByteArray &apdu, ByteDynArray *resp) {
                                  apdu.size(), pbtResp, &dwResp);
   ByteArray scResp(pbtResp, dwResp);
 
-  // the smart card was removed during the operation
+  // the smart card was removed, or the RF link dropped, during the
+  // operation. Both are transient transport failures, not a card
+  // decision -- callers may safely retry with a fresh reset/reconnect.
   if (res != SCARD_S_SUCCESS) {
     Log.writePure("sc err %llx", static_cast<unsigned long long>(res));
-    throw windows_error(res);
+    throw card_link_error(
+        stdPrintf("SCardTransmit failed: (%08x)", static_cast<unsigned>(res)));
   }
 
-  if (scResp.size() < 2) throw logged_error("Invalid smart card response");
+  if (scResp.size() < 2)
+    throw card_link_error("Invalid smart card response (short/empty)");
 
   if (resp != nullptr) *resp = ByteDynArray(scResp.left(scResp.size() - 2));
 
@@ -101,10 +106,15 @@ StatusWord CToken::Transmit(const APDU &apdu, ByteDynArray *resp) {
   HRESULT res = transmitCallback(transmitCallbackData, pbtAPDU, iAPDUSize,
                                  pbtResp, &dwResp);
   ByteArray scResp(pbtResp, dwResp);
-  // the smart card was removed during the operation
-  if (res != SCARD_S_SUCCESS) throw windows_error(res);
+  // the smart card was removed, or the RF link dropped, during the
+  // operation. Both are transient transport failures, not a card
+  // decision -- callers may safely retry with a fresh reset/reconnect.
+  if (res != SCARD_S_SUCCESS)
+    throw card_link_error(
+        stdPrintf("SCardTransmit failed: (%08x)", static_cast<unsigned>(res)));
 
-  if (scResp.size() < 2) throw logged_error("Invalid smart card response");
+  if (scResp.size() < 2)
+    throw card_link_error("Invalid smart card response (short/empty)");
 
   if (resp != nullptr) *resp = ByteDynArray(scResp.left(scResp.size() - 2));
 
