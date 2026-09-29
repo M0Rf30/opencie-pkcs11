@@ -72,8 +72,12 @@ extern "C" __attribute__((visibility("default"))) void cie_clear_nfc_tag(
  *
  * Kotlin's `external fun` resolves native methods by JNI naming convention
  * (Java_<package>_<class>_<method>). Exposing these wrappers here lets the
- * downstream app (it.m0rf30.opencie.CieNfcBridge) call into the library
- * without an extra cpp/CMake bridge layer.
+ * downstream app (io.github.m0rf30.opencie.CieNfcBridge, current package)
+ * call into the library without an extra cpp/CMake bridge layer.
+ *
+ * `it.m0rf30.opencie.*` names are kept as thin aliases for older app
+ * builds (and any fork) still shipping the pre-migration package name, so
+ * they keep working unmodified against a newer libopencie-pkcs11.so.
  *
  * Forward declared from cache_lib.h.
  */
@@ -81,21 +85,41 @@ extern "C" void cie_set_data_dir(const char *dir);
 
 extern "C" {
 
-JNIEXPORT void JNICALL Java_it_m0rf30_opencie_CieNfcBridge_nativeSetNfcTag(
-    JNIEnv *env, jobject /* thiz */, jobject isoDep) {
+JNIEXPORT void JNICALL
+Java_io_github_m0rf30_opencie_CieNfcBridge_nativeSetNfcTag(JNIEnv *env,
+                                                           jobject /* thiz */,
+                                                           jobject isoDep) {
   cie_set_nfc_tag(env, isoDep);
 }
 
-JNIEXPORT void JNICALL Java_it_m0rf30_opencie_CieNfcBridge_nativeClearNfcTag(
+JNIEXPORT void JNICALL
+Java_io_github_m0rf30_opencie_CieNfcBridge_nativeClearNfcTag(
     JNIEnv *env, jobject /* thiz */) {
   cie_clear_nfc_tag(env);
 }
 
-JNIEXPORT void JNICALL Java_it_m0rf30_opencie_CieNfcBridge_nativeSetDataDir(
-    JNIEnv *env, jobject /* thiz */, jstring dir) {
+JNIEXPORT void JNICALL
+Java_io_github_m0rf30_opencie_CieNfcBridge_nativeSetDataDir(JNIEnv *env,
+                                                            jobject /* thiz */,
+                                                            jstring dir) {
   const char *path = env->GetStringUTFChars(dir, nullptr);
   cie_set_data_dir(path);
   env->ReleaseStringUTFChars(dir, path);
+}
+
+JNIEXPORT void JNICALL Java_it_m0rf30_opencie_CieNfcBridge_nativeSetNfcTag(
+    JNIEnv *env, jobject thiz, jobject isoDep) {
+  Java_io_github_m0rf30_opencie_CieNfcBridge_nativeSetNfcTag(env, thiz, isoDep);
+}
+
+JNIEXPORT void JNICALL Java_it_m0rf30_opencie_CieNfcBridge_nativeClearNfcTag(
+    JNIEnv *env, jobject thiz) {
+  Java_io_github_m0rf30_opencie_CieNfcBridge_nativeClearNfcTag(env, thiz);
+}
+
+JNIEXPORT void JNICALL Java_it_m0rf30_opencie_CieNfcBridge_nativeSetDataDir(
+    JNIEnv *env, jobject thiz, jstring dir) {
+  Java_io_github_m0rf30_opencie_CieNfcBridge_nativeSetDataDir(env, thiz, dir);
 }
 
 }  // extern "C"
