@@ -4,7 +4,10 @@ catch2_dep = dependency(
     default_options: ['tests=false'],
 )
 
-test_inc = include_directories('../shared/src/', '../pkcs11/src/', '../include')
+test_inc = include_directories(
+    '../shared/src/', '../pkcs11/src/', '../include',
+    '../sign-sdk/include', '../sign-sdk/src',
+)
 
 test_sources = [
     'test_array.cpp',
@@ -27,6 +30,16 @@ test_sources = [
     'test_des3.cpp',
     'test_mac.cpp',
     'test_rsa.cpp',
+]
+
+# Sign SDK ASN.1/certificate tests (AKI/SKI extraction, embedded CIE CA
+# set): built as a separate executable so the main opencie-tests binary
+# does not have to link the full PoDoFo/libxml2 dependency chain that
+# libcie_sign_sdk pulls in.
+sign_sdk_test_sources = [
+    'test_certificate_key_ids.cpp',
+    'sign_sdk_test_stubs.cpp',
+    '../pkcs11/src/logger/logger.cpp',
 ]
 
 # Sources needed by tests (no PCSC/hardware deps)
@@ -63,6 +76,31 @@ test_shared_sources = [
 if host_machine.system() == 'linux'
   test_sources += ['test_linux_nfc_atr.cpp']
   test_shared_sources += ['../shared/src/pcsc/linux_nfc_transport.cpp']
+endif
+
+if build_sign_sdk
+  sign_sdk_test_exe = executable(
+      'opencie-sign-sdk-tests',
+      sign_sdk_test_sources,
+      include_directories: test_inc,
+      link_with: [libcie_sign_sdk, libcie_shared],
+      dependencies: [
+          catch2_dep,
+          crypto_dep,
+          thread_dep,
+          pcsclite_dep,
+          curl_dep,
+          libxml2_dep,
+          fontconfig_dep,
+          freetype_dep,
+          png_dep,
+          podofo_dep,
+          xml2_dep,
+          zlib_dep,
+      ] + (host_machine.system() == 'windows' ? [shlwapi_dep] : []),
+  )
+
+  test('opencie sign-sdk unit tests', sign_sdk_test_exe)
 endif
 
 test_exe = executable(

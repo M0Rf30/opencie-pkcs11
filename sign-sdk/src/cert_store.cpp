@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <map>
 
+#include "cie_ca_certs_data.h"
 #include "util/util.h"
 
 unsigned long getHash(const char* szKey);
@@ -63,6 +64,25 @@ void CCertStore::AddCertificate(CCertificate& certificate) {
   // LOG_DBG((0, "<-- CertStore::AddCertificate", ""));
 }
 
+void CCertStore::LoadBuiltInCieCertificates() {
+  // Idempotent: AddCertificate() replaces any existing entry at the same
+  // hash bucket, so re-running this (e.g. once per cie_sign_verify_init()
+  // call) is harmless -- just a handful of redundant re-parses/inserts.
+  static bool loaded = false;
+  if (loaded) return;
+  loaded = true;
+
+  for (const CieCaCerts::Entry& entry : CieCaCerts::kAll) {
+    try {
+      CCertificate caCert(entry.der, static_cast<long>(entry.len));
+      AddCertificate(caCert);
+    } catch (...) {
+      LOG_ERR((0, "CertStore::LoadBuiltInCieCertificates",
+               "Failed to parse an embedded CIE CA certificate"));
+    }
+  }
+}
+
 CCertificate* CCertStore::GetCertificate(CCertificate& certificate) {
   try {
     unsigned long nHash;
@@ -71,9 +91,7 @@ CCertificate* CCertStore::GetCertificate(CCertificate& certificate) {
 
     bool haveAki = autorityKeyIdentifier.getLength() > 0;
     if (haveAki) {
-      ByteDynArray* pValue =
-          const_cast<ByteDynArray*>(autorityKeyIdentifier.getValue());
-      pValue->set(0, 0x04);
+      const ByteDynArray* pValue = autorityKeyIdentifier.getValue();
 
       std::string akiHex = dumpHexData(*pValue);
       const char* szAki = akiHex.c_str();
