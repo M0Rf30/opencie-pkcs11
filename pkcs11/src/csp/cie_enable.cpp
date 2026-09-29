@@ -359,17 +359,24 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
 
       foundCIE = false;
 
-      ias.token.Reset();
-      ias.SelectAID_IAS();
-      ias.ReadPAN();
-
+      // Public reads only (no PIN, no writes): safe to retry on a link drop.
       ByteDynArray IntAuth;
-      ias.SelectAID_CIE();
-      ias.ReadDappPubKey(IntAuth);
-      ias.InitEncKey();
-
       ByteDynArray IdServizi2;
-      ias.ReadIdServizi(IdServizi2);
+      auto readPublicHeader = [&]() {
+        ias.token.Reset();
+        ias.SelectAID_IAS();
+        ias.ReadPAN();
+        ias.SelectAID_CIE();
+        ias.ReadDappPubKey(IntAuth);
+        ias.InitEncKey();
+        ias.ReadIdServizi(IdServizi2);
+      };
+      RetryOnCardLinkError(
+          "cie_enable - read card header", 3, [&](int attempt) {
+            if (attempt > 1) progressCallBack(10, "Riconnessione alla CIE...");
+            readPublicHeader();
+            return 0;
+          });
 
       if (ias.IsEnrolled()) {
         LOG_INFO("cie_enable - CIE already enabled. Serial number: %s\n",
@@ -391,22 +398,27 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
       progressCallBack(15, "Lettura dati dalla CIE");
       LOG_INFO("cie_enable - Reading data from CIE...");
 
-      ByteArray serviziData(IdServizi2.left(12));
-
       ByteDynArray SOD2;
-      ias.ReadSOD(SOD2);
-      uint8_t digest = ias.GetSODDigestAlg(SOD2);
-
-      ByteArray intAuthData(IntAuth.left(GetASN1DataLenght(IntAuth)));
-
+      uint8_t digest = 0;
       ByteDynArray IntAuthServizi;
-      ias.ReadServiziPubKey(IntAuthServizi);
+      ByteDynArray DH;
+      RetryOnCardLinkError("cie_enable - read card data", 3, [&](int attempt) {
+        if (attempt > 1) {
+          progressCallBack(15, "Riconnessione alla CIE...");
+          readPublicHeader();  // restore card state after the reset
+        }
+        ias.ReadSOD(SOD2);
+        digest = ias.GetSODDigestAlg(SOD2);
+        ias.ReadServiziPubKey(IntAuthServizi);
+        ias.SelectAID_IAS();
+        ias.ReadDH(DH);
+        return 0;
+      });
+
+      ByteArray serviziData(IdServizi2.left(12));
+      ByteArray intAuthData(IntAuth.left(GetASN1DataLenght(IntAuth)));
       ByteArray intAuthServiziData(
           IntAuthServizi.left(GetASN1DataLenght(IntAuthServizi)));
-
-      ias.SelectAID_IAS();
-      ByteDynArray DH;
-      ias.ReadDH(DH);
       ByteArray dhData(DH.left(GetASN1DataLenght(DH)));
 
       foundCIE = true;
