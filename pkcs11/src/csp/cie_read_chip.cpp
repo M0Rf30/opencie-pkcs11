@@ -17,10 +17,12 @@
 
 #include <time.h>
 
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "csp/cie_enable.h"
@@ -512,8 +514,23 @@ static CK_RV readBothDGs(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
     if (szPIN[i] < '0' || szPIN[i] > '9') return CKR_PIN_INVALID;
 
   try {
-    return RetryOnCardLinkError("cie_read_dgs", 3, [&](int /*attempt*/) {
-      return readBothDGsOnce(szPIN, dg1Out, dg1Len, dg2Out, dg2Len);
+    return RetryOnCardLinkError("cie_read_dgs", 3, [&](int attempt) {
+      if (attempt == 1)
+        return readBothDGsOnce(szPIN, dg1Out, dg1Len, dg2Out, dg2Len);
+      // After a link drop the card is often still off the reader (it was
+      // lifted or slid). Give the user up to ~10 s to put it back instead
+      // of failing with "token not recognized" on the first poll.
+      const auto deadline =
+          std::chrono::steady_clock::now() + std::chrono::seconds(10);
+      CK_RV rv;
+      do {
+        rv = readBothDGsOnce(szPIN, dg1Out, dg1Len, dg2Out, dg2Len);
+        if (rv != CKR_TOKEN_NOT_RECOGNIZED && rv != CKR_TOKEN_NOT_PRESENT)
+          return rv;
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      } while (std::chrono::steady_clock::now() < deadline);
+      LOG_ERROR("cie_read_dgs - card did not return to the reader");
+      return rv;
     });
   } catch (const card_link_error& e) {
     LOG_ERROR("readBothDGs - giving up after retries: %s", e.what());

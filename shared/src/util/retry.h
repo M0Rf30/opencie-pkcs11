@@ -61,7 +61,8 @@ auto RetryOnCardLinkError(const char *opName, int maxAttempts, Fn &&fn)
       CieIDLogger::Logger::getInstance().error(
           "%s - card link error (attempt %d/%d), retrying after reset: %s",
           opName, attempt, maxAttempts, e.what());
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      // 1 s, then 2 s: long enough for a lifted card to be put back.
+      std::this_thread::sleep_for(std::chrono::seconds(attempt));
     }
   }
   // Unreachable: the loop above always either returns or throws on its
