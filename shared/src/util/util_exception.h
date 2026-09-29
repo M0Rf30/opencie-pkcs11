@@ -99,5 +99,16 @@ class card_link_error : public logged_error {
    *                failed: (...)", "short/empty smart card response",
    *                "Secure Messaging MAC verification failed").
    */
-  explicit card_link_error(const std::string &message);
+  explicit card_link_error(const std::string &message, bool retryable = true);
+
+  /**
+   * @brief False when the link dropped while a PIN/PUK VERIFY was in
+   * flight: the card may have received and counted a wrong PIN whose
+   * answer we never saw, so automatically resending it could consume a
+   * second attempt. RetryOnCardLinkError() rethrows these immediately.
+   */
+  bool retryable() const noexcept { return retryable_; }
+
+ private:
+  bool retryable_;
 };

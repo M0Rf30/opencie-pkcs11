@@ -233,16 +233,33 @@ void IAS::Sign(const ByteArray &data, ByteDynArray &signedData) {
     throw scard_error(sw);
 }
 
+// A link drop while VERIFY is in flight is not retryable: the card may have
+// counted a wrong PIN/PUK whose answer never reached us, so resending it
+// automatically could consume a second attempt.
+[[noreturn]] static void rethrowAsNonRetryable(const card_link_error &e) {
+  throw card_link_error(
+      std::string("link lost during PIN/PUK verification: ") + e.what(),
+      /*retryable=*/false);
+}
+
 StatusWord IAS::VerifyPUK(const ByteArray &PIN) {
   ByteDynArray resp;
   uint8_t verifyPIN[] = {0x00, 0x20, 0x00, CIE_PUK_ID};
-  return SendAPDU_SM(VarToByteArray(verifyPIN), PIN, resp);
+  try {
+    return SendAPDU_SM(VarToByteArray(verifyPIN), PIN, resp);
+  } catch (const card_link_error &e) {
+    rethrowAsNonRetryable(e);
+  }
 }
 
 StatusWord IAS::VerifyPIN(const ByteArray &PIN) {
   ByteDynArray resp;
   uint8_t verifyPIN[] = {0x00, 0x20, 0x00, CIE_PIN_ID};
-  return SendAPDU_SM(VarToByteArray(verifyPIN), PIN, resp);
+  try {
+    return SendAPDU_SM(VarToByteArray(verifyPIN), PIN, resp);
+  } catch (const card_link_error &e) {
+    rethrowAsNonRetryable(e);
+  }
 }
 
 StatusWord IAS::UnblockPIN() {

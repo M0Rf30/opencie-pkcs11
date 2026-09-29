@@ -17,5 +17,5 @@ scard_error::scard_error(StatusWord sw)
 windows_error::windows_error(long ris)
     : logged_error(stdPrintf("Windows error: (%08x) ", ris)) {}
 
-card_link_error::card_link_error(const std::string &message)
-    : logged_error(message) {}
+card_link_error::card_link_error(const std::string &message, bool retryable)
+    : logged_error(message), retryable_(retryable) {}

@@ -52,7 +52,7 @@ auto RetryOnCardLinkError(const char *opName, int maxAttempts, Fn &&fn)
     try {
       return fn(attempt);
     } catch (const card_link_error &e) {
-      if (attempt >= maxAttempts) {
+      if (!e.retryable() || attempt >= maxAttempts) {
         CieIDLogger::Logger::getInstance().error(
             "%s - card link error after %d attempt(s), giving up: %s", opName,
             attempt, e.what());
