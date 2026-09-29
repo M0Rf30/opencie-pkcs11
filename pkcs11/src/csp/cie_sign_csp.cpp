@@ -62,6 +62,14 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
   LOG_DEBUG("cie_sign - page: %d, x: %f, y: %f, w: %f, h: %f", page, x, y, w,
             h);
 
+  // Reject wrong PIN lengths before any card I/O: the app always sends the
+  // full 8-digit PIN, but a 4-digit second half (cached-first-half
+  // middlewares) is also accepted — same rule as C_Login. A malformed
+  // VERIFY PIN APDU would otherwise burn one of the card's limited PIN
+  // attempts.
+  if (pin == nullptr || !IAS::IsValidPinLength(strlen(pin)))
+    return CKR_PIN_LEN_RANGE;
+
   std::unique_ptr<char, decltype(&free)> readers(nullptr, free);
   std::unique_ptr<char, decltype(&free)> ATR(nullptr, free);
   bool panMismatch = false;
@@ -156,11 +164,19 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
       progressCallBack(50, "Getting certificate from CIE...");
 
       ByteDynArray FullPIN;
-      ByteArray LastPIN =
+      ByteArray InputPIN =
           ByteArray(reinterpret_cast<const uint8_t*>(pin), strlen(pin));
-      ias->GetFirstPIN(FullPIN);
-      FullPIN.append(LastPIN);
+      ias->ComposeFullPIN(InputPIN, FullPIN);
       ias->token.Reset();
+
+      if (FullPIN.size() != 8) {
+        // Should be unreachable: strlen(pin) was already validated above,
+        // and ComposeFullPIN always yields 8 bytes from a valid input.
+        // Guarded here rather than trusting it, so a corrupted cache
+        // never sends a malformed VERIFY PIN APDU to the card.
+        OPENSSL_cleanse(FullPIN.data(), FullPIN.size());
+        return CKR_PIN_LEN_RANGE;
+      }
 
       progressCallBack(75, "Starting signature...");
 

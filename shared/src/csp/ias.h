@@ -194,6 +194,27 @@ class IAS {
   void GetCertificate(ByteDynArray &certificate, bool askEnable = true);
   /** @brief Retrieve the initial PIN assigned during card enrollment. */
   void GetFirstPIN(ByteDynArray &PIN);
+  /** @brief CIE PINs are exactly 8 digits. After pairing, apps may send
+   *  either the full 8-digit PIN (used as-is) or just the last 4 digits
+   *  (the cached first half from enrollment is prepended). Any other
+   *  length is invalid.
+   */
+  static constexpr size_t kFullPinLen = 8;
+  /** @brief Length of the cached-first-half PIN form (see kFullPinLen). */
+  static constexpr size_t kPinSecondHalfLen = 4;
+  /** @brief Whether @p len is one of the two accepted PIN lengths.
+   *  Callers MUST check this and reject invalid lengths before any card
+   *  I/O, so a malformed VERIFY/CHANGE PIN APDU never burns one of the
+   *  token's limited PIN attempts.
+   */
+  static bool IsValidPinLength(size_t len);
+  /** @brief Compose the 8-digit PIN to send to the card: an already
+   *  8-digit @p Pin passes through unchanged; a 4-digit @p Pin gets the
+   *  cached first half (from enrollment) prepended. Callers MUST validate
+   *  the length with IsValidPinLength() first — this does not itself
+   *  reject bad lengths.
+   */
+  void ComposeFullPIN(const ByteArray &Pin, ByteDynArray &FullPIN);
   /** @brief Store card data (certificate and initial PIN) in the local cache.
    */
   void SetCache(const char *PAN, const ByteArray &certificate,
