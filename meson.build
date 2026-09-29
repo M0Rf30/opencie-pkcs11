@@ -42,8 +42,8 @@ endforeach
 # on unoptimised debug builds where it would be a no-op.
 # Distro flags often set it already (Arch: -Wp,-D_FORTIFY_SOURCE=3); adding
 # ours on top triggers "'_FORTIFY_SOURCE' redefined" and could downgrade it.
-fortify_preset = ('_FORTIFY_SOURCE' in ' '.join(get_option('cpp_args'))
-                  or '_FORTIFY_SOURCE' in ' '.join(get_option('c_args')))
+fortify_preset = (' '.join(get_option('cpp_args')).contains('_FORTIFY_SOURCE')
+                  or ' '.join(get_option('c_args')).contains('_FORTIFY_SOURCE'))
 if get_option('optimization') not in ['0', 'g'] and not fortify_preset
   foreach a : ['-D_FORTIFY_SOURCE=2']
     if cpp.has_argument(a)
