@@ -1143,6 +1143,15 @@ void IAS::GetFirstPIN(ByteDynArray &PIN) {
   OPENSSL_cleanse(EncPINBuf.data(), EncPINBuf.size());
 }
 
+bool IAS::IsValidPinLength(size_t len) {
+  return len == kFullPinLen || len == kPinSecondHalfLen;
+}
+
+void IAS::ComposeFullPIN(const ByteArray &Pin, ByteDynArray &FullPIN) {
+  if (Pin.size() != kFullPinLen) GetFirstPIN(FullPIN);
+  FullPIN.append(Pin);
+}
+
 bool IAS::IsEnrolled() {
   std::string PANStr;
   dumpHexData(PAN.mid(5, 6), PANStr, false);

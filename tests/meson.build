@@ -103,6 +103,28 @@ if build_sign_sdk
   test('opencie sign-sdk unit tests', sign_sdk_test_exe)
 endif
 
+# IAS PIN-composition tests (OC-28): link directly against libcie_shared
+# instead of adding shared/src/csp/ias.cpp + its dependency chain to
+# test_shared_sources, the same rationale as the sign-sdk tests above.
+# sign_sdk_test_stubs.cpp stubs the same UI/cert-store glue symbols
+# shared/src/csp/ias.cpp calls into, for the same reason (see its header
+# comment) — avoids dragging in cie_p11_template.cpp/cie_enable.cpp.
+ias_pin_test_exe = executable(
+    'opencie-ias-pin-tests',
+    ['test_ias_pin.cpp', 'sign_sdk_test_stubs.cpp', '../pkcs11/src/logger/logger.cpp'],
+    include_directories: test_inc,
+    link_with: [libcie_shared],
+    dependencies: [
+        catch2_dep,
+        crypto_dep,
+        thread_dep,
+        pcsclite_dep,
+        curl_dep,
+    ] + (host_machine.system() == 'windows' ? [shlwapi_dep, ws2_32_dep] : []),
+)
+
+test('opencie IAS PIN composition tests', ias_pin_test_exe)
+
 test_exe = executable(
     'opencie-tests',
     test_sources + test_shared_sources,
