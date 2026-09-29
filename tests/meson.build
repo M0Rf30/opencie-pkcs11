@@ -78,3 +78,27 @@ test_exe = executable(
 )
 
 test('opencie unit tests', test_exe)
+
+# Black-box test: dlopen() the built module like NSS/p11-kit do. Linux only:
+# PCSCLITE_CSOCK_NAME is a pcsc-lite feature, and pointing it at a missing
+# socket reproduces "pcscd not running" without touching the host daemon.
+if host_machine.system() == 'linux' and get_option('default_library') != 'static'
+  module_test_exe = executable(
+      'opencie-module-tests',
+      'test_pkcs11_module.cpp',
+      include_directories: test_inc,
+      dependencies: [
+          catch2_dep,
+          cpp.find_library('dl', required: false),
+      ],
+  )
+  test(
+      'opencie module load (no pcscd)',
+      module_test_exe,
+      depends: libopencie_pkcs11,
+      env: {
+          'OPENCIE_MODULE': libopencie_pkcs11.full_path(),
+          'PCSCLITE_CSOCK_NAME': meson.current_build_dir() / 'no-pcscd.comm',
+      },
+  )
+endif
