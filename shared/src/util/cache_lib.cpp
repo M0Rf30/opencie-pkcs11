@@ -301,7 +301,14 @@ bool CacheGetDer(const char *PAN, std::vector<uint8_t> &certificate) {
     std::string ciphertext(reinterpret_cast<const char *>(data.data()),
                            data.size());
     std::string plaintext;
-    if (decrypt(ciphertext, plaintext) != 0) return false;
+    if (decrypt(ciphertext, plaintext) != 0) {
+      // .der caches written before the authenticated format (and by the
+      // official CIE ID app) use the legacy zero-IV container. Without this
+      // fallback cie_get_certificate() falls through to reading the card,
+      // which fails with SW 6982, so apps never get notBefore/notAfter.
+      plaintext.clear();
+      if (decryptLegacyZeroIv(ciphertext, plaintext) != 0) return false;
+    }
 
     uint8_t *ptr =
         reinterpret_cast<uint8_t *>(const_cast<char *>(plaintext.c_str()));
