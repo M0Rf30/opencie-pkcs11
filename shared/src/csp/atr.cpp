@@ -33,6 +33,10 @@ cie_atr atr_list[] = {{CIE_Type::CIE_NXP,
                        "Actalis2023",
                        {0x80, 0x01, 0x80, 0x31, 0x80, 0x65, 0x49, 0x54, 0x4A,
                         0x34, 0x43, 0x12, 0x0F, 0xFF, 0x82, 0x90, 0x00, 0x8A}},
+                      {CIE_Type::CIE_ACTALIS3,
+                       "Actalis_B946",
+                       {0x80, 0x01, 0x80, 0x31, 0x80, 0x65, 0x49, 0x54, 0x4A,
+                        0x34, 0x4C, 0x12, 0x0F, 0xFF, 0x82, 0x90, 0x00, 0x85}},
                       {CIE_Type::CIE_BIT4ID,
                        "Bit4Id",
                        {0x80, 0x01, 0x80, 0x31, 0x80, 0x65, 0x49, 0x54, 0x4A,
@@ -63,6 +67,10 @@ string get_manufacturer(const vector<uint8_t>& atr) {
              it->type.c_str());
     return it->type;
   }
+  if (get_family_type(atr) == CIE_Type::CIE_ACTALIS) {
+    LOG_INFO("ReadCIEType - get_manufacturer() unlisted ITJ4 variant");
+    return "Actalis";
+  }
   LOG_INFO("ReadCIEType - get_manufacturer() Unkown CIE detected");
   return "";
 }
@@ -76,5 +84,53 @@ CIE_Type get_type(const vector<uint8_t>& atr) {
     return it->cie_type;
   }
   LOG_INFO("ReadCIEType - cie_type() Unkown CIE detected");
+  return CIE_Type::CIE_Unknown;
+}
+
+CIE_Type cie_family(CIE_Type type) {
+  switch (type) {
+    case CIE_Type::CIE_Gemalto2:
+      return CIE_Type::CIE_Gemalto;
+    case CIE_Type::CIE_ACTALIS2:
+    case CIE_Type::CIE_ACTALIS3:
+      return CIE_Type::CIE_ACTALIS;
+    case CIE_Type::CIE_BIT4ID2:
+    case CIE_Type::CIE_BIT4ID3:
+      return CIE_Type::CIE_BIT4ID;
+    default:
+      return type;
+  }
+}
+
+std::string atr_to_hex(const vector<uint8_t>& atr) {
+  static const char digits[] = "0123456789ABCDEF";
+  std::string out;
+  out.reserve(atr.size() * 3);
+  for (size_t i = 0; i < atr.size(); ++i) {
+    if (i) out.push_back(' ');
+    out.push_back(digits[atr[i] >> 4]);
+    out.push_back(digits[atr[i] & 0x0F]);
+  }
+  return out;
+}
+
+CIE_Type get_family_type(const vector<uint8_t>& atr, bool* usedFallback) {
+  if (usedFallback) *usedFallback = false;
+
+  CIE_Type exact = get_type(atr);
+  if (exact != CIE_Type::CIE_Unknown) return cie_family(exact);
+
+  // Historical bytes shared by every Actalis/Bit4id applet: 80 31 80 65 "ITJ4".
+  // The byte that follows is the (per-batch) variant.
+  static const vector<uint8_t> itj4_family = {0x80, 0x31, 0x80, 0x65,
+                                              0x49, 0x54, 0x4A, 0x34};
+  if (ContainsSubsequence(atr, itj4_family)) {
+    LOG_INFO(
+        "get_family_type() unlisted ITJ4 applet variant, treating as Actalis "
+        "family. ATR: %s",
+        atr_to_hex(atr).c_str());
+    if (usedFallback) *usedFallback = true;
+    return CIE_Type::CIE_ACTALIS;
+  }
   return CIE_Type::CIE_Unknown;
 }

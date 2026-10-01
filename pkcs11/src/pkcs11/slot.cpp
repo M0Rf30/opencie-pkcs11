@@ -29,19 +29,6 @@ extern auto_reset_event p11slotEvent;
 extern std::atomic<bool> bP11Terminate;
 extern std::atomic<bool> bP11Initialized;
 
-extern uint8_t NXP_ATR[];
-extern uint8_t Gemalto_ATR[];
-extern uint8_t Gemalto2_ATR[];
-extern uint8_t STM_ATR[];
-extern uint8_t STM2_ATR[];
-
-extern ByteArray baNXP_ATR;
-extern ByteArray baGemalto_ATR;
-extern ByteArray baGemalto2_ATR;
-extern ByteArray baSTM_ATR;
-extern ByteArray baSTM2_ATR;
-extern ByteArray baSTM3_ATR;
-
 namespace p11 {
 
 DWORD CSlot::dwSlotCnt = 0;

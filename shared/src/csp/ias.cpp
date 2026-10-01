@@ -13,6 +13,7 @@
 #include "crypto/sha1.h"
 #include "crypto/sha256.h"
 #include "crypto/sha512.h"
+#include "logger/logger.h"
 #include "util/cache_lib.h"
 #include "util/module_info.h"
 
@@ -28,6 +29,7 @@
 #endif
 
 extern CLog Log;
+using namespace CieIDLogger;
 
 extern CModuleInfo moduleInfo;
 extern ByteArray SkipZero(ByteArray &ba);
@@ -370,63 +372,16 @@ void IAS::SelectAID_CIE(bool SM) {
   ActiveSM = false;
 }
 
-uint8_t NXP_ATR[] = {0x80, 0x31, 0x80, 0x65, 0x49, 0x54, 0x4E, 0x58, 0x50};
-uint8_t Gemalto_ATR[] = {0x80, 0x31, 0x80, 0x65, 0xB0, 0x85, 0x04, 0x00, 0x11};
-uint8_t Gemalto2_ATR[] = {0x80, 0x31, 0x80, 0x65, 0xB0, 0x85, 0x03, 0x00, 0xEF};
-uint8_t STM_ATR[] = {0x80, 0x66, 0x47, 0x50, 0x00, 0xB8, 0x00, 0x7F};
-uint8_t STM2_ATR[] = {0x80, 0x80, 0x01, 0x01};
-uint8_t STM3_ATR[] = {0x80, 0x01, 0x80, 0x66, 0x47, 0x50, 0x00,
-                      0xB8, 0x00, 0x94, 0x82, 0x90, 0x00, 0xC5};
-uint8_t ACTALIS_ATR[] = {0x80, 0x01, 0x80, 0x31, 0x80, 0x65, 0x49, 0x54, 0x4a,
-                         0x34, 0x41, 0x12, 0x0f, 0xff, 0x82, 0x90, 0x00, 0x88};
-uint8_t BIT4ID_ATR[] = {0x80, 0x01, 0x80, 0x31, 0x80, 0x65, 0x49, 0x54, 0x4a,
-                        0x34, 0x42, 0x12, 0x0f, 0xff, 0x82, 0x90, 0x00, 0x8b};
-uint8_t ACTALIS_ATR2[] = {0x80, 0x01, 0x80, 0x31, 0x80, 0x65, 0x49, 0x54, 0x4a,
-                          0x34, 0x43, 0x12, 0x0f, 0xff, 0x82, 0x90, 0x00, 0x8a};
-uint8_t BIT4ID_ATR2[] = {0x80, 0x01, 0x80, 0x31, 0x80, 0x65, 0x49, 0x54, 0x4a,
-                         0x34, 0x44, 0x12, 0x0f, 0xff, 0x82, 0x90, 0x00, 0x8d};
-uint8_t BIT4ID_ATR3[] = {0x80, 0x01, 0x80, 0x31, 0x80, 0x65, 0x49, 0x54, 0x4a,
-                         0x34, 0x49, 0x12, 0x0f, 0xff, 0x82, 0x90, 0x00, 0x80};
-
-ByteArray baNXP_ATR(NXP_ATR, sizeof(NXP_ATR));
-ByteArray baGemalto_ATR(Gemalto_ATR, sizeof(Gemalto_ATR));
-ByteArray baGemalto2_ATR(Gemalto2_ATR, sizeof(Gemalto2_ATR));
-ByteArray baSTM_ATR(STM_ATR, sizeof(STM_ATR));
-ByteArray baSTM2_ATR(STM2_ATR, sizeof(STM2_ATR));
-ByteArray baSTM3_ATR(STM3_ATR, sizeof(STM3_ATR));
-ByteArray baACTALIS_ATR(ACTALIS_ATR, sizeof(ACTALIS_ATR));
-ByteArray baBIT4ID_ATR(BIT4ID_ATR, sizeof(BIT4ID_ATR));
-ByteArray baACTALIS_ATR2(ACTALIS_ATR2, sizeof(ACTALIS_ATR2));
-ByteArray baBIT4ID_ATR2(BIT4ID_ATR2, sizeof(BIT4ID_ATR2));
-ByteArray baBIT4ID_ATR3(BIT4ID_ATR3, sizeof(BIT4ID_ATR3));
-
 void IAS::ReadCIEType() {
-  size_t position;
-  if (ATR.indexOf(baNXP_ATR, position)) {
-    type = CIE_Type::CIE_NXP;
-  } else if (ATR.indexOf(baGemalto_ATR, position)) {
-    type = CIE_Type::CIE_Gemalto;
-  } else if (ATR.indexOf(baGemalto2_ATR, position)) {
-    type = CIE_Type::CIE_Gemalto;
-  } else if (ATR.indexOf(baSTM_ATR, position)) {
-    type = CIE_Type::CIE_STM;
-  } else if (ATR.indexOf(baSTM2_ATR, position)) {
-    type = CIE_Type::CIE_STM2;
-  } else if (ATR.indexOf(baSTM3_ATR, position)) {
-    type = CIE_Type::CIE_STM3;
-  } else if (ATR.indexOf(baACTALIS_ATR, position)) {
-    type = CIE_Type::CIE_ACTALIS;
-  } else if (ATR.indexOf(baACTALIS_ATR2, position)) {
-    type = CIE_Type::CIE_ACTALIS;
-  } else if (ATR.indexOf(baBIT4ID_ATR, position)) {
-    type = CIE_Type::CIE_BIT4ID;
-  } else if (ATR.indexOf(baBIT4ID_ATR2, position)) {
-    type = CIE_Type::CIE_BIT4ID;
-  } else if (ATR.indexOf(baBIT4ID_ATR3, position)) {
-    type = CIE_Type::CIE_BIT4ID;
-  } else {
-    throw logged_error("IAS::ReadCIEType - CIE not recognized");
+  std::vector<uint8_t> atr(ATR.data(), ATR.data() + ATR.size());
+  CIE_Type family = get_family_type(atr);
+  if (family == CIE_Type::CIE_Unknown) {
+    std::string hex = atr_to_hex(atr);
+    LOG_ERROR("IAS::ReadCIEType - CIE not recognized, unsupported ATR: %s",
+              hex.c_str());
+    throw cie_unsupported_card_error(hex);
   }
+  type = family;
 }
 
 void IAS::SelectAID_IAS(bool SM) {

@@ -62,6 +62,23 @@ class scard_error : public logged_error {
 };
 
 /**
+ * @brief Exception thrown when a card answers but its chip/applet (ATR) is
+ * not in the supported CIE list.
+ *
+ * Derives from logged_error so legacy handlers keep working, but entry points
+ * catch it first to report CKR_TOKEN_NOT_RECOGNIZED / CIE_ERR_UNSUPPORTED_CARD.
+ * The message carries the ATR hex so users can report it.
+ */
+class cie_unsupported_card_error : public logged_error {
+ public:
+  /**
+   * @param atrHex Space-separated hex dump of the unrecognized ATR.
+   */
+  explicit cie_unsupported_card_error(const std::string &atrHex)
+      : logged_error("CIE not recognized (unsupported chip), ATR: " + atrHex) {}
+};
+
+/**
  * @brief Exception representing a Windows API error.
  */
 class windows_error : public logged_error {
