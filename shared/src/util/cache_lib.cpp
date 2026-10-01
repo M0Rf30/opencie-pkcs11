@@ -133,7 +133,7 @@ void WriteFileAtomic(const std::string &path, const char *data, size_t len) {
  * @brief Ensure the cache directory exists, is owned by the current user,
  * is a real directory (not a symlink), and is mode 0700.
  *
- * ~/.CIEPKI may already exist, e.g. created by the official CIE ID app
+ * ~/.CIEPKI may already exist, e.g. created by third-party CIE software
  * with looser permissions; this tightens it rather than trusting whatever
  * is already there (see finding CIE-CACHE-003).
  */
@@ -302,9 +302,9 @@ bool CacheGetDer(const char *PAN, std::vector<uint8_t> &certificate) {
                            data.size());
     std::string plaintext;
     if (decrypt(ciphertext, plaintext) != 0) {
-      // .der caches written before the authenticated format (and by the
-      // official CIE ID app) use the legacy zero-IV container. Without this
-      // fallback cie_get_certificate() falls through to reading the card,
+      // .der caches written before the authenticated format (and by
+      // third-party CIE software) use the legacy zero-IV container. Without
+      // this fallback cie_get_certificate() falls through to reading the card,
       // which fails with SW 6982, so apps never get notBefore/notAfter.
       plaintext.clear();
       if (decryptLegacyZeroIv(ciphertext, plaintext) != 0) return false;
@@ -341,17 +341,16 @@ void CacheGetCertificate(const char *PAN, std::vector<uint8_t> &certificate) {
     std::string plaintext;
     if (decrypt(ciphertext, plaintext) != 0) {
       // Our own authenticated format didn't match. This is also exactly
-      // what a cache written by third-party CIE software looks like --
-      // notably the official IPZS "CIE ID" application, which still uses
-      // the original AES-128-CBC/zero-IV container this project forked
-      // from. Try that format before giving up, so a card already
-      // enrolled through that app works here without re-pairing.
+      // what a cache written by third-party CIE software looks like: the
+      // legacy AES-128-CBC/zero-IV container. Try that format before giving
+      // up, so a card already enrolled with such software works here
+      // without re-pairing.
       if (decryptLegacyZeroIv(ciphertext, plaintext) != 0)
         throw logged_error("CacheGetCertificate: failed to decrypt cache");
       Log.writePure(
           "CacheGetCertificate: cache for PAN is in the legacy "
-          "unauthenticated format (likely written by the official CIE ID "
-          "app); read-only, leaving the file untouched");
+          "unauthenticated format (likely written by third-party CIE "
+          "software); read-only, leaving the file untouched");
     }
 
     uint8_t *ptr =
@@ -404,8 +403,8 @@ void CacheGetPIN(const char *PAN, std::vector<uint8_t> &PIN) {
                            data.size());
     std::string plaintext;
     if (decrypt(ciphertext, plaintext) != 0) {
-      // Same fallback as CacheGetCertificate: a card paired through the
-      // official IPZS "CIE ID" app has its cache in the legacy AES-128-CBC
+      // Same fallback as CacheGetCertificate: a card paired through
+      // third-party CIE software has its cache in the legacy AES-128-CBC
       // zero-IV container. Without this, such a card lists its certificate
       // but every C_Login with the last 4 PIN digits fails.
       if (decryptLegacyZeroIv(ciphertext, plaintext) != 0)
@@ -449,11 +448,11 @@ void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
     // Restrict the DACL to the current user (CREATOR OWNER) and SYSTEM
     // only. NOTE: this only applies to a directory we create ourselves;
     // if the directory was already created by another local installation
-    // (e.g. an older build of this library, or the official CIE ID app,
+    // (e.g. an older build of this library, or third-party CIE software,
     // which uses this same well-known path for cache-format
     // compatibility) its existing ACL is left untouched here, since
-    // narrowing an ACL that CIE ID also writes through risks breaking
-    // interoperability with it. See finding CIE-CACHE-001.
+    // narrowing an ACL that other CIE software also writes through risks
+    // breaking interoperability with it. See finding CIE-CACHE-001.
     PSECURITY_DESCRIPTOR pSD = nullptr;
     SECURITY_ATTRIBUTES sa {};
     sa.nLength = sizeof(sa);

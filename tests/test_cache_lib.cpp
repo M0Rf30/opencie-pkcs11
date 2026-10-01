@@ -76,9 +76,8 @@ std::string ReadFileBinary(const std::string &path) {
                      std::istreambuf_iterator<char>());
 }
 
-// Encrypts `plaintext` the way the original CIE middleware this project was
-// forked from (and the official IPZS "CIE ID" application, which still
-// uses that container today) writes ~/.CIEPKI/<PAN>.cache: AES-128-CBC,
+// Encrypts `plaintext` the way third-party CIE software writes
+// ~/.CIEPKI/<PAN>.cache: AES-128-CBC,
 // key = SHA-1(ENCRYPTION_KEY), an all-zero IV, no magic header, no
 // integrity tag. Used to simulate a cache written by that third-party
 // software so CacheGetCertificate()'s fallback can be exercised without
@@ -232,7 +231,7 @@ TEST_CASE(
   // Build the same pinlen|pin|certlen|cert plaintext layout CacheSetData()
   // uses, then encrypt it with the legacy zero-IV container instead of the
   // authenticated one -- simulating a cache written by third-party CIE
-  // software (e.g. the official CIE ID app) that predates this project's
+  // software that predates this project's
   // hardening and that opencie-pkcs11 never wrote itself.
   uint32_t pinlen = static_cast<uint32_t>(pin.size());
   uint32_t certlen = static_cast<uint32_t>(cert.size());

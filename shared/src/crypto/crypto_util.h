@@ -199,10 +199,8 @@ inline int encrypt(const std::string& message, std::string& ciphertext) {
 
 /**
  * @brief Decrypts a cache blob written in the legacy AES-128-CBC/zero-IV
- *        format used by the original CIE middleware this project was
- *        forked from (github.com/italia/cie-middleware, cie-middleware-linux),
- *        which is also what the official IPZS "CIE ID" application still
- *        writes to ~/.CIEPKI/<PAN>.cache today.
+ *        format still written to ~/.CIEPKI/<PAN>.cache by third-party CIE
+ *        software.
  *
  * That format has no magic header, an all-zero IV, and no integrity tag:
  * PKCS#7-padded AES-128-CBC(message) with key = first 16 bytes of
@@ -210,7 +208,7 @@ inline int encrypt(const std::string& message, std::string& ciphertext) {
  * decrypt() in this file.
  *
  * This function exists ONLY so a cache written by third-party CIE software
- * (chiefly the official CIE ID app) can still be read for interoperability;
+ * can still be read for interoperability;
  * it is never used to write new caches -- encrypt() always produces the
  * authenticated format. Because the legacy container carries no integrity
  * protection, treat its output as untrusted: it is safe for the public

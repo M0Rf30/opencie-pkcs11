@@ -134,6 +134,10 @@ std::runtime_error
 - Sign-SDK: `__TRY/__CATCH` macros catch multiple types, return `CIE_SIGN_ERROR_UNEXPECTED`
 - **Never throw raw integers.** Legacy `throw -1` was removed; use `std::runtime_error` or `logged_error`.
 
+### Attribution
+
+Never mention IPZS, cie-middleware (including cie-middleware-linux/macos), or the official "CIE ID" app in code, comments, tests, docs, commit messages, or PR text. Refer to them generically (e.g. "third-party CIE software") when context is unavoidable.
+
 ### Memory & Buffer Patterns
 
 - **ByteArray**: non-owning view (pointer + size), zero-copy slicing. Defined in `shared/src/util/array.h`.

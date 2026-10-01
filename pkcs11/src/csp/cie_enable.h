@@ -92,8 +92,8 @@ DWORD CardAuthenticateEx(IAS* ias, DWORD PinId, DWORD dwFlags, BYTE* pbPinData,
  *
  * Used to answer enrolment/certificate questions directly from a physically
  * present card when the local cache (~/.CIEPKI/<PAN>.cache or .der) has
- * nothing usable for that PAN -- notably a card paired through the official
- * CIE ID app, whose cache may be in a container this build cannot decrypt.
+ * nothing usable for that PAN -- notably a card paired through third-party
+ * CIE software, whose cache may be in a container this build cannot decrypt.
  * See github.com/M0Rf30/opencie-pkcs11/issues/25.
  *
  * @param szPAN    PAN to look for (same hex-encoded PAN.mid(5,6) key used
