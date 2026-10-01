@@ -205,7 +205,7 @@ Never mention IPZS, cie-middleware (including cie-middleware-linux/macos), or th
 | Build system | Meson >= 0.56 + Ninja |
 | Crypto | OpenSSL 3.x (`libcrypto`) — no Crypto++ |
 | Smart card | PC/SC (libpcsclite on Linux, WinSCard on Windows, PCSC.framework on macOS) |
-| PDF | PoDoFo >= 1.1.0 |
+| PDF | PoDoFo >= 1.1.0 (vendored wrap: 1.1.2) |
 | XML | libxml2 |
 | HTTP | libcurl (OCSP, CRL, TSA) |
 | Image | libopenjp2 (optional), libpng, freetype2, fontconfig, zlib |
