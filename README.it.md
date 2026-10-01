@@ -1,17 +1,25 @@
 <p align="center">
-  <img src="assets/logo.svg" width="96" alt="logo libopencie-pkcs11">
+  <img src="assets/logo.svg" width="112" alt="logo libopencie-pkcs11">
 </p>
+
+<h1 align="center">opencie-pkcs11</h1>
+
+<p align="center"><strong>Modulo PKCS#11 per la Carta d'Identità Elettronica (CIE) italiana — multipiattaforma, senza middleware.</strong></p>
 
 <p align="center">
   <a href="https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml"><img src="https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/M0Rf30/opencie-pkcs11/releases/latest"><img src="https://img.shields.io/github/v/release/M0Rf30/opencie-pkcs11" alt="Ultima versione"></a>
+  <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-LGPL--3.0--or--later-blue" alt="License: LGPL-3.0-or-later"></a>
+  <img src="https://img.shields.io/badge/platforms-Linux%20x86__64%20%7C%20aarch64%20%C2%B7%20Windows%20x86__64%20%C2%B7%20macOS%20arm64%20%C2%B7%20Android%20arm64%20%7C%20x86__64-lightgrey" alt="Platforms">
 </p>
 
 <p align="center">
-  <a href="README.md">🇬🇧 English</a>
+  <a href="README.md">English</a>
 </p>
 
-# opencie-pkcs11
+<p align="center">
+  <a href="#artefatti-di-release">Artefatti di release</a> · <a href="#caratteristiche">Caratteristiche</a> · <a href="#piattaforme">Piattaforme</a> · <a href="#api-pubblica">API pubblica</a> · <a href="#compilazione">Compilazione</a> · <a href="#integrazione-con-il-browser">Integrazione con il browser</a> · <a href="#documentazione">Documentazione</a> · <a href="#licenza">Licenza</a>
+</p>
 
 Una libreria C++ multipiattaforma che implementa l'interfaccia PKCS#11 per la
 [CIE](https://www.cartaidentita.interno.gov.it/) (Carta d'Identità Elettronica) italiana.
@@ -19,14 +27,23 @@ Espone la chiave privata e il certificato di autenticazione presenti sul chip de
 in modo che le applicazioni compatibili — browser, stack TLS, strumenti di firma —
 possano utilizzarli senza alcun middleware proprietario.
 
----
+## Artefatti di release
 
-## Binding per altri linguaggi
+Ogni release con tag include i seguenti asset (`<ver>` è il tag della release).
 
-| Linguaggio | Repository | Installazione |
+| Asset | Piattaforma | Note |
 |---|---|---|
-| Go | [opencie-pkcs11-go](https://github.com/M0Rf30/opencie-pkcs11-go) | `go get github.com/M0Rf30/opencie-pkcs11-go` |
-| Rust | [opencie-pkcs11-rs](https://github.com/M0Rf30/opencie-pkcs11-rs) | `cargo add opencie-pkcs11` |
+| `libopencie-pkcs11-<ver>-linux-x86_64.so` | Linux x86\_64 | Modulo PKCS#11 (build portabile) |
+| `libopencie-pkcs11-<ver>-linux-aarch64.so` | Linux aarch64 | Modulo PKCS#11 |
+| `libopencie-pkcs11-<ver>-windows-x86_64.dll` | Windows x86\_64 | Modulo PKCS#11 |
+| `windows-x86_64-runtime-deps-<ver>.zip` | Windows x86\_64 | DLL runtime MinGW/vcpkg da distribuire accanto alla `.dll` |
+| `libopencie-pkcs11-<ver>-macos-arm64.dylib` | macOS arm64 | Modulo PKCS#11 |
+| `libopencie-pkcs11-<ver>-android-arm64.so` | Android arm64-v8a | Modulo PKCS#11 (trasporto NFC) |
+| `libopencie-pkcs11-<ver>-android-x86_64.so` | Android x86\_64 | Modulo PKCS#11 (emulatore) |
+| `libopencie-sign-sdk-<ver>-linux-x86_64.a` | Linux x86\_64 | Archivio statico dell'SDK di firma PDF |
+| `SHA256SUMS` | — | Checksum di tutti gli asset |
+
+[Tutte le release](https://github.com/M0Rf30/opencie-pkcs11/releases)
 
 ---
 
@@ -36,7 +53,6 @@ possano utilizzarli senza alcun middleware proprietario.
   12 operazioni non supportate restituiscono `CKR_FUNCTION_NOT_SUPPORTED`)
 - Gestione del PIN: verifica, modifica, sblocco
 - Firma e verifica PDF tramite un SDK integrato (basato su PoDoFo)
-- Cifratura e decifratura di file tramite la chiave RSA della CIE (RSA-OAEP / ibrido AES-256-GCM)
 - Marcatura temporale RFC 3161 autonoma tramite qualsiasi TSA (senza carta)
 - Build Linux portabile (`-Dportable=true`) con libxml2 collegata staticamente
   e senza ICU, per evitare dipendenze ICU della distro
@@ -58,6 +74,15 @@ e collegati nella singola libreria di output — nessuna dipendenza runtime da a
 
 ---
 
+## Binding per altri linguaggi
+
+| Linguaggio | Repository | Installazione |
+|---|---|---|
+| Go | [opencie-pkcs11-go](https://github.com/M0Rf30/opencie-pkcs11-go) | `go get github.com/M0Rf30/opencie-pkcs11-go` |
+| Python | [opencie-pkcs11-py](https://github.com/M0Rf30/opencie-pkcs11-py) | `pip install opencie-pkcs11` |
+
+---
+
 ## API pubblica
 
 ### Interfaccia standard PKCS#11
@@ -74,7 +99,9 @@ Tutte e 69 le funzioni standard `C_*` sono presenti. Le seguenti 12 restituiscon
 Interfaccia C pubblica dichiarata in [`include/opencie/cie_ext.h`](include/opencie/cie_ext.h).
 Tutte le funzioni restituiscono `CK_RV` (codice di errore PKCS#11) salvo dove indicato.
 
-```c
+<details>
+<summary><b>Elenco completo delle API C (<code>cie_ext.h</code>)</b></summary>
+
 // Registrazione (enrolment)
 CK_RV cie_enable      (const char *pan, const char *pin, int *attempts,
                        PROGRESS_CALLBACK, COMPLETED_CALLBACK);
@@ -86,6 +113,18 @@ CK_RV cie_change_pin  (const char *cur_pin, const char *new_pin,
                        int *attempts, PROGRESS_CALLBACK);
 CK_RV cie_unblock_pin (const char *puk, const char *new_pin,
                        int *attempts, PROGRESS_CALLBACK);
+
+// Certificato
+// outDer punta a un buffer DER allocato con malloc; il chiamante deve fare free().
+CK_RV cie_get_certificate(const char *pan, unsigned char **outDer,
+                          unsigned long *outLen);
+
+// Lettura data group del chip (ICAO 9303)
+// Legge DG1 (MRZ) e DG2 (foto) in un'unica sessione PACE.
+// La foto è restituita come byte PNG (JPEG2000 decodificato internamente).
+CK_RV cie_read_dgs       (const char *pin,
+                          char *mrzOut, size_t *mrzLen,
+                          unsigned char *photoOut, size_t *photoLen);
 
 // Firma / verifica
 CK_RV cie_sign           (const char *in_path, const char *type,
@@ -115,6 +154,8 @@ int make_digest_info (int algid, const unsigned char *digest, size_t digest_len,
                       unsigned char *out, size_t *out_len);
 ```
 
+</details>
+
 Su Android sono esportati anche tre simboli aggiuntivi che fanno da bridge JNI per
 il trasporto NFC: `cie_set_nfc_tag`, `cie_clear_nfc_tag`, `cie_set_data_dir`
 (oltre a `JNI_OnLoad`).
@@ -122,6 +163,9 @@ il trasporto NFC: `cie_set_nfc_tag`, `cie_clear_nfc_tag`, `cie_set_data_dir`
 ---
 
 ## Struttura del progetto
+
+<details>
+<summary><b>Layout dell'albero dei sorgenti</b></summary>
 
 ```
 include/opencie/  Header C pubblici (cie_ext.h)
@@ -150,6 +194,8 @@ sign-sdk/         SDK per la firma PDF (collegato staticamente nella libreria pr
 toolchains/       Cross file Meson (aarch64, MinGW, Android NDK)
 linker/           Script di esportazione simboli (.map / .exp)
 ```
+
+</details>
 
 ---
 
@@ -227,7 +273,10 @@ meson compile -C builddir
 # Output: builddir/libopencie-pkcs11.dylib
 ```
 
-### Windows (cross-compilazione da Linux)
+### Cross-compilazione
+
+<details>
+<summary><b>Windows (cross-compilazione da Linux)</b></summary>
 
 Installare MinGW-w64 e [vcpkg](https://github.com/microsoft/vcpkg), poi:
 
@@ -247,7 +296,10 @@ Il workflow CI prepara anche un bundle `runtime/` con le DLL runtime di MinGW e
 vcpkg necessarie a fianco della .dll — vedi `.github/workflows/main.yml` per
 l'elenco esatto.
 
-### Android (cross-compilazione da Linux)
+</details>
+
+<details>
+<summary><b>Android (cross-compilazione da Linux)</b></summary>
 
 Richiede Android NDK r27c e vcpkg.
 
@@ -269,6 +321,8 @@ meson compile -C builddir-android
 ```
 
 Per x86\_64 (emulatore) usa `cross-android-x86_64.ini` e il triplet `x64-android`.
+
+</details>
 
 ---
 
@@ -308,10 +362,23 @@ CIE riconosciuti, i lettori compatibili e come segnalare una carta non supportat
 
 ---
 
+## Documentazione
+
+- [docs/api.md](docs/api.md) — riferimento API
+- [docs/usage.md](docs/usage.md) — guida all'uso
+- [docs/supported-cards.md](docs/supported-cards.md) — carte e lettori supportati
+- [ARCHITECTURE.md](ARCHITECTURE.md) — panoramica dell'architettura
+- [CONTRIBUTING.md](CONTRIBUTING.md) — come contribuire
+
+---
+
 ## CI & Download
 
 Gli artefatti per piattaforma sono prodotti dal workflow CI e allegati a ogni
-release con tag.
+release con tag (vedi [Artefatti di release](#artefatti-di-release)).
+
+<details>
+<summary><b>Stato CI per piattaforma</b></summary>
 
 | Piattaforma | CI | Ultima build |
 |---|---|---|
@@ -327,6 +394,8 @@ La riga `Sign SDK` pubblica `libopencie-sign-sdk.a`: l'archivio statico dell'SDK
 di firma PDF integrato, pensato per progetti a valle che vogliano collegare l'SDK
 direttamente, senza passare dalle entry point PKCS#11.
 
+</details>
+
 ---
 
 ## Licenza
@@ -334,7 +403,7 @@ direttamente, senza passare dalle entry point PKCS#11.
 Copyright (C) 2026 Gianluca Boiano.
 
 Questo programma è software libero: puoi ridistribuirlo e/o modificarlo
-nei termini della GNU General Public License come pubblicata dalla
-Free Software Foundation, nella versione 2 o, a tua scelta, in qualsiasi versione successiva.
+nei termini della GNU Lesser General Public License come pubblicata dalla
+Free Software Foundation, nella versione 3 o, a tua scelta, in qualsiasi versione successiva.
 
 Consulta il file [LICENSE](LICENSE.md) per il testo completo.

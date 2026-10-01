@@ -1,37 +1,37 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1B2B44"/>
+      <stop offset="1" stop-color="#0A1220"/>
+    </linearGradient>
+    <linearGradient id="chip" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFE38A"/>
+      <stop offset="0.6" stop-color="#E0AE3E"/>
+      <stop offset="1" stop-color="#B07F22"/>
+    </linearGradient>
+  </defs>
 
-  <!-- Background circle -->
-  <circle cx="64" cy="64" r="60" fill="#0f172a"/>
+  <!-- Backdrop -->
+  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
 
-  <!-- Smart card body -->
-  <rect x="18" y="40" width="92" height="58" rx="7" ry="7"
-        fill="none" stroke="#38bdf8" stroke-width="3.5"/>
+  <!-- Card outline -->
+  <rect x="16" y="34" width="96" height="62" rx="9" fill="#13233A" stroke="#5FA8E8" stroke-width="4"/>
 
-  <!-- Chip (contact pad grid) -->
-  <g fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round">
-    <!-- outer chip rect -->
-    <rect x="28" y="52" width="26" height="20" rx="2" ry="2" fill="#1e3a5f" stroke="#f59e0b"/>
-    <!-- horizontal lines -->
-    <line x1="28" y1="59" x2="54" y2="59"/>
-    <line x1="28" y1="65" x2="54" y2="65"/>
-    <!-- vertical lines -->
-    <line x1="37" y1="52" x2="37" y2="72"/>
-    <line x1="45" y1="52" x2="45" y2="72"/>
+  <!-- Chip -->
+  <g transform="translate(27 49)">
+    <rect width="28" height="22" rx="3.5" fill="url(#chip)"/>
+    <g stroke="#8A6116" stroke-width="1.2" fill="none">
+      <line x1="0" y1="7.3" x2="28" y2="7.3"/>
+      <line x1="0" y1="14.7" x2="28" y2="14.7"/>
+      <line x1="14" y1="0" x2="14" y2="22"/>
+    </g>
   </g>
 
-  <!-- Magnetic stripe suggestion (top of card) -->
-  <rect x="18" y="47" width="92" height="6" rx="1" fill="#1e3a5f" opacity="0.7"/>
-
-  <!-- Key shape (right side of card, centered vertically) -->
-  <g transform="translate(72, 62)">
-    <!-- Key bow (circle) -->
-    <circle cx="0" cy="0" r="11" fill="none" stroke="#38bdf8" stroke-width="3.5"/>
-    <circle cx="0" cy="0" r="5" fill="#38bdf8" opacity="0.25"/>
-    <!-- Key blade (stem) -->
-    <line x1="11" y1="0" x2="30" y2="0" stroke="#38bdf8" stroke-width="3.5" stroke-linecap="round"/>
-    <!-- Key teeth -->
-    <line x1="22" y1="0" x2="22" y2="6" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>
-    <line x1="27" y1="0" x2="27" y2="5" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>
+  <!-- Key: the card's private key exposed through PKCS#11 -->
+  <g stroke="#5FA8E8" stroke-width="4.5" stroke-linecap="round" fill="none">
+    <circle cx="75" cy="65" r="9"/>
+    <line x1="84" y1="65" x2="101" y2="65"/>
+    <line x1="94" y1="65" x2="94" y2="72"/>
+    <line x1="100" y1="65" x2="100" y2="70"/>
   </g>
-
 </svg>

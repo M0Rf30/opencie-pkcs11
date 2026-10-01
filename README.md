@@ -1,17 +1,25 @@
 <p align="center">
-  <img src="assets/logo.svg" width="96" alt="libopencie-pkcs11 logo">
+  <img src="assets/logo.svg" width="112" alt="libopencie-pkcs11 logo">
 </p>
+
+<h1 align="center">opencie-pkcs11</h1>
+
+<p align="center"><strong>PKCS#11 module for the Italian Electronic Identity Card (CIE) — cross-platform, middleware-free.</strong></p>
 
 <p align="center">
   <a href="https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml"><img src="https://github.com/M0Rf30/opencie-pkcs11/actions/workflows/main.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/M0Rf30/opencie-pkcs11/releases/latest"><img src="https://img.shields.io/github/v/release/M0Rf30/opencie-pkcs11" alt="Latest Release"></a>
+  <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-LGPL--3.0--or--later-blue" alt="License: LGPL-3.0-or-later"></a>
+  <img src="https://img.shields.io/badge/platforms-Linux%20x86__64%20%7C%20aarch64%20%C2%B7%20Windows%20x86__64%20%C2%B7%20macOS%20arm64%20%C2%B7%20Android%20arm64%20%7C%20x86__64-lightgrey" alt="Platforms">
 </p>
 
 <p align="center">
-  <a href="README.it.md">🇮🇹 Italiano</a>
+  <a href="README.it.md">Italiano</a>
 </p>
 
-# opencie-pkcs11
+<p align="center">
+  <a href="#release-artifacts">Release artifacts</a> · <a href="#features">Features</a> · <a href="#platforms">Platforms</a> · <a href="#public-api">Public API</a> · <a href="#building">Building</a> · <a href="#browser-integration">Browser Integration</a> · <a href="#documentation">Documentation</a> · <a href="#license">License</a>
+</p>
 
 A cross-platform C++ library implementing the PKCS#11 interface for the Italian
 [CIE](https://www.cartaidentita.interno.gov.it/) (Carta d'Identità Elettronica /
@@ -19,15 +27,23 @@ Electronic Identity Card). It exposes the private key and authentication certifi
 stored on the CIE chip so that standard-compliant applications — browsers, TLS
 stacks, signing tools — can use them without any card-vendor middleware.
 
----
+## Release artifacts
 
-## Language Bindings
+Each tagged release attaches the following assets (`<ver>` is the release tag).
 
-| Language | Repository | Install |
+| Asset | Platform | Notes |
 |---|---|---|
-| Go | [opencie-pkcs11-go](https://github.com/M0Rf30/opencie-pkcs11-go) | `go get github.com/M0Rf30/opencie-pkcs11-go` |
-| Rust | [opencie-pkcs11-rs](https://github.com/M0Rf30/opencie-pkcs11-rs) | `cargo add opencie-pkcs11` |
-| Python | [opencie-pkcs11-py](https://github.com/M0Rf30/opencie-pkcs11-py) | `pip install opencie-pkcs11` |
+| `libopencie-pkcs11-<ver>-linux-x86_64.so` | Linux x86\_64 | PKCS#11 module (portable build) |
+| `libopencie-pkcs11-<ver>-linux-aarch64.so` | Linux aarch64 | PKCS#11 module |
+| `libopencie-pkcs11-<ver>-windows-x86_64.dll` | Windows x86\_64 | PKCS#11 module |
+| `windows-x86_64-runtime-deps-<ver>.zip` | Windows x86\_64 | MinGW/vcpkg runtime DLLs to ship next to the `.dll` |
+| `libopencie-pkcs11-<ver>-macos-arm64.dylib` | macOS arm64 | PKCS#11 module |
+| `libopencie-pkcs11-<ver>-android-arm64.so` | Android arm64-v8a | PKCS#11 module (NFC transport) |
+| `libopencie-pkcs11-<ver>-android-x86_64.so` | Android x86\_64 | PKCS#11 module (emulator) |
+| `libopencie-sign-sdk-<ver>-linux-x86_64.a` | Linux x86\_64 | Static archive of the PDF signing SDK |
+| `SHA256SUMS` | — | Checksums of all assets |
+
+[All releases](https://github.com/M0Rf30/opencie-pkcs11/releases)
 
 ---
 
@@ -59,6 +75,16 @@ project-internal archives.
 
 ---
 
+## Language Bindings
+
+| Language | Repository | Install |
+|---|---|---|
+| Go | [opencie-pkcs11-go](https://github.com/M0Rf30/opencie-pkcs11-go) | `go get github.com/M0Rf30/opencie-pkcs11-go` |
+| Rust | [opencie-pkcs11-rs](https://github.com/M0Rf30/opencie-pkcs11-rs) | `cargo add opencie-pkcs11` |
+| Python | [opencie-pkcs11-py](https://github.com/M0Rf30/opencie-pkcs11-py) | `pip install opencie-pkcs11` |
+
+---
+
 ## Public API
 
 ### PKCS#11 Standard Interface
@@ -74,6 +100,9 @@ All 69 standard `C_*` functions are present. The following 12 return
 
 Public C interface declared in [`include/opencie/cie_ext.h`](include/opencie/cie_ext.h).
 All functions return `CK_RV` (PKCS#11 error code) unless otherwise noted.
+
+<details>
+<summary><b>Full C API listing (<code>cie_ext.h</code>)</b></summary>
 
 ```c
 // Enrolment
@@ -129,12 +158,17 @@ int   make_digest_info   (int algid, const unsigned char *pbtDigest,
                            size_t *pbtDigestInfoLen);
 ```
 
+</details>
+
 On Android, three additional symbols bridge the JNI NFC transport:
 `cie_set_nfc_tag`, `cie_clear_nfc_tag`, `cie_set_data_dir` (plus `JNI_OnLoad`).
 
 ---
 
 ## Project Structure
+
+<details>
+<summary><b>Source tree layout</b></summary>
 
 ```
 include/opencie/  Public C headers (cie_ext.h)
@@ -163,6 +197,8 @@ sign-sdk/         PDF signing SDK (statically linked into the main library)
 toolchains/       Meson cross files (aarch64, MinGW, Android NDK)
 linker/           Symbol export scripts (.map / .exp)
 ```
+
+</details>
 
 ---
 
@@ -240,7 +276,10 @@ meson compile -C builddir
 # Output: builddir/libopencie-pkcs11.dylib
 ```
 
-### Windows (cross-compile from Linux)
+### Cross-compilation
+
+<details>
+<summary><b>Windows (cross-compile from Linux)</b></summary>
 
 Install MinGW-w64 and [vcpkg](https://github.com/microsoft/vcpkg), then:
 
@@ -260,7 +299,10 @@ The CI workflow also stages the required MinGW and vcpkg runtime DLLs into a
 `runtime/` bundle alongside the .dll — see `.github/workflows/main.yml` for the
 exact list.
 
-### Android (cross-compile from Linux)
+</details>
+
+<details>
+<summary><b>Android (cross-compile from Linux)</b></summary>
 
 Requires Android NDK r27c and vcpkg.
 
@@ -283,6 +325,8 @@ meson compile -C builddir-android
 
 For x86\_64 (emulator), substitute `cross-android-x86_64.ini` and the
 `x64-android` triplet.
+
+</details>
 
 ---
 
@@ -322,10 +366,23 @@ recognised CIE chips, compatible readers, and how to report an unsupported card.
 
 ---
 
+## Documentation
+
+- [docs/api.md](docs/api.md) — API reference
+- [docs/usage.md](docs/usage.md) — usage guide
+- [docs/supported-cards.md](docs/supported-cards.md) — supported cards and readers
+- [ARCHITECTURE.md](ARCHITECTURE.md) — architecture overview
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute
+
+---
+
 ## CI & Downloads
 
 Per-platform artifacts are produced by the CI workflow and attached to each
-tagged release.
+tagged release (see [Release artifacts](#release-artifacts)).
+
+<details>
+<summary><b>CI status per platform</b></summary>
 
 | Platform | CI | Latest build |
 |---|---|---|
@@ -341,6 +398,8 @@ The `Sign SDK` row publishes `libopencie-sign-sdk.a`: the static archive of the
 embedded PDF signing SDK, intended for downstream projects that want to link
 the SDK directly without going through the PKCS#11 entry points.
 
+</details>
+
 ---
 
 ## License
@@ -348,7 +407,8 @@ the SDK directly without going through the PKCS#11 entry points.
 Copyright (C) 2026 Gianluca Boiano.
 
 This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU General Public License as published by the Free Software
-Foundation, either version 2 of the License, or (at your option) any later version.
+the terms of the GNU Lesser General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version.
 
 See the [LICENSE](LICENSE.md) file for the full text.
