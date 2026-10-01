@@ -20,6 +20,7 @@
 
 #include "crypto/aes.h"
 #include "crypto/asn_parser.h"
+#include "csp/cie_error.h"
 #include "csp/ias.h"
 #include "pcsc/card_locker.h"
 #include "pcsc/pcsc.h"
@@ -293,7 +294,14 @@ bool CIEtemplateMatchCard(CSlot &pSlot) {
     ias.SetCardContext(&pSlot);
     {
       safeTransaction trans(pSlot.transport, faseConn, SCARD_LEAVE_CARD);
-      ias.SelectAID_IAS();
+      try {
+        ias.SelectAID_IAS();
+      } catch (const cie_unsupported_card_error &) {
+        // Not a supported chip: remember why so callers can report it, and
+        // let GetTemplate() treat the card as unmatched.
+        cie_record_unsupported_card();
+        throw;
+      }
       ias.ReadPAN();
     }
     return true;
@@ -329,7 +337,7 @@ void CIEtemplateGetTokenFlags(CSlot & /*pSlot*/, CK_FLAGS &dwFlags) {
 }
 
 // CIE PINs are 8 digits. After pairing, the first 4 are kept in the local
-// cache so apps may ask only for the last 4 (like the IPZS middleware).
+// cache so apps may ask only for the last 4.
 // Accept either: a full 8-digit PIN is sent as-is and needs no cache, so
 // hosts such as NSS/GNOME Papers that ask for "the PIN" work even when the
 // cache is missing or unreadable. Length validation and cached-half

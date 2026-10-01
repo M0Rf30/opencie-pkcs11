@@ -105,6 +105,7 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
 
     char* curreader = readers.get();
     bool foundCIE = false;
+    bool sawUnsupported = false;
 
     progressCallBack(25, "Looking for CIE...");
 
@@ -136,6 +137,11 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
       // Continue looking for a CIE if the token is unrecognised
       try {
         ias->SelectAID_IAS();
+      } catch (const cie_unsupported_card_error& err) {
+        LOG_ERROR("cie_sign - %s", err.what());
+        sawUnsupported = true;
+        ATR.reset();
+        continue;
       } catch (logged_error& err) {
         ATR.reset();
         continue;
@@ -210,8 +216,13 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
     }
 
     if (!foundCIE) {
+      if (sawUnsupported) cie_record_unsupported_card();
       return CKR_TOKEN_NOT_RECOGNIZED;
     }
+  } catch (const cie_unsupported_card_error& e) {
+    LOG_ERROR("cie_sign - %s", e.what());
+    cie_record_unsupported_card();
+    return CKR_TOKEN_NOT_RECOGNIZED;
   } catch (scard_error& e) {
     LOG_ERROR("cie_sign - Smart card error: 0x%04X", e.sw);
     cie_record_sw_error(e.sw);

@@ -395,6 +395,7 @@ static CK_RV readBothDGsOnce(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
     }
 
     bool found = false;
+    bool sawUnsupported = false;
     for (char* cur = readers; cur[0] != '\0'; cur += strnlen(cur, len) + 1) {
       safeConnection conn(*transport, hSC, cur, SCARD_SHARE_SHARED);
       if (!conn.hCard) continue;
@@ -411,7 +412,14 @@ static CK_RV readBothDGsOnce(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
       ias.SetCardContext(&conn);
 
       ias.token.Reset();
-      ias.SelectAID_IAS();
+      try {
+        ias.SelectAID_IAS();
+      } catch (const cie_unsupported_card_error& e) {
+        // Unsupported chip in this reader: keep scanning the other readers.
+        LOG_ERROR("readBothDGs - %s", e.what());
+        sawUnsupported = true;
+        continue;
+      }
       ias.ReadPAN();
       ias.SelectAID_CIE();
 
@@ -468,7 +476,10 @@ static CK_RV readBothDGsOnce(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
     }
 
     free(readers);
-    if (!found) return CKR_TOKEN_NOT_RECOGNIZED;
+    if (!found) {
+      if (sawUnsupported) cie_record_unsupported_card();
+      return CKR_TOKEN_NOT_RECOGNIZED;
+    }
 
   } catch (const card_link_error&) {
     free(readers);

@@ -235,7 +235,7 @@ CK_RV CK_ENTRY cie_is_enabled(const char* szPAN) {
   // The cache alone cannot distinguish "never enrolled" from "enrolled
   // through different software whose cache this build can't read" (see
   // CacheGetCertificate()'s legacy-format fallback for the common case,
-  // the official CIE ID app). If the exact card is physically present,
+  // third-party CIE software). If the exact card is physically present,
   // answer from there instead of reporting "not enrolled" for a card
   // that plainly is. https://github.com/M0Rf30/opencie-pkcs11/issues/25
   if (CIE_FindCardByPAN(szPAN, nullptr)) return 1;
@@ -327,6 +327,8 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
 
     char* curreader = readers;
     bool foundCIE = false;
+    bool anyCIE = false;          // a supported CIE was seen in some reader
+    bool sawUnsupported = false;  // a card with an unrecognized ATR was seen
     for (; curreader[0] != 0; curreader += strnlen(curreader, len) + 1) {
       safeConnection conn(*transport, hSC, curreader, SCARD_SHARE_SHARED);
       if (!conn.hCard) continue;
@@ -371,12 +373,23 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
         ias.InitEncKey();
         ias.ReadIdServizi(IdServizi2);
       };
-      RetryOnCardLinkError(
-          "cie_enable - read card header", 3, [&](int attempt) {
-            if (attempt > 1) progressCallBack(10, "Riconnessione alla CIE...");
-            readPublicHeader();
-            return 0;
-          });
+      try {
+        RetryOnCardLinkError(
+            "cie_enable - read card header", 3, [&](int attempt) {
+              if (attempt > 1)
+                progressCallBack(10, "Riconnessione alla CIE...");
+              readPublicHeader();
+              return 0;
+            });
+      } catch (const cie_unsupported_card_error& e) {
+        // Unsupported chip in this reader: keep scanning the other readers.
+        LOG_ERROR("cie_enable - %s", e.what());
+        sawUnsupported = true;
+        foundCIE = anyCIE;
+        free(ATR);
+        ATR = nullptr;
+        continue;
+      }
 
       if (ias.IsEnrolled()) {
         LOG_INFO("cie_enable - CIE already enabled. Serial number: %s\n",
@@ -422,6 +435,7 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
       ByteArray dhData(DH.left(GetASN1DataLenght(DH)));
 
       foundCIE = true;
+      anyCIE = true;
 
       progressCallBack(20, "Authenticating...");
 
@@ -556,12 +570,23 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
       completedCallBack(span.c_str(), fullname.c_str(), st_serial.c_str());
     }
 
-    if (!foundCIE) {
-      LOG_ERROR("cie_enable - No CIE available");
+    if (!foundCIE && !anyCIE) {
       free(ATR);
+      ATR = nullptr;
+      if (sawUnsupported) {
+        LOG_ERROR("cie_enable - Card present but chip not supported");
+        cie_record_unsupported_card();
+      } else {
+        LOG_ERROR("cie_enable - No CIE available");
+      }
       return CKR_TOKEN_NOT_RECOGNIZED;
     }
 
+  } catch (const cie_unsupported_card_error& e) {
+    LOG_ERROR("cie_enable - %s", e.what());
+    cie_record_unsupported_card();
+    free(ATR);
+    return CKR_TOKEN_NOT_RECOGNIZED;
   } catch (scard_error& e) {
     LOG_ERROR("cie_enable - Smart card error: 0x%04X", e.sw);
     cie_record_sw_error(e.sw);
@@ -924,47 +949,60 @@ int CK_ENTRY cie_reader_name(char* buf, int buf_len) {
     return 0;
   }
 
-  int found = 0;
-  {
-    for (const char* p = readers.data(); p[0] != '\0';
-         p += strnlen(p, readers.size()) + 1) {
-      if (strstr(p, "Virtual") != nullptr) continue;
+  // Several readers can be attached at once (built-in contact slot + an
+  // external combo reader exposing contact and contactless slots, see
+  // opencie issue #34). Report the most useful one instead of the first:
+  //   3: a slot that currently holds a card
+  //   2: an empty contactless slot (the CIE is an NFC card)
+  //   1: any other empty slot that isn't the built-in Broadcom reader
+  int bestRank = 0;
+  for (const char* p = readers.data(); p[0] != '\0';
+       p += strnlen(p, readers.size()) + 1) {
+    if (strstr(p, "Virtual") != nullptr) continue;
 
-      // Probe state without blocking (timeout=0)
-      SCARD_READERSTATE rs {};
-      rs.szReader = p;
-      rs.dwCurrentState = SCARD_STATE_UNAWARE;
-      LONG sr = transport.GetStatusChange(hCtx, 0, &rs, 1);
-      if (sr != SCARD_S_SUCCESS) continue;
+    // Probe state without blocking (timeout=0)
+    SCARD_READERSTATE rs {};
+    rs.szReader = p;
+    rs.dwCurrentState = SCARD_STATE_UNAWARE;
+    LONG sr = transport.GetStatusChange(hCtx, 0, &rs, 1);
+    if (sr != SCARD_S_SUCCESS) continue;
 
-      DWORD state = rs.dwEventState;
-      if (state & SCARD_STATE_UNAVAILABLE) continue;
+    DWORD state = rs.dwEventState;
+    if (state & SCARD_STATE_UNAVAILABLE) continue;
 
-      // Accept: card present, OR empty reader that isn't the built-in Broadcom
-      bool hasCard = (state & SCARD_STATE_PRESENT) != 0;
-      bool isEmpty = (state & SCARD_STATE_EMPTY) != 0;
-      bool isInternal = strstr(p, "Broadcom") != nullptr;
+    bool hasCard = (state & SCARD_STATE_PRESENT) != 0;
+    bool isEmpty = (state & SCARD_STATE_EMPTY) != 0;
+    bool isInternal = strstr(p, "Broadcom") != nullptr;
+    bool isContactless = strstr(p, "Contactless") != nullptr ||
+                         strstr(p, "contactless") != nullptr ||
+                         strstr(p, "PICC") != nullptr;
 
-      if (hasCard || (isEmpty && !isInternal)) {
-        size_t nameLen = strnlen(p, readers.size());
-        if (nameLen >= static_cast<size_t>(buf_len)) {
-          // Truncating here would silently hand the caller an unusable,
-          // ambiguous reader name. Fail closed: skip this reader (buf
-          // stays the empty string set above) and keep looking instead of
-          // reporting success with garbage.
-          LOG_ERROR(
-              "cie_reader_name - Reader name too long for buffer (%zu >= %d),"
-              " skipping",
-              nameLen, buf_len);
-          continue;
-        }
-        strncpy(buf, p, nameLen);
-        buf[nameLen] = '\0';
-        found = 1;
-        break;
-      }
+    int rank = 0;
+    if (hasCard)
+      rank = 3;
+    else if (isEmpty && isContactless)
+      rank = 2;
+    else if (isEmpty && !isInternal)
+      rank = 1;
+    if (rank <= bestRank) continue;
+
+    size_t nameLen = strnlen(p, readers.size());
+    if (nameLen >= static_cast<size_t>(buf_len)) {
+      // Truncating here would silently hand the caller an unusable,
+      // ambiguous reader name. Fail closed: skip this reader and keep
+      // looking instead of reporting success with garbage.
+      LOG_ERROR(
+          "cie_reader_name - Reader name too long for buffer (%zu >= %d),"
+          " skipping",
+          nameLen, buf_len);
+      continue;
     }
+    memcpy(buf, p, nameLen);
+    buf[nameLen] = '\0';
+    bestRank = rank;
+    if (rank == 3) break;
   }
+  int found = bestRank > 0 ? 1 : 0;
   transport.ReleaseContext(hCtx);
   return found;
 #endif

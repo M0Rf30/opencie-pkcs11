@@ -33,6 +33,12 @@ void cie_record_sw_error(uint16_t sw);
 void cie_record_transport_error();
 
 /**
+ * @brief Record that a card answered but its chip/applet (ATR) is not in the
+ * supported list (CIE_ERR_UNSUPPORTED_CARD, no status word).
+ */
+void cie_record_unsupported_card();
+
+/**
  * @brief Reset the calling thread's last-error record to CIE_ERR_NONE.
  */
 void cie_clear_error();

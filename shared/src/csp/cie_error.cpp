@@ -61,6 +61,11 @@ void cie_record_transport_error() {
   g_lastError.sw = 0;
 }
 
+void cie_record_unsupported_card() {
+  g_lastError.kind = CIE_ERR_UNSUPPORTED_CARD;
+  g_lastError.sw = 0;
+}
+
 void cie_clear_error() {
   g_lastError.kind = CIE_ERR_NONE;
   g_lastError.sw = 0;

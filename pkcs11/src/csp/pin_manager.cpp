@@ -104,6 +104,7 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
 
     char* curreader = readers;
     bool foundCIE = false;
+    bool sawUnsupported = false;
 
     for (; curreader[0] != 0; curreader += strnlen(curreader, len) + 1) {
       safeConnection conn(*transport, hSC, curreader, SCARD_SHARE_SHARED);
@@ -139,6 +140,12 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
       // Continue looking for CIE if the token is unrecognised
       try {
         ias.SelectAID_IAS();
+      } catch (const cie_unsupported_card_error& err) {
+        LOG_ERROR("PINManager::ChangePIN - %s", err.what());
+        sawUnsupported = true;
+        free(ATR);
+        ATR = nullptr;
+        continue;
       } catch (logged_error& err) {
         free(ATR);
         ATR = nullptr;
@@ -245,8 +252,15 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
     if (!foundCIE) {
       free(readers);
       free(ATR);
+      if (sawUnsupported) cie_record_unsupported_card();
       return CKR_TOKEN_NOT_RECOGNIZED;
     }
+  } catch (const cie_unsupported_card_error& e) {
+    LOG_ERROR("PINManager::ChangePIN - %s", e.what());
+    cie_record_unsupported_card();
+    free(readers);
+    free(ATR);
+    return CKR_TOKEN_NOT_RECOGNIZED;
   } catch (scard_error& e) {
     cie_record_sw_error(e.sw);
     free(readers);
@@ -319,6 +333,7 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
 
     char* curreader = readers;
     bool foundCIE = false;
+    bool sawUnsupported = false;
 
     for (; curreader[0] != 0; curreader += strnlen(curreader, len) + 1) {
       safeConnection conn(*transport, hSC, curreader, SCARD_SHARE_SHARED);
@@ -353,6 +368,12 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
       // Continue looking for CIE if the token is unrecognised
       try {
         ias.SelectAID_IAS();
+      } catch (const cie_unsupported_card_error& err) {
+        LOG_ERROR("PINManager::UnlockPIN - %s", err.what());
+        sawUnsupported = true;
+        free(ATR);
+        ATR = nullptr;
+        continue;
       } catch (logged_error& err) {
         free(ATR);
         ATR = nullptr;
@@ -455,10 +476,17 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
     if (!foundCIE) {
       free(ATR);
       free(readers);
+      if (sawUnsupported) cie_record_unsupported_card();
       return CKR_TOKEN_NOT_RECOGNIZED;
     }
 
     LOG_INFO("******** PINManager::cie_unblock_pin Completed ********");
+  } catch (const cie_unsupported_card_error& e) {
+    LOG_ERROR("PINManager::UnlockPIN - %s", e.what());
+    cie_record_unsupported_card();
+    free(ATR);
+    free(readers);
+    return CKR_TOKEN_NOT_RECOGNIZED;
   } catch (scard_error& e) {
     cie_record_sw_error(e.sw);
     free(ATR);

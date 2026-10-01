@@ -360,7 +360,9 @@ typedef enum cie_error_kind {
   CIE_ERR_WRONG_PARAMS = 6,           /* 0x6A80, 0x6A86, 0x6A88, 0x6B00 */
   CIE_ERR_INS_NOT_SUPPORTED = 7,      /* 0x6D00, 0x6E00 */
   CIE_ERR_CARD_COMMUNICATION = 8,     /* transport/SM failure, no usable SW */
-  CIE_ERR_UNKNOWN = 9                 /* a status word we do not classify */
+  CIE_ERR_UNKNOWN = 9,                /* a status word we do not classify */
+  CIE_ERR_UNSUPPORTED_CARD = 10       /* card answered but its chip/applet is
+                                         not in the supported list */
 } cie_error_kind;
 
 /**

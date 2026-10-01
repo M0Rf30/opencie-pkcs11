@@ -33,6 +33,23 @@ TEST_CASE("cie_classify_sw defaults unmapped words to CIE_ERR_UNKNOWN",
   CHECK(cie_classify_sw(0x1234) == CIE_ERR_UNKNOWN);
 }
 
+TEST_CASE("cie_record_unsupported_card records CIE_ERR_UNSUPPORTED_CARD",
+          "[cie_error]") {
+  CHECK(CIE_ERR_UNSUPPORTED_CARD == 10);
+
+  cie_error_kind kind = CIE_ERR_NONE;
+  uint16_t sw = 0xFFFF;
+
+  cie_record_unsupported_card();
+  REQUIRE(cie_last_error(&kind, &sw) == CKR_OK);
+  CHECK(kind == CIE_ERR_UNSUPPORTED_CARD);
+  CHECK(sw == 0);
+
+  cie_clear_error();
+  REQUIRE(cie_last_error(&kind, &sw) == CKR_OK);
+  CHECK(kind == CIE_ERR_NONE);
+}
+
 TEST_CASE("cie_record_sw_error / cie_last_error / cie_clear_error round-trip",
           "[cie_error]") {
   cie_error_kind kind = CIE_ERR_UNKNOWN;
