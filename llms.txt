@@ -14,6 +14,7 @@
 - [Architecture](ARCHITECTURE.md): Module map, data flow, design decisions
 - [API Reference](docs/api.md): Full public C API (cie_ext.h) with parameter docs
 - [Usage Guide](docs/usage.md): Step-by-step integration guide with code examples
+- [Supported Cards & Readers](docs/supported-cards.md): Recognised CIE 3.0 chips/ATRs, detection logic, reporting new cards
 - [Examples](examples/): Standalone C++ programs demonstrating each API function
 - [Contributing](CONTRIBUTING.md): DCO, coding style, PR process
 

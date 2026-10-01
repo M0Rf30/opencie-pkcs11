@@ -301,6 +301,11 @@ modutil -dbdir sql:$HOME/.pki/nssdb -list
 > [docs/usage.md#gnome-papers-okular-and-other-poppler-based-signers](docs/usage.md#gnome-papers-okular-and-other-poppler-based-signers)
 > per i dettagli.
 
+### Carte supportate
+
+Vedi [docs/supported-cards.md](docs/supported-cards.md) per l'elenco dei chip
+CIE riconosciuti, i lettori compatibili e come segnalare una carta non supportata.
+
 ---
 
 ## CI & Download
