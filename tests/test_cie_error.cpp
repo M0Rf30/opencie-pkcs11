@@ -73,6 +73,16 @@ TEST_CASE("cie_record_sw_error / cie_last_error / cie_clear_error round-trip",
   cie_clear_error();
 }
 
+TEST_CASE("cie_record_sw_error maps 6A82 to FILE_NOT_FOUND", "[cie_error]") {
+  cie_error_kind kind = CIE_ERR_UNKNOWN;
+  uint16_t sw = 0;
+  cie_record_sw_error(0x6A82);
+  REQUIRE(cie_last_error(&kind, &sw) == CKR_OK);
+  CHECK(kind == CIE_ERR_FILE_NOT_FOUND);
+  CHECK(sw == 0x6A82);
+  cie_clear_error();
+}
+
 TEST_CASE("cie_last_error accepts NULL out-params without crashing",
           "[cie_error]") {
   cie_record_sw_error(0x6982);
