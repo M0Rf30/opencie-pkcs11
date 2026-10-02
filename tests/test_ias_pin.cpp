@@ -150,4 +150,38 @@ TEST_CASE(
       logged_error);
 }
 
+TEST_CASE("IAS::dgFidForSfi maps DG n to FID 0x0100 + n", "[ias][dg]") {
+  CHECK(IAS::dgFidForSfi(1) == 0x0101);
+  CHECK(IAS::dgFidForSfi(2) == 0x0102);
+  CHECK(IAS::dgFidForSfi(14) == 0x010E);
+}
+
+namespace {
+int g_selectCalls = 0;
+// Fake card without an eMRTD applet: every SELECT answers 6A82.
+HRESULT NoEmrtdCard(void * /*data*/, uint8_t *apdu, DWORD apduSize,
+                    uint8_t *resp, DWORD *respSize) {
+  if (apduSize >= 4 && apdu[1] == 0xA4) ++g_selectCalls;
+  resp[0] = 0x6A;
+  resp[1] = 0x82;
+  *respSize = 2;
+  return 0;
+}
+}  // namespace
+
+TEST_CASE("IAS::ReadDG1 surfaces 6A82 from SELECT eMRTD AID unchanged",
+          "[ias][dg]") {
+  g_selectCalls = 0;
+  IAS ias(NoEmrtdCard, ByteArray(kDummyAtr, sizeof(kDummyAtr)));
+  ByteDynArray out;
+  try {
+    ias.ReadDG1(out);
+    FAIL("expected scard_error");
+  } catch (const scard_error &e) {
+    CHECK(e.sw == 0x6A82);
+  }
+  // Only the AID select was attempted: no guessing of other AIDs.
+  CHECK(g_selectCalls == 1);
+}
+
 #endif  // !_WIN32

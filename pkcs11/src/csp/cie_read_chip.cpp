@@ -457,6 +457,15 @@ static CK_RV readBothDGsOnce(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
         // Let readBothDGs() retry the whole attempt from scratch; freed
         // once by the outer catch below.
         throw;
+      } catch (const scard_error& e) {
+        // Card answered with a definite status word (e.g. 6A82 file not
+        // found): record it so cie_last_error() reports the real cause.
+        // Not a link drop, so never retried by readBothDGs().
+        LOG_ERROR("readBothDGs - DG read failed with sw=%04x: %s",
+                  static_cast<unsigned>(e.sw), e.what());
+        cie_record_sw_error(static_cast<uint16_t>(e.sw));
+        free(readers);
+        return CKR_GENERAL_ERROR;
       } catch (const std::exception& e) {
         LOG_ERROR("readBothDGs - DG read threw: %s", e.what());
         free(readers);

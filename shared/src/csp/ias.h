@@ -111,6 +111,9 @@ class IAS {
   void ReadCIEType();
 
  public:
+  /** @brief File ID of eMRTD data group @p sfi (DG n -> 0x0100 + n). */
+  static uint16_t dgFidForSfi(uint8_t sfi);
+
   /** @brief PC/SC token wrapper for low-level card communication. */
   CToken token;
 

@@ -129,7 +129,13 @@ void IAS::ReadDG1(ByteDynArray &data) { readDGbySFI(1, data); }
 
 void IAS::ReadDG2(ByteDynArray &data) { readDGbySFI(2, data); }
 
+uint16_t IAS::dgFidForSfi(uint8_t sfi) {
+  // ICAO 9303 LDS1: DG n has SFI n (1..31) and FID 0x0100 + n.
+  return static_cast<uint16_t>(0x0100 + sfi);
+}
+
 void IAS::readDGbySFI(uint8_t sfi, ByteDynArray &content) {
+  const int family = static_cast<int>(type);
   // Select the ICAO eMRTD application (AID A0 00 00 02 47 10 01).
   // Must be sent as a plain (non-SM) APDU: the SM session is bound to the
   // IAS/CIE AID; selecting a new AID via SM would corrupt the session.
@@ -138,16 +144,50 @@ void IAS::readDGbySFI(uint8_t sfi, ByteDynArray &content) {
   uint8_t eMRTD_AID[] = {0xA0, 0x00, 0x00, 0x02, 0x47, 0x10, 0x01};
   StatusWord sw;
   if ((sw = SendAPDU(VarToByteArray(selecteMRTD), VarToByteArray(eMRTD_AID),
-                     resp)) != 0x9000)
+                     resp)) != 0x9000) {
+    if (sw == 0x6a82)
+      LOG_ERROR(
+          "readDGbySFI - eMRTD application not found on this card "
+          "(SELECT eMRTD AID sw=%04x, CIE type family %d)",
+          static_cast<unsigned>(sw), family);
+    else
+      LOG_ERROR(
+          "readDGbySFI - SELECT eMRTD AID failed sw=%04x (type family %d)",
+          static_cast<unsigned>(sw), family);
     throw scard_error(sw);
+  }
 
   // READ BINARY using Short File Identifier: P1 = 0x80 | SFI, P2 = offset
   // First read: get the first 6 bytes to determine total length from TLV header
   uint8_t chunk = 6;
   uint8_t readSFI[] = {0x00, 0xb0, static_cast<uint8_t>(0x80 | sfi), 0x00};
-  if ((sw = SendAPDU_SM(VarToByteArray(readSFI), ByteArray(), resp, &chunk)) !=
-      0x9000)
+  sw = SendAPDU_SM(VarToByteArray(readSFI), ByteArray(), resp, &chunk);
+  if (sw == 0x6a82 || sw == 0x6a86 || sw == 0x6981) {
+    // The card does not accept the SFI addressing (file not found / no
+    // current EF / incorrect parameters): select the EF by FID under the
+    // eMRTD applet via SM and read it by offset instead.
+    // Sequence: SM 00 A4 02 04 <FID>, then SM 00 B0 <off hi> <off lo> Le.
+    LOG_INFO(
+        "readDGbySFI - READ BINARY SFI %u returned sw=%04x (type family %d); "
+        "falling back to SELECT FID %04x",
+        static_cast<unsigned>(sfi), static_cast<unsigned>(sw), family,
+        static_cast<unsigned>(dgFidForSfi(sfi)));
+    try {
+      readfile_SM(dgFidForSfi(sfi), content);
+    } catch (const scard_error &e) {
+      LOG_ERROR("readDGbySFI - FID %04x fallback failed sw=%04x",
+                static_cast<unsigned>(dgFidForSfi(sfi)),
+                static_cast<unsigned>(e.sw));
+      throw;
+    }
+    return;
+  }
+  if (sw != 0x9000) {
+    LOG_ERROR(
+        "readDGbySFI - READ BINARY SFI %u failed sw=%04x (type family %d)",
+        static_cast<unsigned>(sfi), static_cast<unsigned>(sw), family);
     throw scard_error(sw);
+  }
   content.append(resp);
 
   // Parse BER-TLV length to determine total file size
@@ -210,8 +250,11 @@ void IAS::readDGbySFI(uint8_t sfi, ByteDynArray &content) {
     } else {
       if (sw == 0x6282)
         content.append(chn);
-      else if (sw != 0x6b00)
+      else if (sw != 0x6b00) {
+        LOG_ERROR("readDGbySFI - READ BINARY offset %u failed sw=%04x",
+                  static_cast<unsigned>(cnt), static_cast<unsigned>(sw));
         throw scard_error(sw);
+      }
       break;
     }
   }
