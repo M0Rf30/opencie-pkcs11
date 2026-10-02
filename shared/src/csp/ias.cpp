@@ -142,9 +142,25 @@ void IAS::readDGbySFI(uint8_t sfi, ByteDynArray &content) {
   ByteDynArray resp;
   uint8_t selecteMRTD[] = {0x00, 0xa4, 0x04, 0x0c};
   uint8_t eMRTD_AID[] = {0xA0, 0x00, 0x00, 0x02, 0x47, 0x10, 0x01};
-  StatusWord sw;
-  if ((sw = SendAPDU(VarToByteArray(selecteMRTD), VarToByteArray(eMRTD_AID),
-                     resp)) != 0x9000) {
+  StatusWord sw =
+      SendAPDU(VarToByteArray(selecteMRTD), VarToByteArray(eMRTD_AID), resp);
+  if (sw == 0x6a82) {
+    // Some applets (e.g. Actalis B946, opencie#34) refuse to select the
+    // eMRTD AID while the CIE AID is current, but accept it once the MF is
+    // selected. Select the MF (plain, 00 A4 00 0C 02 3F00) and retry.
+    uint8_t selectMF[] = {0x00, 0xa4, 0x00, 0x0c};
+    uint8_t mfFid[] = {0x3f, 0x00};
+    StatusWord mfSw =
+        SendAPDU(VarToByteArray(selectMF), VarToByteArray(mfFid), resp);
+    LOG_INFO(
+        "readDGbySFI - SELECT eMRTD AID sw=6a82, SELECT MF sw=%04x; "
+        "retrying eMRTD AID",
+        static_cast<unsigned>(mfSw));
+    if (mfSw == 0x9000)
+      sw = SendAPDU(VarToByteArray(selecteMRTD), VarToByteArray(eMRTD_AID),
+                    resp);
+  }
+  if (sw != 0x9000) {
     if (sw == 0x6a82)
       LOG_ERROR(
           "readDGbySFI - eMRTD application not found on this card "
