@@ -1,5 +1,6 @@
+// SPDX-FileCopyrightText: 2004-2010 Matt McCutchen
 // SPDX-FileCopyrightText: 2026 Gianluca Boiano
-// SPDX-License-Identifier: LGPL-3.0-or-later
+// SPDX-License-Identifier: LicenseRef-Public-Domain AND LGPL-3.0-or-later
 #include "big_integer.h"
 
 void BigInteger::operator=(const BigInteger &x) {

@@ -1,5 +1,6 @@
+// SPDX-FileCopyrightText: Microsoft Corporation
 // SPDX-FileCopyrightText: 2026 Gianluca Boiano
-// SPDX-License-Identifier: LGPL-3.0-or-later
+// SPDX-License-Identifier: LicenseRef-Microsoft-CardMod AND LGPL-3.0-or-later
 //==============================================================;
 //
 //  CARDMOD.H
