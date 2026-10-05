@@ -750,6 +750,9 @@ HRESULT TokenTransmitCallback(void* data, BYTE* apdu, DWORD apduSize,
         resp[0] = 0x90;
         resp[1] = 0x00;
       }
+      if (ris != SCARD_S_SUCCESS)
+        LOG_ERROR("TokenTransmitCallback - unpower failed (rv=%lx)",
+                  static_cast<unsigned long>(ris));
       return ris;
     } else if (code == 0xffff) {
       DWORD protocol = 0;
@@ -762,7 +765,8 @@ HRESULT TokenTransmitCallback(void* data, BYTE* apdu, DWORD apduSize,
         resp[0] = 0x90;
         resp[1] = 0x00;
       }
-      LOG_INFO("TokenTransmitCallback - Resetting Card");
+      LOG_INFO("TokenTransmitCallback - Resetting Card (rv=%lx)",
+               static_cast<unsigned long>(ris));
 
       return ris;
     }
