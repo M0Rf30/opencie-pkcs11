@@ -93,3 +93,15 @@ TEST_CASE("Module can be re-initialized without a PC/SC service",
     REQUIRE(fl->C_Finalize(nullptr) == CKR_OK);
   }
 }
+
+TEST_CASE("C_OpenSession rejects a NULL session pointer", "[pkcs11]") {
+  ModuleHandle module;
+  CK_FUNCTION_LIST_PTR fl = module.functionList();
+  REQUIRE(fl != nullptr);
+  REQUIRE(fl->C_Initialize(nullptr) == CKR_OK);
+
+  CHECK(fl->C_OpenSession(0, CKF_SERIAL_SESSION, nullptr, nullptr, nullptr) ==
+        CKR_ARGUMENTS_BAD);
+
+  CHECK(fl->C_Finalize(nullptr) == CKR_OK);
+}

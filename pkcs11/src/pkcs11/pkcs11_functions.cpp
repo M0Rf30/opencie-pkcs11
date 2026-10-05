@@ -439,6 +439,11 @@ CK_RV CK_ENTRY C_OpenSession(CK_SLOT_ID slotID, CK_FLAGS flags,
       throw p11_error(CKR_SESSION_PARALLEL_NOT_SUPPORTED);
     }
 
+    if (phSession == nullptr) {
+      LOG_ERROR("[PKCS11] C_OpenSession - CKR_ARGUMENTS_BAD (phSession NULL)");
+      throw p11_error(CKR_ARGUMENTS_BAD);
+    }
+
     std::shared_ptr<CSlot> pSlot = CSlot::GetSlotFromID(slotID);
     if (pSlot == nullptr) {
       LOG_ERROR("[PKCS11] C_OpenSession - CKR_SLOT_ID_INVALID");
