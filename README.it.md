@@ -423,6 +423,14 @@ direttamente, senza passare dalle entry point PKCS#11.
 
 ---
 
+## Sicurezza
+
+Segnala le vulnerabilità in privato, non nelle issue pubbliche: vedi
+[SECURITY.md](SECURITY.md). Ogni release include uno SBOM CycloneDX
+(`libopencie-pkcs11-<ver>.cdx.json`) e ogni asset ha un'attestazione di
+provenienza della build su GitHub:
+`gh attestation verify <file> --repo M0Rf30/opencie-pkcs11`.
+
 ## Licenza
 
 Copyright (C) 2026 Gianluca Boiano.

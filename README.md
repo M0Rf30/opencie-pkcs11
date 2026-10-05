@@ -424,6 +424,14 @@ the SDK directly without going through the PKCS#11 entry points.
 
 ---
 
+## Security
+
+Report vulnerabilities privately, not in public issues: see
+[SECURITY.md](SECURITY.md). Each release ships a CycloneDX SBOM
+(`libopencie-pkcs11-<ver>.cdx.json`), and every asset has a GitHub build
+provenance attestation:
+`gh attestation verify <file> --repo M0Rf30/opencie-pkcs11`.
+
 ## License
 
 Copyright (C) 2026 Gianluca Boiano.

@@ -216,6 +216,7 @@ Never mention IPZS, cie-middleware (including cie-middleware-linux/macos), or th
 | Formatter | clang-format v19.1.7 (Google-based, 80-col) |
 | Static analysis | cppcheck (pre-commit), CodeQL + Semgrep (CI) |
 | Pre-commit | trailing-whitespace, end-of-file-fixer, check-yaml, check-merge-conflict, mixed-line-ending (LF), clang-format, cppcheck |
+| Supply chain | Release job: Syft CycloneDX SBOM completed by `scripts/sbom-add-wraps.py` (adds Meson wrap pins), included in `SHA256SUMS`, and `actions/attest-build-provenance` over every asset. Release asset names must not match the app's `fetch-pkcs11.sh` patterns. Vulnerability policy: `SECURITY.md` |
 
 ### Cross-Compilation Targets
 
