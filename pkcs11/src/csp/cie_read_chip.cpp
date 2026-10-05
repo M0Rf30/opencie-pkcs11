@@ -735,6 +735,17 @@ static CK_RV readBothDGsCanOnce(const char* can, uint8_t* dg1Out,
       // 1. EF.CardAccess -> PACE protocol
       pace::Bytes cardAccess;
       pace::Result res = pace::readCardAccess(tx, cardAccess);
+      if (res.status != pace::Status::Ok && cardAccessMissing(res.sw)) {
+        // Some chips (Actalis) keep the MF files hidden after the CIE
+        // application was used, and a warm reset doesn't always clear that
+        // on a contactless reader (e.g. right after enrolment). Power-cycle
+        // the card once and try again before calling PACE unsupported.
+        LOG_INFO("readBothDGs - EF.CardAccess %s after reset; power-cycling",
+                 res.detail.c_str());
+        token.Reset(/*unpower=*/true);
+        cardAccess.clear();
+        res = pace::readCardAccess(tx, cardAccess);
+      }
       if (res.status != pace::Status::Ok) {
         if (cardAccessMissing(res.sw)) {
           LOG_ERROR("readBothDGs - no EF.CardAccess (%s): PACE unsupported",
