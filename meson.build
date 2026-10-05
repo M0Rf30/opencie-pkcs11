@@ -598,6 +598,21 @@ else
   pkcs11_inc = [inc_so]
 endif
 
+# Public C entry points that live in the sign-sdk static archive must be
+# handed to the shared library as objects, for the same reason cie_error.cpp
+# is compiled into it directly (see cie_pkcs11_sources): GNU ld's
+# -Wl,--exclude-libs,ALL below demotes every symbol that comes from a
+# static archive to local *before* the version script is applied, so
+# `global: make_digest_info;` in the .map silently matched nothing on Linux
+# (Windows dllexport, macOS ld64 and Android lld don't go through
+# --exclude-libs, which is why only the Linux .so lacked it).
+# extract_objects() reuses the already-compiled object instead of building
+# digest_info.c a second time.
+pkcs11_extra_objects = []
+if build_sign_sdk
+  pkcs11_extra_objects += libcie_sign_sdk.extract_objects('sign-sdk/src/digest_info.c')
+endif
+
 library_version = {}
 if host_machine.system() != 'windows'
   library_version = {
@@ -612,6 +627,7 @@ libopencie_pkcs11 = library(
     include_directories: pkcs11_inc,
     link_with: pkcs11_link_with,
     dependencies: common_deps + pkcs11_extra_deps,
+    objects: pkcs11_extra_objects,
     link_args: pkcs11_link_args,
     link_depends: pkcs11_link_depends,
     kwargs: library_version,
