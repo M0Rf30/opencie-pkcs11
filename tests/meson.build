@@ -166,4 +166,24 @@ if host_machine.system() == 'linux' and get_option('default_library') != 'static
           'PCSCLITE_CSOCK_NAME': meson.current_build_dir() / 'no-pcscd.comm',
       },
   )
+
+  # Regression guard: every symbol in linker/libopencie-pkcs11.map must be
+  # exported by the built .so (make_digest_info was listed and declared but
+  # dropped by --exclude-libs,ALL). Needs the host's nm to read the target
+  # ELF, so native builds only.
+  nm_prog = find_program('nm', required: false)
+  python_prog = find_program('python3', required: false)
+  if nm_prog.found() and python_prog.found() and not meson.is_cross_build()
+    test(
+        'opencie exported symbols match version script',
+        python_prog,
+        args: [
+            files('check_exports.py'),
+            libopencie_pkcs11.full_path(),
+            meson.project_source_root() / 'linker/libopencie-pkcs11.map',
+            nm_prog,
+        ],
+        depends: libopencie_pkcs11,
+    )
+  endif
 endif
