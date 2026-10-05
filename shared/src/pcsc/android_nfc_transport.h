@@ -80,6 +80,8 @@ class AndroidNFCTransport final : public ISmartCardTransport {
   LONG GetAttrib(SCARDHANDLE hCard, DWORD dwAttrId, LPBYTE pbAttr,
                  LPDWORD pcbAttrLen) override;
 
+  bool SupportsFieldPowerCycle() const override { return false; }
+
  private:
   jobject isoDep_;     /* Global ref to android.nfc.tech.IsoDep */
   jclass isoDepClass_; /* Global ref to cached class */

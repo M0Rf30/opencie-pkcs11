@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #include "pcsc.h"
 
+#ifndef SCARD_E_NO_SMARTCARD
+#define SCARD_E_NO_SMARTCARD 0x8010000CL
+#endif
+
 #ifndef _WIN32
 #include <unistd.h>
 #endif
@@ -94,6 +98,36 @@ safeConnection::~safeConnection() {
   }
 }
 safeConnection::operator SCARDHANDLE() { return hCard; }
+
+FieldCycleResult safeConnection::powerCycleField(
+    LPCSTR szReader, std::chrono::milliseconds offWait) {
+  if (!transport.SupportsFieldPowerCycle())
+    return FieldCycleResult::Unsupported;
+  if (!hCard || !hContext || !szReader) return FieldCycleResult::Failed;
+
+  // The old handle is consumed whatever SCardDisconnect says: forget it so
+  // the destructor can never disconnect it a second time.
+  const SCARDHANDLE old = hCard;
+  hCard = 0;
+  transport.Disconnect(old, SCARD_UNPOWER_CARD);
+
+  if (offWait.count() > 0) std::this_thread::sleep_for(offWait);
+
+  SCARDHANDLE fresh = 0;
+  DWORD protocol = 0;
+  const LONG rv = transport.Connect(hContext, szReader, SCARD_SHARE_SHARED,
+                                    SCARD_PROTOCOL_Tx, &fresh, &protocol);
+  if (rv == static_cast<LONG>(SCARD_W_REMOVED_CARD) ||
+      rv == static_cast<LONG>(SCARD_E_NO_SMARTCARD))
+    return FieldCycleResult::CardRemoved;
+  if (rv != SCARD_S_SUCCESS || !fresh) return FieldCycleResult::Failed;
+
+  hCard = fresh;
+  // A failure to open the transaction is not fatal: the existing reset path
+  // behaves the same, and APDUs still flow on a shared connection.
+  transport.BeginTransaction(hCard);
+  return FieldCycleResult::Ok;
+}
 
 readerMonitor::~readerMonitor() {
   stopMonitor = true;

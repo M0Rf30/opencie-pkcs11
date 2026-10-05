@@ -67,6 +67,17 @@ class ISmartCardTransport {
 
   virtual LONG GetAttrib(SCARDHANDLE hCard, DWORD dwAttrId, LPBYTE pbAttr,
                          LPDWORD pcbAttrLen) = 0;
+
+  /* ---- Capabilities ---- */
+
+  /**
+   * True when Disconnect(SCARD_UNPOWER_CARD) followed by Connect() really
+   * drops and restores the RF/contact power of the card. NFC session
+   * transports (no reader-controlled field) return false: there a
+   * disconnect/connect cycle cannot reset the card, and the user has to
+   * re-present it instead.
+   */
+  virtual bool SupportsFieldPowerCycle() const { return true; }
 };
 
 using SmartCardTransportPtr = std::shared_ptr<ISmartCardTransport>;

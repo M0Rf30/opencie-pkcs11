@@ -103,6 +103,18 @@ works.
   fall back to the PIN based `cie_read_dgs`, or use another reader / an NFC
   phone. A wrong CAN is reported as `CKR_PIN_INCORRECT` with kind
   `CIE_ERR_WRONG_CAN` (`11`).
+- **Card keeps the CIE application selected.** On some chips (seen on an
+  Actalis card in a contactless Alcor Link AK9567) `EF.CardAccess` and the
+  eMRTD application stay hidden (`SELECT` answers `6A82`) once the CIE
+  application has been used, until the RF field really drops: a warm reset
+  does not clear it. `cie_read_dgs_can` first tries a reconnect with
+  `SCARD_UNPOWER_CARD`, then a full `SCardDisconnect(SCARD_UNPOWER_CARD)`,
+  a one second pause and a new `SCardConnect`. If the file is still hidden
+  the call fails with `CKR_FUNCTION_NOT_SUPPORTED` and `cie_last_error` kind
+  `CIE_ERR_CARD_RESET_REQUIRED` (`12`, status word `0x6A82`): the card has to
+  be lifted from the reader and put back before retrying. On NFC session
+  transports (no reader-controlled field) the field cycle is skipped and the
+  same kind is reported directly.
 
 ---
 

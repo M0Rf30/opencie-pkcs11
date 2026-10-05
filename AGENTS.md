@@ -232,7 +232,7 @@ Never mention IPZS, cie-middleware (including cie-middleware-linux/macos), or th
 
 - **Framework**: Catch2 v3.14.0 (with Meson subproject fallback)
 - **Test executables**: `tests/opencie-tests` (unit tests) and, on Linux shared builds, `tests/opencie-module-tests` (dlopens the built module like NSS does, with `PCSCLITE_CSOCK_NAME` pointed at a missing socket to simulate "pcscd not running"; run it through `meson test`, which sets `OPENCIE_MODULE`)
-- **Test files** (21, +1 `test_linux_nfc_atr` on Linux only): `test_array`, `test_array_extended`, `test_tlv`, `test_crypto`, `test_crypto_util`, `test_cache_lib`, `test_md5`, `test_asn_parser`, `test_asn_tag`, `test_padding`, `test_util`, `test_properties`, `test_ini_settings`, `test_pcsc_reader_monitor`, `test_cie_error`, `test_atr`, `test_aes`, `test_des3`, `test_mac`, `test_rsa`, `test_linux_nfc_atr` (Linux only)
+- **Test files** (22, +1 `test_linux_nfc_atr` on Linux only): `test_array`, `test_array_extended`, `test_tlv`, `test_crypto`, `test_crypto_util`, `test_cache_lib`, `test_md5`, `test_asn_parser`, `test_asn_tag`, `test_padding`, `test_util`, `test_properties`, `test_ini_settings`, `test_pcsc_reader_monitor`, `test_pcsc_field_cycle`, `test_cie_error`, `test_atr`, `test_aes`, `test_des3`, `test_mac`, `test_rsa`, `test_linux_nfc_atr` (Linux only)
 - **Run**: `meson test -C build` or `./build/tests/opencie-tests`
 - **Tags**: `./build/tests/opencie-tests "[base64]"`, `"[cache]"`, `"[crypto]"`, etc.
 - **CI sanitizers**: AddressSanitizer + UBSan (`-Db_sanitize=address,undefined`), with `lsan-suppressions.txt`

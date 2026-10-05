@@ -149,7 +149,9 @@ CK_RV cie_extract_p7m    (const char *inFilePath, const char *outFilePath);
 // card (no PIN). Errors via cie_last_error(): wrong CAN ->
 // CKR_PIN_INCORRECT + CIE_ERR_WRONG_CAN (11); reader without extended-APDU
 // support -> CKR_DEVICE_ERROR + CIE_ERR_INS_NOT_SUPPORTED (7), in which case
-// fall back to cie_read_dgs.
+// fall back to cie_read_dgs; card still hiding the MF files after a reader
+// power-cycle -> CKR_FUNCTION_NOT_SUPPORTED + CIE_ERR_CARD_RESET_REQUIRED (12),
+// the card must be lifted and put back on the reader before retrying.
 CK_RV cie_read_dgs_can   (const char *can,
                            char *mrzOut, size_t *mrzLen,
                            unsigned char *photoOut, size_t *photoLen);

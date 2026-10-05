@@ -90,6 +90,8 @@ class LinuxNFCTransport final : public ISmartCardTransport {
   LONG GetAttrib(SCARDHANDLE hCard, DWORD dwAttrId, LPBYTE pbAttr,
                  LPDWORD pcbAttrLen) override;
 
+  bool SupportsFieldPowerCycle() const override { return false; }
+
  private:
   /** One ISO-DEP target activated by the kernel poll loop. */
   struct Target {

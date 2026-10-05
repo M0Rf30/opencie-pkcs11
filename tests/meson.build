@@ -26,6 +26,7 @@ test_sources = [
     'test_properties.cpp',
     'test_ini_settings.cpp',
     'test_pcsc_reader_monitor.cpp',
+    'test_pcsc_field_cycle.cpp',
     'test_cie_error.cpp',
     'test_card_link_retry.cpp',
     'test_atr.cpp',

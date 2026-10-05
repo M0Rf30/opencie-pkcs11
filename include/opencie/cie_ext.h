@@ -327,6 +327,11 @@ CK_RV CK_ENTRY cie_timestamp(const char* inFilePath, const char* tsaUrl,
  *    automatically with the same CAN;
  *  - chip without a supported PACE protocol: CKR_FUNCTION_NOT_SUPPORTED +
  *    CIE_ERR_UNSUPPORTED_CARD;
+ *  - EF.CardAccess still hidden (6A82) after the software resets and a
+ *    reader power-off/on cycle (some chips keep the MF files hidden once the
+ *    CIE application was used, until the RF field really drops):
+ *    CKR_FUNCTION_NOT_SUPPORTED + CIE_ERR_CARD_RESET_REQUIRED (status word
+ *    0x6A82). Ask the user to lift the card and put it back, then retry;
  *  - the reader/transport rejects the extended-length APDUs PACE needs
  *    (the CIE offers 2048-bit DH, ICAO 9303-11 9.3.1; short-APDU-only
  *    readers such as the ACS ACR122U cannot send them): CKR_DEVICE_ERROR +
@@ -406,8 +411,13 @@ typedef enum cie_error_kind {
   CIE_ERR_UNKNOWN = 9,                /* a status word we do not classify */
   CIE_ERR_UNSUPPORTED_CARD = 10,      /* card answered but its chip/applet is
                                          not in the supported list */
-  CIE_ERR_WRONG_CAN = 11              /* PACE rejected the CAN (mutual
+  CIE_ERR_WRONG_CAN = 11,             /* PACE rejected the CAN (mutual
                                          authentication failed) */
+  CIE_ERR_CARD_RESET_REQUIRED = 12    /* the card must be physically
+                                         re-presented (lifted and put back
+                                         on the reader) before the operation
+                                         can succeed. Context driven: never
+                                         returned by cie_classify_sw() */
 } cie_error_kind;
 
 #ifdef __ANDROID__

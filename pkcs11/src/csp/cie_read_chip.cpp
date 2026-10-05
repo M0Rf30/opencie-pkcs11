@@ -688,6 +688,7 @@ static CK_RV readBothDGsCanOnce(const char* can, uint8_t* dg1Out,
 
     bool found = false;
     bool sawUnsupported = false;
+    bool sawResetRequired = false;
     for (char* cur = readers; cur[0] != '\0'; cur += strnlen(cur, len) + 1) {
       safeConnection conn(*transport, hSC, cur, SCARD_SHARE_SHARED);
       if (!conn.hCard) continue;
@@ -745,6 +746,43 @@ static CK_RV readBothDGsCanOnce(const char* can, uint8_t* dg1Out,
         token.Reset(/*unpower=*/true);
         cardAccess.clear();
         res = pace::readCardAccess(tx, cardAccess);
+      }
+      if (res.status != pace::Status::Ok && res.sw == 0x6A82) {
+        // A warm/SCardReconnect power-cycle can leave the RF field up on
+        // CCID contactless readers, so the chip never forgets the CIE
+        // application. Drop the field for real (disconnect with unpower,
+        // wait, reconnect) and read once more.
+        LOG_INFO(
+            "readBothDGs - EF.CardAccess still %s after unpower; "
+            "cycling the reader field",
+            res.detail.c_str());
+        switch (conn.powerCycleField(cur)) {
+          case FieldCycleResult::Ok:
+            // conn.hCard is the new handle; the callback context is the
+            // same connection object, re-armed here for clarity.
+            token.setTransmitCallback(TokenTransmitCallback, &conn);
+            cardAccess.clear();
+            res = pace::readCardAccess(tx, cardAccess);
+            break;
+          case FieldCycleResult::Unsupported:
+            LOG_INFO("readBothDGs - field power-cycle not available here");
+            break;
+          case FieldCycleResult::CardRemoved:
+            // Retryable: the next attempt waits for the card to come back.
+            throw card_link_error(
+                "card removed during the reader field power-cycle");
+          case FieldCycleResult::Failed:
+            throw card_link_error(
+                "reconnect failed after the reader field power-cycle");
+        }
+      }
+      if (res.status != pace::Status::Ok && res.sw == 0x6A82) {
+        LOG_ERROR(
+            "readBothDGs - EF.CardAccess still %s after the field "
+            "power-cycle: card must be lifted and placed back on the reader",
+            res.detail.c_str());
+        sawResetRequired = true;
+        continue;
       }
       if (res.status != pace::Status::Ok) {
         if (cardAccessMissing(res.sw)) {
@@ -811,6 +849,12 @@ static CK_RV readBothDGsCanOnce(const char* can, uint8_t* dg1Out,
 
     free(readers);
     if (!found) {
+      if (sawResetRequired) {
+        // Context driven kind (never from a raw SW): the user has to lift
+        // the card and put it back. Same CK_RV as ever for older callers.
+        cie_record_card_reset_required(0x6A82);
+        return CKR_FUNCTION_NOT_SUPPORTED;
+      }
       if (sawUnsupported) {
         cie_record_unsupported_card();
         return CKR_FUNCTION_NOT_SUPPORTED;

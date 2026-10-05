@@ -71,6 +71,11 @@ void cie_record_wrong_can() {
   g_lastError.sw = 0;
 }
 
+void cie_record_card_reset_required(uint16_t sw) {
+  g_lastError.kind = CIE_ERR_CARD_RESET_REQUIRED;
+  g_lastError.sw = sw;
+}
+
 void cie_clear_error() {
   g_lastError.kind = CIE_ERR_NONE;
   g_lastError.sw = 0;

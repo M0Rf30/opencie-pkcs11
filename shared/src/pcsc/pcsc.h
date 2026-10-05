@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <thread>
@@ -19,6 +20,21 @@
 
 #include "pcsc/smart_card_transport.h"
 #include "util/array.h"
+
+/** Outcome of safeConnection::powerCycleField(). */
+enum class FieldCycleResult {
+  Ok,          /**< Card powered down, reconnected and in a transaction. */
+  Unsupported, /**< The transport cannot drop the field; nothing was done. */
+  CardRemoved, /**< The card is gone after the cycle; hCard is now 0. */
+  Failed       /**< Another PC/SC error; hCard is 0 (connection lost). */
+};
+
+/**
+ * Time the field is left off during a safeConnection::powerCycleField()
+ * before reconnecting. CCID contactless readers need the card to lose power
+ * for a moment before it forgets the previously selected application.
+ */
+inline constexpr std::chrono::milliseconds kFieldOffWait {1000};
 
 /**
  * @brief RAII wrapper for a PC/SC smart card connection.
@@ -54,6 +70,24 @@ class safeConnection {
 
   /** Implicit conversion to the underlying SCARDHANDLE. */
   operator SCARDHANDLE();
+
+  /**
+   * @brief Really power the card off and on again (RF field cycle).
+   *
+   * Disconnects with SCARD_UNPOWER_CARD, waits @p offWait, reconnects to
+   * @p szReader (shared, T=0|T=1) and starts a new transaction on the new
+   * handle. On success hCard holds the new handle (the old one is gone and
+   * is never disconnected twice); on CardRemoved / Failed hCard is 0 so the
+   * destructor has nothing to release; on Unsupported nothing changed.
+   *
+   * Must only be used on a connection built with the reader constructor
+   * (hContext != 0).
+   *
+   * @param szReader Name of the reader the connection belongs to.
+   * @param offWait  Time to wait between power-off and reconnect.
+   */
+  FieldCycleResult powerCycleField(
+      LPCSTR szReader, std::chrono::milliseconds offWait = kFieldOffWait);
 };
 
 /**

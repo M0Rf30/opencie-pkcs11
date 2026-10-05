@@ -65,6 +65,33 @@ TEST_CASE("cie_record_wrong_can records CIE_ERR_WRONG_CAN", "[cie_error]") {
   cie_clear_error();
 }
 
+TEST_CASE("cie_record_card_reset_required records CIE_ERR_CARD_RESET_REQUIRED",
+          "[cie_error]") {
+  CHECK(CIE_ERR_CARD_RESET_REQUIRED == 12);
+
+  cie_error_kind kind = CIE_ERR_NONE;
+  uint16_t sw = 0;
+
+  cie_record_card_reset_required(0x6A82);
+  REQUIRE(cie_last_error(&kind, &sw) == CKR_OK);
+  CHECK(kind == CIE_ERR_CARD_RESET_REQUIRED);
+  CHECK(sw == 0x6A82);
+
+  cie_clear_error();
+  REQUIRE(cie_last_error(&kind, &sw) == CKR_OK);
+  CHECK(kind == CIE_ERR_NONE);
+}
+
+TEST_CASE("cie_classify_sw never returns CIE_ERR_CARD_RESET_REQUIRED",
+          "[cie_error]") {
+  // The kind is context driven (EF.CardAccess still hidden after the
+  // resets), never derived from a raw status word.
+  for (uint32_t sw = 0; sw <= 0xFFFF; ++sw)
+    CHECK(cie_classify_sw(static_cast<uint16_t>(sw)) !=
+          CIE_ERR_CARD_RESET_REQUIRED);
+  CHECK(cie_classify_sw(0x6A82) == CIE_ERR_FILE_NOT_FOUND);
+}
+
 TEST_CASE("cie_record_sw_error / cie_last_error / cie_clear_error round-trip",
           "[cie_error]") {
   cie_error_kind kind = CIE_ERR_UNKNOWN;

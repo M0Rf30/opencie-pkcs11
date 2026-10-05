@@ -45,6 +45,16 @@ void cie_record_unsupported_card();
 void cie_record_wrong_can();
 
 /**
+ * @brief Record that the card must be physically re-presented to the reader
+ * (CIE_ERR_CARD_RESET_REQUIRED) with the status word @p sw that proved it
+ * (normally 0x6A82 on EF.CardAccess).
+ *
+ * Context driven: cie_classify_sw() never returns this kind for a raw
+ * status word.
+ */
+void cie_record_card_reset_required(uint16_t sw);
+
+/**
  * @brief Reset the calling thread's last-error record to CIE_ERR_NONE.
  */
 void cie_clear_error();
