@@ -4,6 +4,7 @@
  * Usage: ./get_cert <PAN> [output.der]
  *   If output.der is omitted, prints the hex dump to stdout.
  *
+ * SPDX-FileCopyrightText: 2026 Gianluca Boiano
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 

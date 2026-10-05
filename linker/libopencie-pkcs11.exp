@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Gianluca Boiano
+# SPDX-License-Identifier: LGPL-3.0-or-later
 # Exported symbols for macOS (-exported_symbols_list)
 # One symbol per line, prefixed with underscore.
 # Matches the Linux version script (libopencie-pkcs11.map).

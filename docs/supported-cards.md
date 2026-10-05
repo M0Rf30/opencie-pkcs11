@@ -1,3 +1,7 @@
+<!--
+SPDX-FileCopyrightText: 2026 Gianluca Boiano
+SPDX-License-Identifier: LGPL-3.0-or-later
+-->
 # Supported Cards & Readers — opencie-pkcs11
 
 Which cards and readers `libopencie-pkcs11` recognises, how the chip is

@@ -12,6 +12,7 @@
  * Note: This function does not require a CIE card. A public free TSA is
  * available at https://freetsa.org/tst for testing purposes.
  *
+ * SPDX-FileCopyrightText: 2026 Gianluca Boiano
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 

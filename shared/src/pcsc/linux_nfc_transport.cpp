@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 Gianluca Boiano
 // SPDX-License-Identifier: LGPL-3.0-or-later
 /*
  * linux_nfc_transport.cpp — Linux kernel NFC backend implementation.

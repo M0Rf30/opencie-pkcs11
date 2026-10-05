@@ -1,3 +1,7 @@
+<!--
+SPDX-FileCopyrightText: 2026 Gianluca Boiano
+SPDX-License-Identifier: LGPL-3.0-or-later
+-->
 # Usage Guide — opencie-pkcs11
 
 Step-by-step guide for integrating `libopencie-pkcs11` into your application.

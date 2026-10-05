@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Gianluca Boiano
+# SPDX-License-Identifier: LGPL-3.0-or-later
 # CMake toolchain for cross-compiling the libpodofo Meson subproject to Android.
 #
 # Thin wrapper around the NDK's official toolchain file

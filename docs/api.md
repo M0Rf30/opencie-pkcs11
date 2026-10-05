@@ -1,3 +1,7 @@
+<!--
+SPDX-FileCopyrightText: 2026 Gianluca Boiano
+SPDX-License-Identifier: LGPL-3.0-or-later
+-->
 # API Reference — opencie-pkcs11
 
 Public C interface declared in [`include/opencie/cie_ext.h`](../include/opencie/cie_ext.h).

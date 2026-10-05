@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Gianluca Boiano
+# SPDX-License-Identifier: LGPL-3.0-or-later
 # Minimal meson.build for pcsc-lite client library only.
 # This replaces the upstream meson.build which unconditionally builds the
 # pcscd daemon and requires flex, systemd, udev, etc.

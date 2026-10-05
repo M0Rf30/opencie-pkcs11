@@ -1,4 +1,8 @@
 /*
+ * SPDX-FileCopyrightText: 2026 Gianluca Boiano
+ * SPDX-License-Identifier: LGPL-3.0-or-later
+ */
+/*
  * Symbol version script for libopencie-pkcs11.so
  *
  * Only PKCS#11 standard functions (C_*) and CIE-specific public API

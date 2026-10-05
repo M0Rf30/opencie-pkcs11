@@ -5,6 +5,7 @@
  *   PAN: 16-digit card PAN printed on the card
  *   PIN: 8-digit numeric PIN
  *
+ * SPDX-FileCopyrightText: 2026 Gianluca Boiano
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 

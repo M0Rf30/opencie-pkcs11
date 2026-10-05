@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Gianluca Boiano
+# SPDX-License-Identifier: LGPL-3.0-or-later
 catch2_dep = dependency(
     'catch2-with-main',
     fallback: ['catch2', 'catch2_with_main_dep'],

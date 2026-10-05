@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Gianluca Boiano
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """Assert that every symbol the version script exports is really exported.
 

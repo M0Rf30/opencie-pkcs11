@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 Gianluca Boiano
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Certificate.cpp: implementation of the CCertificate class.
 #include "asn1/certificate.h"

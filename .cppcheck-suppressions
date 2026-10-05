@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Gianluca Boiano
+# SPDX-License-Identifier: LGPL-3.0-or-later
 // Inline suppressions that cppcheck 2.x cannot match due to multi-TU
 // template analysis or method-vs-definition location mismatch.
 
@@ -41,3 +43,12 @@ returnDanglingLifetime:shared/src/util/tlv.cpp
 // concludes that addValue/setValue can be static (they use the member map).
 shadowVariable:shared/src/util/tlv.cpp
 functionStatic:shared/src/util/tlv.cpp
+
+// readerList is a std::vector<std::string>; readerList[i] indexes vector
+// elements, not the address of a scalar. cppcheck misreads the lambda
+// capture by reference as a single object.
+objectIndex:shared/src/pcsc/pcsc.cpp
+
+// libcurl write callback: the signature is fixed by CURLOPT_WRITEFUNCTION
+// (void* contents), so it can't take a pointer to const.
+constParameterCallback:sign-sdk/src/asn1/certificate.cpp

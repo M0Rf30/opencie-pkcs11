@@ -1,0 +1,7 @@
+version = 1
+
+[[annotations]]
+path = ["COPYING", "LICENSE.md", "llms.txt", "assets/icon.svg", "assets/logo.svg"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Gianluca Boiano"
+SPDX-License-Identifier = "LGPL-3.0-or-later"

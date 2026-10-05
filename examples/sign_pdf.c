@@ -6,6 +6,7 @@
  * Places a visible signature widget on page 0 at position (10,10),
  * size 200x50 PDF points, with no stamp image.
  *
+ * SPDX-FileCopyrightText: 2026 Gianluca Boiano
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 

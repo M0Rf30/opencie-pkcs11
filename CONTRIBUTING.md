@@ -1,3 +1,7 @@
+<!--
+SPDX-FileCopyrightText: 2026 Gianluca Boiano
+SPDX-License-Identifier: LGPL-3.0-or-later
+-->
 # Contributing to opencie-pkcs11
 
 Thank you for your interest in contributing! All contributions to this project are licensed under the GNU Lesser General Public License v3.0 or later (LGPL-3.0-or-later).

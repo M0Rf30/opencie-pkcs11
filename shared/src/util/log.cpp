@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 Gianluca Boiano
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #define __STDC_WANT_LIB_EXT1__ 1
 

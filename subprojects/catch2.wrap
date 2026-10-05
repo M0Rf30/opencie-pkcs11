@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Gianluca Boiano
+# SPDX-License-Identifier: LGPL-3.0-or-later
 [wrap-file]
 directory = Catch2-3.16.0
 source_url = https://github.com/catchorg/Catch2/archive/v3.16.0.tar.gz

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Gianluca Boiano
+# SPDX-License-Identifier: LGPL-3.0-or-later
 [wrap-file]
 source_url = https://github.com/LudovicRousseau/PCSC/archive/refs/tags/2.5.2.tar.gz
 source_filename = pcsc-lite-2.5.2.tar.gz

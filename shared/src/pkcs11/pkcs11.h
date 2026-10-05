@@ -1,3 +1,6 @@
+/* SPDX-FileCopyrightText: RSA Security Inc.
+ * SPDX-License-Identifier: LicenseRef-RSA-Cryptoki
+ */
 /* pkcs11.h include file for PKCS #11. */
 /* $Revision: 1.4 $ */
 

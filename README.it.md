@@ -1,3 +1,7 @@
+<!--
+SPDX-FileCopyrightText: 2026 Gianluca Boiano
+SPDX-License-Identifier: LGPL-3.0-or-later
+-->
 <p align="center">
   <img src="assets/logo.svg" width="112" alt="logo libopencie-pkcs11">
 </p>

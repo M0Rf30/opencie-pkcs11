@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 Gianluca Boiano
 // SPDX-License-Identifier: LGPL-3.0-or-later
 /*
  * scard_types.h — Platform-independent smart card type definitions.

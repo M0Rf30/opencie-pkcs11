@@ -1,3 +1,7 @@
+<!--
+SPDX-FileCopyrightText: 2026 Gianluca Boiano
+SPDX-License-Identifier: LGPL-3.0-or-later
+-->
 # Examples — opencie-pkcs11
 
 Standalone C programs demonstrating each part of the public API.
