@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "csp/callback_util.h"
 #include "csp/cie_enable.h"
 #include "csp/cie_error.h"
 #include "csp/ias.h"
@@ -59,6 +60,10 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
                         PROGRESS_CALLBACK progressCallBack,
                         SIGN_COMPLETED_CALLBACK completedCallBack) {
   LOG_INFO("****** Starting cie_sign ******");
+  if (progressCallBack == nullptr)
+    progressCallBack = opencie::noopProgressCallback;
+  if (completedCallBack == nullptr)
+    completedCallBack = opencie::noopSignCompletedCallback;
   LOG_DEBUG("cie_sign - page: %d, x: %f, y: %f, w: %f, h: %f", page, x, y, w,
             h);
 
