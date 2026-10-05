@@ -39,6 +39,12 @@ void cie_record_transport_error();
 void cie_record_unsupported_card();
 
 /**
+ * @brief Record that PACE mutual authentication failed because the CAN is
+ * wrong (CIE_ERR_WRONG_CAN, no status word).
+ */
+void cie_record_wrong_can();
+
+/**
  * @brief Reset the calling thread's last-error record to CIE_ERR_NONE.
  */
 void cie_clear_error();

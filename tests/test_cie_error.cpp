@@ -50,6 +50,20 @@ TEST_CASE("cie_record_unsupported_card records CIE_ERR_UNSUPPORTED_CARD",
   CHECK(kind == CIE_ERR_NONE);
 }
 
+TEST_CASE("cie_record_wrong_can records CIE_ERR_WRONG_CAN", "[cie_error]") {
+  CHECK(CIE_ERR_WRONG_CAN == 11);
+
+  cie_error_kind kind = CIE_ERR_NONE;
+  uint16_t sw = 0xFFFF;
+
+  cie_record_wrong_can();
+  REQUIRE(cie_last_error(&kind, &sw) == CKR_OK);
+  CHECK(kind == CIE_ERR_WRONG_CAN);
+  CHECK(sw == 0);
+
+  cie_clear_error();
+}
+
 TEST_CASE("cie_record_sw_error / cie_last_error / cie_clear_error round-trip",
           "[cie_error]") {
   cie_error_kind kind = CIE_ERR_UNKNOWN;
