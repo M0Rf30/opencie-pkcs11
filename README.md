@@ -118,9 +118,11 @@ CK_RV cie_unblock_pin    (const char *szPUK, const char *szNewPIN,
                            int *attempts, PROGRESS_CALLBACK);
 
 // Certificate retrieval
-// outDer is set to a malloc'd DER buffer; caller must free() it.
+// outDer is set to a DER buffer allocated by the library; release it with
+// cie_free(), not free() (different CRT heaps on Windows).
 CK_RV cie_get_certificate(const char *pan, unsigned char **outDer,
                            unsigned long *outLen);
+void  cie_free           (void *ptr);
 
 // Sign / verify
 CK_RV cie_sign           (const char *inFilePath, const char *type,
@@ -161,6 +163,10 @@ CK_RV cie_timestamp      (const char *inFilePath, const char *tsaUrl,
 int   cie_reader_count   (void);
 int   cie_reader_watch   (int current_count);
 int   cie_reader_name    (char *buf, int buf_len);
+
+// Error detail for the last failed call on this thread
+CK_RV cie_last_error     (cie_error_kind *outKind, uint16_t *outSw);
+cie_error_kind cie_classify_sw(uint16_t sw);
 
 // Low-level helper for raw RSA flows (1 = ok, 0 = buffer too small)
 int   make_digest_info   (int algid, const unsigned char *pbtDigest,

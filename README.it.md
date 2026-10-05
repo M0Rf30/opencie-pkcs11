@@ -79,6 +79,7 @@ e collegati nella singola libreria di output — nessuna dipendenza runtime da a
 | Linguaggio | Repository | Installazione |
 |---|---|---|
 | Go | [opencie-pkcs11-go](https://github.com/M0Rf30/opencie-pkcs11-go) | `go get github.com/M0Rf30/opencie-pkcs11-go` |
+| Rust | [opencie-pkcs11-rs](https://github.com/M0Rf30/opencie-pkcs11-rs) | `cargo add opencie-pkcs11` |
 | Python | [opencie-pkcs11-py](https://github.com/M0Rf30/opencie-pkcs11-py) | `pip install opencie-pkcs11` |
 
 ---
@@ -102,6 +103,7 @@ Tutte le funzioni restituiscono `CK_RV` (codice di errore PKCS#11) salvo dove in
 <details>
 <summary><b>Elenco completo delle API C (<code>cie_ext.h</code>)</b></summary>
 
+```c
 // Registrazione (enrolment)
 CK_RV cie_enable      (const char *pan, const char *pin, int *attempts,
                        PROGRESS_CALLBACK, COMPLETED_CALLBACK);
@@ -115,9 +117,11 @@ CK_RV cie_unblock_pin (const char *puk, const char *new_pin,
                        int *attempts, PROGRESS_CALLBACK);
 
 // Certificato
-// outDer punta a un buffer DER allocato con malloc; il chiamante deve fare free().
+// outDer punta a un buffer DER allocato dalla libreria; va liberato con
+// cie_free(), non con free() (heap CRT diversi su Windows).
 CK_RV cie_get_certificate(const char *pan, unsigned char **outDer,
                           unsigned long *outLen);
+void  cie_free           (void *ptr);
 
 // Lettura data group del chip (ICAO 9303)
 // Entrambe leggono DG1 (MRZ) e DG2 (foto) in un'unica sessione; la foto è
@@ -158,6 +162,10 @@ CK_RV cie_timestamp      (const char *in_path, const char *tsa_url,
 int cie_reader_count (void);
 int cie_reader_watch (int current_count);
 int cie_reader_name  (char *buf, int buf_len);
+
+// Dettaglio dell'ultimo errore sul thread corrente
+CK_RV cie_last_error     (cie_error_kind *outKind, uint16_t *outSw);
+cie_error_kind cie_classify_sw(uint16_t sw);
 
 // Helper di basso livello per flussi RSA grezzi (1 = ok, 0 = buffer troppo piccolo)
 int make_digest_info (int algid, const unsigned char *digest, size_t digest_len,
