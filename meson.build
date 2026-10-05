@@ -408,6 +408,7 @@ shared_sources = [
     'shared/src/csp/atr.cpp',
     'shared/src/csp/ext_auth_key.cpp',
     'shared/src/csp/ias.cpp',
+    'shared/src/csp/pace.cpp',
 ]
 
 # Android NFC transport backend (replaces PC/SC on Android)

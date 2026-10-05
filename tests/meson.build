@@ -31,6 +31,7 @@ test_sources = [
     'test_des3.cpp',
     'test_mac.cpp',
     'test_rsa.cpp',
+    'test_pace.cpp',
 ]
 
 # Sign SDK ASN.1/certificate tests (AKI/SKI extraction, embedded CIE CA
@@ -73,6 +74,7 @@ test_shared_sources = [
     '../shared/src/crypto/des3.cpp',
     '../shared/src/crypto/mac.cpp',
     '../shared/src/crypto/rsa.cpp',
+    '../shared/src/csp/pace.cpp',
 ]
 
 # Linux kernel NFC backend (ATR synthesis is pure logic, no hardware needed)
