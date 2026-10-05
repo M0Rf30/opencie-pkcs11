@@ -729,6 +729,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     needs:
       [lint, test, linux, linux-arm64, windows, macos, android, android-x86_64]
     steps:
@@ -780,21 +782,50 @@ jobs:
         run: |
           TAG=${GITHUB_REF_NAME}
           mkdir -p release
-          cp dist/linux-x86_64/libopencie-pkcs11.so        release/libopencie-pkcs11-${TAG}-linux-x86_64.so
-          cp dist/linux-x86_64/libopencie-sign-sdk.a       release/libopencie-sign-sdk-${TAG}-linux-x86_64.a
-          cp dist/linux-aarch64/libopencie-pkcs11.so       release/libopencie-pkcs11-${TAG}-linux-aarch64.so
-          cp dist/windows-x86_64/libopencie-pkcs11.dll     release/libopencie-pkcs11-${TAG}-windows-x86_64.dll
+          cp dist/linux-x86_64/libopencie-pkcs11.so        "release/libopencie-pkcs11-${TAG}-linux-x86_64.so"
+          cp dist/linux-x86_64/libopencie-sign-sdk.a       "release/libopencie-sign-sdk-${TAG}-linux-x86_64.a"
+          cp dist/linux-aarch64/libopencie-pkcs11.so       "release/libopencie-pkcs11-${TAG}-linux-aarch64.so"
+          cp dist/windows-x86_64/libopencie-pkcs11.dll     "release/libopencie-pkcs11-${TAG}-windows-x86_64.dll"
           ( cd dist/windows-x86_64-runtime-deps && zip -r "../../release/windows-x86_64-runtime-deps-${TAG}.zip" . )
-          cp dist/macos-arm64/libopencie-pkcs11.dylib      release/libopencie-pkcs11-${TAG}-macos-arm64.dylib
-          cp dist/android-arm64/libopencie-pkcs11.so       release/libopencie-pkcs11-${TAG}-android-arm64.so
-          cp dist/android-x86_64/libopencie-pkcs11.so      release/libopencie-pkcs11-${TAG}-android-x86_64.so
+          cp dist/macos-arm64/libopencie-pkcs11.dylib      "release/libopencie-pkcs11-${TAG}-macos-arm64.dylib"
+          cp dist/android-arm64/libopencie-pkcs11.so       "release/libopencie-pkcs11-${TAG}-android-arm64.so"
+          cp dist/android-x86_64/libopencie-pkcs11.so      "release/libopencie-pkcs11-${TAG}-android-x86_64.so"
           ls -lh release/
+
+      # Syft scans the checkout (source plus the staged release binaries),
+      # then scripts/sbom-add-wraps.py adds the Meson wrap pins Syft cannot
+      # see, drops CI-only and bare file entries, and names the release.
+      # Written into release/ before the checksums so SHA256SUMS covers it
+      # and it is attested below.
+      - name: Scan source with Syft (CycloneDX)
+        uses: anchore/sbom-action@fffec3d851af758d56fee099cf3fbf8aa8779843 # v0.24.3
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: ${{ runner.temp }}/syft.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Generate SBOM
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          python3 scripts/sbom-add-wraps.py \
+            "${RUNNER_TEMP}/syft.cdx.json" "${TAG}" \
+            "release/libopencie-pkcs11-${TAG}.cdx.json"
 
       - name: Generate checksums
         run: |
           cd release
-          sha256sum * > SHA256SUMS
+          sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
+
+      # SLSA build provenance for every release asset, SBOM and SHA256SUMS
+      # included. Verify a download with:
+      #   gh attestation verify <file> --repo M0Rf30/opencie-pkcs11
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/*
 
       - name: Create GitHub release
         env:
