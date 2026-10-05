@@ -1243,13 +1243,11 @@ void IAS::GetCertificate(ByteDynArray &certificate, bool askEnable) {
   std::string PANStr;
   dumpHexData(PAN.mid(5, 6), PANStr, false);
 
-  // Prefer the cache when present and decryptable -- it avoids a redundant
-  // on-card read. Any failure here (corrupted file, or a cache in a
-  // container this build cannot make sense of at all) falls through to
-  // reading the certificate straight from the card below, rather than
-  // failing the whole session: at this point in CIEtemplateInitSession a
-  // live IAS/PACE session to the card is already open and no PIN is
-  // required to read the public certificate.
+  // The certificate (EF 1003) can only be read on-card after a successful
+  // PIN verification, so there is no no-PIN card fallback: the only source
+  // available here is the local cache written when the card was paired
+  // (cie_enable / CIE ID), which holds the certificate encrypted with the
+  // card-derived key (hence InitEncKey() must have been called).
   if (CacheExists(PANStr.c_str())) {
     try {
       std::vector<BYTE> certEncBuf;
@@ -1260,26 +1258,14 @@ void IAS::GetCertificate(ByteDynArray &certificate, bool askEnable) {
       Certificate = certificate;
       return;
     } catch (const std::exception &e) {
-      Log.writePure(
-          "IAS::GetCertificate - cache unusable (%s), falling back to "
-          "reading the certificate from the card",
-          e.what());
+      Log.writePure("IAS::GetCertificate - cache unusable: %s", e.what());
       certificate.clear();
     }
   }
 
-  try {
-    ByteDynArray certRaw;
-    ReadCertCIE(certRaw);
-    certificate = ByteDynArray(certRaw.left(GetASN1DataLenght(certRaw)));
-    Certificate = certificate;
-    return;
-  } catch (const std::exception &e) {
-    Log.writePure(
-        "IAS::GetCertificate - failed to read certificate from "
-        "the card: %s",
-        e.what());
-  }
+  Log.writePure(
+      "IAS::GetCertificate - no certificate available for this card: pair it "
+      "first with CIE ID or cie_enable (the certificate requires the PIN)");
 
   if (askEnable) {
     notifyCardNotRegistered(PANStr.c_str());

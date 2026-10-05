@@ -21,9 +21,10 @@ extern "C" {
  * Prefers the local AES-encrypted DER cache written by cie_enable(); if
  * that cache is missing or unusable (e.g. this PAN was never enrolled
  * through cie_enable(), or its cache was written by different CIE
- * software this build cannot read), falls back to reading the
- * certificate straight from a physically present card with that PAN --
- * no PIN is required, since the X.509 certificate is public data. See
+ * software this build cannot read), falls back to a physically present
+ * card with that PAN: the legacy CIE ID pairing cache (.cache) is decrypted
+ * with the card-derived key. The certificate is NOT readable on-card
+ * without a PIN, so a card never paired yields CKR_DEVICE_ERROR. See
  * github.com/M0Rf30/opencie-pkcs11/issues/25. The caller is responsible
  * for freeing *outDer with cie_free().
  *
@@ -55,19 +56,25 @@ CK_RV CK_ENTRY cie_get_certificate(const char *pan, unsigned char **outDer,
 
     if (!haveCert) {
       LOG_INFO(
-          "cie_get_certificate: no usable DER cache for PAN '%s', trying a "
-          "physically present card instead",
+          "cie_get_certificate: no usable DER cache for PAN '%s', trying the "
+          "legacy pairing cache with the card present",
           pan);
       ByteDynArray certRaw;
       if (CIE_FindCardByPAN(pan, &certRaw) && !certRaw.isEmpty()) {
         cert.assign(certRaw.data(), certRaw.data() + certRaw.size());
         haveCert = true;
+        try {
+          CacheSetDer(pan, cert.data(),
+                      cert.size());  // best effort: next time needs no card
+        } catch (...) {
+        }
       }
     }
 
     if (!haveCert) {
       LOG_ERROR(
-          "cie_get_certificate: card not enrolled and not present (PAN '%s')",
+          "cie_get_certificate: no certificate for PAN '%s' (pair the card "
+          "with CIE ID / cie_enable first, and keep it in the reader)",
           pan);
       return CKR_DEVICE_ERROR;
     }

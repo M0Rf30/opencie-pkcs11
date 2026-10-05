@@ -177,13 +177,17 @@ bool CIE_FindCardByPAN(const char* szPAN, ByteDynArray* certOut) {
           if (hexEncode(ias.PAN.data() + 5, 6) != szPAN) continue;
 
           if (certOut != nullptr) {
-            // No PIN needed: the certificate is public data readable
-            // right after selecting the CIE applet.
+            // The certificate (EF 1003) is PIN-protected on-card, so it is
+            // taken from the legacy CIE ID pairing cache (.cache), whose
+            // certificate is encrypted with the card-derived key: that
+            // needs the card present (InitEncKey) but no PIN.
             ByteDynArray resp;
             ias.SelectAID_CIE();
             ias.ReadDappPubKey(resp);
+            ias.InitEncKey();
             ByteDynArray certRaw;
-            ias.ReadCertCIE(certRaw);
+            ias.GetCertificate(certRaw, false);
+            if (certRaw.isEmpty()) return false;
             *certOut = ByteDynArray(certRaw.left(GetASN1DataLenght(certRaw)));
           }
           return true;
@@ -232,13 +236,14 @@ int CK_ENTRY cie_reader_name(char* buf, int buf_len);
 CK_RV CK_ENTRY cie_is_enabled(const char* szPAN) {
   if (IAS::IsEnrolled(szPAN)) return 1;
 
-  // The cache alone cannot distinguish "never enrolled" from "enrolled
-  // through different software whose cache this build can't read" (see
-  // CacheGetCertificate()'s legacy-format fallback for the common case,
-  // third-party CIE software). If the exact card is physically present,
-  // answer from there instead of reporting "not enrolled" for a card
-  // that plainly is. https://github.com/M0Rf30/opencie-pkcs11/issues/25
-  if (CIE_FindCardByPAN(szPAN, nullptr)) return 1;
+  // A card that is merely present is not "enabled": the certificate needs
+  // the PIN, so only a pairing cache (.cache from CIE ID, or our .der)
+  // counts.
+  try {
+    std::vector<uint8_t> der;
+    if (CacheGetDer(szPAN, der) && !der.empty()) return 1;
+  } catch (...) {
+  }
 
   return 0;
 }
