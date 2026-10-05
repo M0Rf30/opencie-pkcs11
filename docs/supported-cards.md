@@ -89,6 +89,16 @@ works.
 - The reader name returned by `cie_reader_name()` prefers a slot with a card
   present, then an empty contactless slot, then any other empty non-internal
   slot.
+- **Extended-length APDUs.** Reading the chip data (`cie_read_dgs_can`) uses
+  ICAO 9303-11 PACE with the CAN. The CIE publishes only PACE-DH-GM with 3DES
+  on the 2048-bit RFC 5114 group (parameter id 2) in `EF.CardAccess`, whose
+  public keys (264 bytes) need extended-length APDUs. Readers limited to short
+  APDUs (for example the ACS ACR122U: its driver rejects commands longer than
+  about 260 bytes) cannot carry them: the call returns `CKR_DEVICE_ERROR` with
+  `cie_last_error` kind `CIE_ERR_INS_NOT_SUPPORTED` (`7`), and callers should
+  fall back to the PIN based `cie_read_dgs`, or use another reader / an NFC
+  phone. A wrong CAN is reported as `CKR_PIN_INCORRECT` with kind
+  `CIE_ERR_WRONG_CAN` (`11`).
 
 ---
 

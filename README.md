@@ -136,8 +136,18 @@ CK_RV cie_get_verify_info(int index, struct verifyInfo_t *vInfos);
 CK_RV cie_extract_p7m    (const char *inFilePath, const char *outFilePath);
 
 // Chip data-group readers (ICAO 9303)
-// Reads DG1 (MRZ) and DG2 (portrait photo) in a single PACE session.
-// Photo is returned as PNG bytes (JPEG2000 decoded internally).
+// Both read DG1 (MRZ) and DG2 (portrait photo) in one session; the photo is
+// returned as PNG bytes (JPEG2000 decoded internally).
+//
+// cie_read_dgs_can: ICAO 9303-11 PACE with the 6-digit CAN printed on the
+// card (no PIN). Errors via cie_last_error(): wrong CAN ->
+// CKR_PIN_INCORRECT + CIE_ERR_WRONG_CAN (11); reader without extended-APDU
+// support -> CKR_DEVICE_ERROR + CIE_ERR_INS_NOT_SUPPORTED (7), in which case
+// fall back to cie_read_dgs.
+CK_RV cie_read_dgs_can   (const char *can,
+                           char *mrzOut, size_t *mrzLen,
+                           unsigned char *photoOut, size_t *photoLen);
+// cie_read_dgs: PIN based fallback for readers limited to short APDUs.
 CK_RV cie_read_dgs       (const char *pin,
                            char *mrzOut, size_t *mrzLen,
                            unsigned char *photoOut, size_t *photoLen);

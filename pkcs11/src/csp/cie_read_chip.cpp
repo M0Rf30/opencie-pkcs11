@@ -5,14 +5,17 @@
  * @file cie_read_chip.cpp
  * @brief Read ICAO 9303 data groups from the CIE chip.
  *
- * Implements two public entry points:
- *   - cie_read_mrz  : reads EF.DG1 (MRZ) after PACE, returns raw TLV bytes
- *   - cie_read_photo: reads EF.DG2 (portrait) after PACE, returns PNG bytes
+ * Public entry points:
+ *   - cie_read_dgs_can(): authenticates to the eMRTD application with
+ *     ICAO 9303-11 PACE using the 6-digit Card Access Number (CAN), then
+ *     reads EF.DG1 (MRZ) and EF.DG2 (portrait) through the resulting Secure
+ *     Messaging channel (see csp/pace.h). The PIN is never involved.
+ *   - cie_read_dgs(): PIN based fallback (IAS DH + VERIFY PIN) for readers
+ *     that cannot send the extended-length APDUs the CAN PACE needs.
  *
  * DG2 contains a JPEG2000 (JP2) image wrapped in a BioAPI BIR TLV structure.
- * cie_read_photo extracts the JP2 payload, decodes it with OpenJPEG, and
- * re-encodes the result as PNG so Flutter's Image.memory() can display it
- * without any additional Dart-side decoding.
+ * It is extracted, decoded with OpenJPEG and re-encoded as PNG so Flutter's
+ * Image.memory() can display it without any additional Dart-side decoding.
  */
 
 #include <time.h>
@@ -28,10 +31,13 @@
 #include "csp/cie_enable.h"
 #include "csp/cie_error.h"
 #include "csp/ias.h"
+#include "csp/pace.h"
 #include "logger/logger.h"
+#include "pcsc/token.h"
 #include "pcsc/transport_factory.h"
 #include "pkcs11/pkcs11_functions.h"
 #include "util/retry.h"
+#include "util/util_exception.h"
 
 // OpenJPEG for JPEG2000 decoding (HAVE_LIBOPENJP2 defined by meson when found)
 #ifdef HAVE_LIBOPENJP2
@@ -328,6 +334,48 @@ static bool jp2ToPng(const uint8_t* jp2Data, size_t jp2Len, uint8_t** pngOut,
 
 #endif  // HAVE_OPENJPEG
 
+/**
+ * @brief Turn a raw DG2 TLV into the PNG photo (or the raw DG2 when the
+ * JPEG2000 payload cannot be decoded) in the caller's buffer.
+ *
+ * @param op  Entry-point name for log messages.
+ */
+static CK_RV dg2ToPhoto(const std::vector<uint8_t>& dg2Raw,
+                        unsigned char* photoOut, size_t* photoLen,
+                        const char* op) {
+  const size_t dg2RawLen = dg2Raw.size();
+#ifdef HAVE_OPENJPEG
+  size_t imgLen = 0;
+  const uint8_t* imgPtr =
+      findDG2ImagePayload(dg2Raw.data(), dg2RawLen, &imgLen);
+  if (imgPtr && imgLen > 0) {
+    uint8_t* pngBuf = nullptr;
+    size_t pngLen = 0;
+    if (jp2ToPng(imgPtr, imgLen, &pngBuf, &pngLen)) {
+      if (pngLen <= *photoLen) {
+        memcpy(photoOut, pngBuf, pngLen);
+        *photoLen = pngLen;
+        free(pngBuf);
+        LOG_INFO("***** %s ended (PNG %zu bytes) *****", op, pngLen);
+        return CKR_OK;
+      }
+      free(pngBuf);
+      *photoLen = pngLen;
+      return CKR_BUFFER_TOO_SMALL;
+    }
+    LOG_ERROR("%s - jp2ToPng failed", op);
+  } else {
+    LOG_ERROR("%s - could not locate image payload in DG2", op);
+  }
+#endif
+
+  if (dg2RawLen > *photoLen) return CKR_BUFFER_TOO_SMALL;
+  memcpy(photoOut, dg2Raw.data(), dg2RawLen);
+  *photoLen = dg2RawLen;
+  LOG_INFO("***** %s ended (raw DG2 %zu bytes) *****", op, dg2RawLen);
+  return CKR_OK;
+}
+
 namespace {
 /** @brief RAII guard releasing a PC/SC SCARDCONTEXT exactly once. */
 class ScardContextGuard {
@@ -345,6 +393,31 @@ class ScardContextGuard {
   std::shared_ptr<ISmartCardTransport> transport_;
   SCARDCONTEXT hContext_;
 };
+
+/**
+ * Thrown when the reader/transport refuses an extended-length APDU (the
+ * 2048-bit DH group of the CIE needs 264-byte GENERAL AUTHENTICATE data).
+ * Not a link drop: nothing CAN-related was sent yet.
+ */
+class ExtendedApduRejected : public std::runtime_error {
+ public:
+  ExtendedApduRejected()
+      : std::runtime_error("reader rejected an extended-length APDU") {}
+};
+
+/** Translate a failed pace::Result into the exception/CK_RV contract. */
+CK_RV failFromResult(const char* op, const pace::Result& r) {
+  if (r.linkError) throw card_link_error(r.detail);
+  LOG_ERROR("readBothDGs - %s failed: %s", op, r.detail.c_str());
+  if (r.sw != 0 && r.sw != 0x9000) cie_record_sw_error(r.sw);
+  return CKR_GENERAL_ERROR;
+}
+
+/** True when a failed EF.CardAccess read means "no PACE on this chip". */
+bool cardAccessMissing(uint16_t sw) {
+  return sw == 0x6A82 || sw == 0x6A83 || sw == 0x6A88 || sw == 0x6D00 ||
+         sw == 0x6E00 || sw == 0x6986 || sw == 0x6982 || sw == 0x6985;
+}
 }  // namespace
 
 /**
@@ -565,6 +638,255 @@ static CK_RV readBothDGs(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
   }
 }
 
+/**
+ * @brief Single attempt: PACE with the CAN once, then read DG1 and DG2 on
+ * the same Secure Messaging channel.
+ *
+ * A card_link_error (RF link drop / short response / SM MAC failure -- see
+ * util/util_exception.h) propagates to the caller uncaught so readBothDGsCan()
+ * can retry the whole attempt with a fresh connection; any other
+ * exception is handled here and turned into a CK_RV.
+ *
+ * A wrong CAN is returned as CKR_PIN_INCORRECT (never an exception, so it
+ * is never retried) and recorded as CIE_ERR_WRONG_CAN. A chip that offers
+ * no supported PACE protocol is CKR_FUNCTION_NOT_SUPPORTED.
+ *
+ * @param can        NUL-terminated 6-digit CAN.
+ * @param dg1Out     Buffer for raw DG1 TLV bytes.
+ * @param dg1Len     In: capacity; out: bytes written.
+ * @param dg2Out     Buffer for raw DG2 TLV bytes.
+ * @param dg2Len     In: capacity; out: bytes written.
+ * @return CKR_OK on success.
+ * @throws card_link_error on a transport/link failure -- not handled
+ *         here, see readBothDGsCan().
+ */
+static CK_RV readBothDGsCanOnce(const char* can, uint8_t* dg1Out,
+                                size_t* dg1Len, uint8_t* dg2Out,
+                                size_t* dg2Len) {
+  char* readers = nullptr;
+  try {
+    auto transport = createSmartCardTransport();
+    SCARDCONTEXT hSC = 0;
+    long nRet = transport->EstablishContext(SCARD_SCOPE_USER, &hSC);
+    if (nRet != SCARD_S_SUCCESS) return CKR_DEVICE_ERROR;
+    ScardContextGuard hScGuard(transport, hSC);
+
+    DWORD len = 0;
+    nRet = transport->ListReaders(hSC, nullptr, &len);
+    if (nRet != SCARD_S_SUCCESS || len <= 1) {
+      return CKR_TOKEN_NOT_PRESENT;
+    }
+    readers = static_cast<char*>(malloc(len));
+    if (!readers) {
+      return CKR_HOST_MEMORY;
+    }
+    nRet = transport->ListReaders(hSC, readers, &len);
+    if (nRet != SCARD_S_SUCCESS) {
+      free(readers);
+      return CKR_TOKEN_NOT_PRESENT;
+    }
+
+    bool found = false;
+    bool sawUnsupported = false;
+    for (char* cur = readers; cur[0] != '\0'; cur += strnlen(cur, len) + 1) {
+      safeConnection conn(*transport, hSC, cur, SCARD_SHARE_SHARED);
+      if (!conn.hCard) continue;
+
+      CToken token;
+      token.setTransmitCallback(TokenTransmitCallback, &conn);
+      // Fresh card state: PACE must start from the MF, before any IAS/CIE
+      // application is selected.
+      token.Reset();
+
+      const pace::Transmit tx = [&token](const pace::Bytes& apdu,
+                                         pace::Bytes& resp) -> uint16_t {
+        ByteDynArray r;
+        const ByteArray in(const_cast<uint8_t*>(apdu.data()), apdu.size());
+        // The final GENERAL AUTHENTICATE carries our authentication token:
+        // if the link drops while it is in flight the card may have counted
+        // a wrong CAN whose answer we never saw, so it must not be resent.
+        const bool mutualAuth =
+            apdu.size() >= 2 && apdu[0] == 0x00 && apdu[1] == 0x86;
+        // Longer than any short-APDU reader can carry (ACR122U/libccid
+        // refuse >~260 bytes with SCARD_E_NOT_TRANSACTED and friends).
+        const bool extended = apdu.size() > 261;
+        StatusWord sw;
+        try {
+          sw = token.Transmit(in, &r);
+        } catch (const card_link_error& e) {
+          if (extended) {
+            const std::string msg = e.what();
+            if (msg.find("80100016") != std::string::npos ||
+                msg.find("80100004") != std::string::npos ||
+                msg.find("80100008") != std::string::npos)
+              throw ExtendedApduRejected();
+          }
+          if (mutualAuth)
+            throw card_link_error(
+                std::string("link lost during PACE mutual authentication: ") +
+                    e.what(),
+                /*retryable=*/false);
+          throw;
+        }
+        resp.assign(r.data(), r.data() + r.size());
+        return static_cast<uint16_t>(sw);
+      };
+
+      // 1. EF.CardAccess -> PACE protocol
+      pace::Bytes cardAccess;
+      pace::Result res = pace::readCardAccess(tx, cardAccess);
+      if (res.status != pace::Status::Ok) {
+        if (cardAccessMissing(res.sw)) {
+          LOG_ERROR("readBothDGs - no EF.CardAccess (%s): PACE unsupported",
+                    res.detail.c_str());
+          sawUnsupported = true;
+          continue;
+        }
+        free(readers);
+        return failFromResult("EF.CardAccess", res);
+      }
+      pace::Params params;
+      if (!pace::selectProtocol(pace::parseCardAccess(cardAccess), params)) {
+        LOG_ERROR("readBothDGs - EF.CardAccess has no supported PACE OID");
+        sawUnsupported = true;
+        continue;
+      }
+      LOG_INFO("readBothDGs - PACE protocol: %s",
+               pace::describe(params).c_str());
+
+      // 2. PACE with the CAN (never retried on a wrong CAN)
+      std::unique_ptr<pace::SecureChannel> channel;
+      res = pace::performPace(tx, can, params, channel);
+      if (res.status == pace::Status::WrongCan) {
+        LOG_ERROR("readBothDGs - %s", res.detail.c_str());
+        cie_record_wrong_can();
+        free(readers);
+        return CKR_PIN_INCORRECT;
+      }
+      if (res.status == pace::Status::Unsupported) {
+        sawUnsupported = true;
+        continue;
+      }
+      if (res.status != pace::Status::Ok) {
+        free(readers);
+        return failFromResult("PACE", res);
+      }
+
+      // 3. eMRTD application + DG1/DG2 over Secure Messaging
+      pace::Bytes dg1Data, dg2Data;
+      res = pace::selectEmrtdApplication(tx, *channel);
+      if (res.status == pace::Status::Ok)
+        res = pace::readFileSm(tx, *channel, 0x0101, dg1Data);
+      if (res.status == pace::Status::Ok)
+        res = pace::readFileSm(tx, *channel, 0x0102, dg2Data);
+      if (res.status != pace::Status::Ok) {
+        free(readers);
+        return failFromResult("eMRTD read", res);
+      }
+      LOG_INFO("readBothDGs - DG1 %zu bytes, DG2 %zu bytes", dg1Data.size(),
+               dg2Data.size());
+
+      if (dg1Data.size() > *dg1Len || dg2Data.size() > *dg2Len) {
+        free(readers);
+        return CKR_BUFFER_TOO_SMALL;
+      }
+      memcpy(dg1Out, dg1Data.data(), dg1Data.size());
+      *dg1Len = dg1Data.size();
+      memcpy(dg2Out, dg2Data.data(), dg2Data.size());
+      *dg2Len = dg2Data.size();
+      found = true;
+      break;
+    }
+
+    free(readers);
+    if (!found) {
+      if (sawUnsupported) {
+        cie_record_unsupported_card();
+        return CKR_FUNCTION_NOT_SUPPORTED;
+      }
+      return CKR_TOKEN_NOT_RECOGNIZED;
+    }
+
+  } catch (const ExtendedApduRejected& e) {
+    // Reader limitation, not a card decision and not a wrong CAN: the app
+    // can offer the PIN based fallback (cie_read_dgs).
+    LOG_ERROR("readBothDGs - %s", e.what());
+    cie_record_sw_error(0x6D00);  // CIE_ERR_INS_NOT_SUPPORTED
+    free(readers);
+    return CKR_DEVICE_ERROR;
+  } catch (const card_link_error&) {
+    free(readers);
+    throw;
+  } catch (const std::exception& ex) {
+    LOG_ERROR("readBothDGs - exception: %s", ex.what());
+    free(readers);
+    return CKR_GENERAL_ERROR;
+  } catch (...) {
+    LOG_ERROR("readBothDGs - unknown exception");
+    free(readers);
+    return CKR_GENERAL_ERROR;
+  }
+  return CKR_OK;
+}
+
+/**
+ * @brief Read DG1 and DG2, retrying the whole attempt (fresh connection,
+ * reset, PACE, SM, DG1+DG2 read) up to two more times if a
+ * card_link_error (RF link drop / short response / SM MAC failure) is
+ * detected.
+ *
+ * A wrong CAN is reported by readBothDGsCanOnce() as an ordinary CK_RV, never
+ * as an exception, so it is never retried here with the same CAN; a link
+ * drop while the PACE mutual-authentication token is in flight is marked
+ * non-retryable for the same reason.
+ *
+ * @param can        NUL-terminated 6-digit CAN.
+ * @param dg1Out     Buffer for raw DG1 TLV bytes.
+ * @param dg1Len     In: capacity; out: bytes written.
+ * @param dg2Out     Buffer for raw DG2 TLV bytes.
+ * @param dg2Len     In: capacity; out: bytes written.
+ * @return CKR_OK on success.
+ */
+static CK_RV readBothDGsCan(const char* can, uint8_t* dg1Out, size_t* dg1Len,
+                            uint8_t* dg2Out, size_t* dg2Len) {
+  if (!can || !dg1Out || !dg1Len || !dg2Out || !dg2Len)
+    return CKR_ARGUMENTS_BAD;
+  if (strnlen(can, 7) != 6) return CKR_ARGUMENTS_BAD;
+  for (int i = 0; i < 6; ++i)
+    if (can[i] < '0' || can[i] > '9') return CKR_ARGUMENTS_BAD;
+
+  try {
+    return RetryOnCardLinkError("cie_read_dgs_can", 3, [&](int attempt) {
+      if (attempt == 1)
+        return readBothDGsCanOnce(can, dg1Out, dg1Len, dg2Out, dg2Len);
+      // After a link drop the card is often still off the reader (it was
+      // lifted or slid). Give the user up to ~10 s to put it back instead
+      // of failing with "token not recognized" on the first poll.
+      const auto deadline =
+          std::chrono::steady_clock::now() + std::chrono::seconds(10);
+      CK_RV rv;
+      do {
+        rv = readBothDGsCanOnce(can, dg1Out, dg1Len, dg2Out, dg2Len);
+        if (rv != CKR_TOKEN_NOT_RECOGNIZED && rv != CKR_TOKEN_NOT_PRESENT)
+          return rv;
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      } while (std::chrono::steady_clock::now() < deadline);
+      LOG_ERROR("cie_read_dgs_can - card did not return to the reader");
+      return rv;
+    });
+  } catch (const card_link_error& e) {
+    LOG_ERROR("readBothDGs - giving up after retries: %s", e.what());
+    cie_record_transport_error();
+    return CKR_DEVICE_ERROR;
+  } catch (const std::exception& ex) {
+    LOG_ERROR("readBothDGs - exception: %s", ex.what());
+    return CKR_GENERAL_ERROR;
+  } catch (...) {
+    LOG_ERROR("readBothDGs - unknown exception");
+    return CKR_GENERAL_ERROR;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -572,16 +894,16 @@ static CK_RV readBothDGs(const char* szPIN, uint8_t* dg1Out, size_t* dg1Len,
 extern "C" {
 
 /**
- * @brief Read DG1 (MRZ) and DG2 (photo) in a single PACE session.
+ * @brief Read DG1 (MRZ) and DG2 (photo) in a single PACE session, PIN based.
  *
- * Eliminates the cost of a second full DH key exchange + PIN verify that
- * would occur if cie_read_mrz and cie_read_photo were called separately.
- * The photo is returned as PNG bytes (JP2 decoded via OpenJPEG).
+ * Fallback for readers that cannot carry the extended-length APDUs the CAN
+ * PACE needs (see cie_read_dgs_can). Uses the IAS DH key exchange and a PIN
+ * VERIFY. The photo is returned as PNG bytes (JP2 decoded via OpenJPEG).
  *
  * @param pin         NUL-terminated 8-digit numeric PIN.
- * @param mrzOut      Buffer for raw DG1 TLV bytes (≥ 4096 bytes recommended).
+ * @param mrzOut      Buffer for raw DG1 TLV bytes (>= 4096 bytes recommended).
  * @param mrzLen      In: capacity; out: bytes written.
- * @param photoOut    Buffer for PNG photo bytes (≥ 524288 bytes recommended).
+ * @param photoOut    Buffer for PNG photo bytes (>= 524288 bytes recommended).
  * @param photoLen    In: capacity; out: bytes written.
  * @return CKR_OK on success, a PKCS#11 error code otherwise.
  */
@@ -601,37 +923,50 @@ CK_RV CK_ENTRY cie_read_dgs(const char* pin, char* mrzOut, size_t* mrzLen,
   }
   cie_clear_error();
   dg2Raw.resize(dg2RawLen);
+  return dg2ToPhoto(dg2Raw, photoOut, photoLen, "cie_read_dgs");
+}
 
-#ifdef HAVE_OPENJPEG
-  size_t imgLen = 0;
-  const uint8_t* imgPtr =
-      findDG2ImagePayload(dg2Raw.data(), dg2RawLen, &imgLen);
-  if (imgPtr && imgLen > 0) {
-    uint8_t* pngBuf = nullptr;
-    size_t pngLen = 0;
-    if (jp2ToPng(imgPtr, imgLen, &pngBuf, &pngLen)) {
-      if (pngLen <= *photoLen) {
-        memcpy(photoOut, pngBuf, pngLen);
-        *photoLen = pngLen;
-        free(pngBuf);
-        LOG_INFO("***** cie_read_dgs ended (PNG %zu bytes) *****", pngLen);
-        return CKR_OK;
-      }
-      free(pngBuf);
-      *photoLen = pngLen;
-      return CKR_BUFFER_TOO_SMALL;
-    }
-    LOG_ERROR("cie_read_dgs - jp2ToPng failed");
-  } else {
-    LOG_ERROR("cie_read_dgs - could not locate image payload in DG2");
+/**
+ * @brief Read DG1 (MRZ) and DG2 (photo) in a single PACE session with the CAN.
+ *
+ * Authenticates with the CAN (ICAO 9303-11 PACE) and reads both data groups
+ * on the same Secure Messaging channel. The photo is returned as PNG bytes
+ * (JP2 decoded via OpenJPEG).
+ *
+ * Failure modes the caller can tell apart through cie_last_error():
+ *  - wrong CAN: CKR_PIN_INCORRECT + CIE_ERR_WRONG_CAN (never retried);
+ *  - chip without a supported PACE protocol: CKR_FUNCTION_NOT_SUPPORTED +
+ *    CIE_ERR_UNSUPPORTED_CARD;
+ *  - reader/transport refusing the extended-length APDUs PACE needs:
+ *    CKR_DEVICE_ERROR + CIE_ERR_INS_NOT_SUPPORTED (use cie_read_dgs).
+ *
+ * @param can         NUL-terminated string of exactly 6 ASCII digits.
+ * @param mrzOut      Buffer for raw DG1 TLV bytes (>= 4096 bytes recommended).
+ * @param mrzLen      In: capacity; out: bytes written.
+ * @param photoOut    Buffer for PNG photo bytes (>= 524288 bytes recommended).
+ * @param photoLen    In: capacity; out: bytes written.
+ * @return CKR_OK on success, a PKCS#11 error code otherwise.
+ */
+CK_RV CK_ENTRY cie_read_dgs_can(const char* can, char* mrzOut, size_t* mrzLen,
+                                unsigned char* photoOut, size_t* photoLen) {
+  LOG_INFO("***** Starting cie_read_dgs_can *****");
+  if (!can || !mrzOut || !mrzLen || !photoOut || !photoLen)
+    return CKR_ARGUMENTS_BAD;
+  cie_clear_error();
+
+  std::vector<uint8_t> dg2Raw(*photoLen);
+  size_t dg2RawLen = dg2Raw.size();
+
+  CK_RV rv = readBothDGsCan(can, reinterpret_cast<uint8_t*>(mrzOut), mrzLen,
+                            dg2Raw.data(), &dg2RawLen);
+  if (rv != CKR_OK) {
+    LOG_INFO("***** cie_read_dgs_can ended (readBothDGsCan), rv=%lu *****",
+             static_cast<unsigned long>(rv));
+    return rv;
   }
-#endif
-
-  if (dg2RawLen > *photoLen) return CKR_BUFFER_TOO_SMALL;
-  memcpy(photoOut, dg2Raw.data(), dg2RawLen);
-  *photoLen = dg2RawLen;
-  LOG_INFO("***** cie_read_dgs ended (raw DG2 %zu bytes) *****", dg2RawLen);
-  return CKR_OK;
+  cie_clear_error();
+  dg2Raw.resize(dg2RawLen);
+  return dg2ToPhoto(dg2Raw, photoOut, photoLen, "cie_read_dgs_can");
 }
 
 }  // extern "C"

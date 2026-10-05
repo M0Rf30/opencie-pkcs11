@@ -120,8 +120,18 @@ CK_RV cie_get_certificate(const char *pan, unsigned char **outDer,
                           unsigned long *outLen);
 
 // Lettura data group del chip (ICAO 9303)
-// Legge DG1 (MRZ) e DG2 (foto) in un'unica sessione PACE.
-// La foto è restituita come byte PNG (JPEG2000 decodificato internamente).
+// Entrambe leggono DG1 (MRZ) e DG2 (foto) in un'unica sessione; la foto è
+// restituita come byte PNG (JPEG2000 decodificato internamente).
+//
+// cie_read_dgs_can: PACE ICAO 9303-11 con il CAN a 6 cifre stampato sulla
+// carta (nessun PIN). Errori via cie_last_error(): CAN errato ->
+// CKR_PIN_INCORRECT + CIE_ERR_WRONG_CAN (11); lettore senza supporto APDU
+// estese -> CKR_DEVICE_ERROR + CIE_ERR_INS_NOT_SUPPORTED (7), nel qual caso
+// usare cie_read_dgs.
+CK_RV cie_read_dgs_can   (const char *can,
+                          char *mrzOut, size_t *mrzLen,
+                          unsigned char *photoOut, size_t *photoLen);
+// cie_read_dgs: fallback con PIN per lettori limitati alle APDU corte.
 CK_RV cie_read_dgs       (const char *pin,
                           char *mrzOut, size_t *mrzLen,
                           unsigned char *photoOut, size_t *photoLen);

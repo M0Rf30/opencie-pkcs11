@@ -304,10 +304,42 @@ CK_RV CK_ENTRY cie_timestamp(const char* inFilePath, const char* tsaUrl,
 // ---------------------------------------------------------------------------
 
 /**
- * Read DG1 (MRZ) and DG2 (portrait photo) in a single PACE session.
+ * Read DG1 (MRZ) and DG2 (portrait photo) over ICAO 9303 PACE with the CAN.
  *
- * Reads both data groups with a single DH key exchange and PIN verify.
+ * Authenticates to the eMRTD application with the 6-digit Card Access
+ * Number (CAN) printed on the card, then reads DG1 and DG2 through the
+ * resulting Secure Messaging channel. No PIN is used or consumed.
  * The photo is returned as PNG bytes (JPEG2000 decoded internally).
+ *
+ * Failure modes, told apart through cie_last_error():
+ *  - wrong CAN: CKR_PIN_INCORRECT + CIE_ERR_WRONG_CAN. Never retried
+ *    automatically with the same CAN;
+ *  - chip without a supported PACE protocol: CKR_FUNCTION_NOT_SUPPORTED +
+ *    CIE_ERR_UNSUPPORTED_CARD;
+ *  - the reader/transport rejects the extended-length APDUs PACE needs
+ *    (the CIE offers 2048-bit DH, ICAO 9303-11 9.3.1; short-APDU-only
+ *    readers such as the ACS ACR122U cannot send them): CKR_DEVICE_ERROR +
+ *    CIE_ERR_INS_NOT_SUPPORTED. Fall back to cie_read_dgs() (PIN) or use
+ *    another reader / NFC phone.
+ *
+ * @param can       NUL-terminated string of exactly 6 ASCII digits;
+ *                  anything else returns CKR_ARGUMENTS_BAD.
+ * @param mrzOut    Buffer for raw DG1 TLV bytes (≥ 4096 bytes recommended).
+ * @param mrzLen    In: capacity of mrzOut; out: bytes written.
+ * @param photoOut  Buffer for PNG photo bytes (≥ 524288 bytes recommended).
+ * @param photoLen  In: capacity of photoOut; out: bytes written.
+ * @return CKR_OK on success, a PKCS#11 error code otherwise.
+ */
+CK_RV CK_ENTRY cie_read_dgs_can(const char* can, char* mrzOut, size_t* mrzLen,
+                                unsigned char* photoOut, size_t* photoLen);
+
+/**
+ * Read DG1 (MRZ) and DG2 (portrait photo) in a single session, PIN based.
+ *
+ * Fallback for readers that cannot do the extended-length APDUs required by
+ * cie_read_dgs_can(). Reads both data groups with a single DH key exchange
+ * and PIN verify. The photo is returned as PNG bytes (JPEG2000 decoded
+ * internally).
  *
  * @param pin       NUL-terminated 8-digit numeric PIN.
  * @param mrzOut    Buffer for raw DG1 TLV bytes (≥ 4096 bytes recommended).
@@ -361,8 +393,10 @@ typedef enum cie_error_kind {
   CIE_ERR_INS_NOT_SUPPORTED = 7,      /* 0x6D00, 0x6E00 */
   CIE_ERR_CARD_COMMUNICATION = 8,     /* transport/SM failure, no usable SW */
   CIE_ERR_UNKNOWN = 9,                /* a status word we do not classify */
-  CIE_ERR_UNSUPPORTED_CARD = 10       /* card answered but its chip/applet is
+  CIE_ERR_UNSUPPORTED_CARD = 10,      /* card answered but its chip/applet is
                                          not in the supported list */
+  CIE_ERR_WRONG_CAN = 11              /* PACE rejected the CAN (mutual
+                                         authentication failed) */
 } cie_error_kind;
 
 /**

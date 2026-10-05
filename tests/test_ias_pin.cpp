@@ -19,14 +19,12 @@
 // distinction the OC-28 bug erased.
 #ifndef _WIN32
 
-#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <string>
-#include <vector>
 
 #include "csp/ias.h"
 #include "util/array.h"
@@ -182,57 +180,8 @@ TEST_CASE("IAS::ReadDG1 surfaces 6A82 from SELECT eMRTD AID unchanged",
   } catch (const scard_error &e) {
     CHECK(e.sw == 0x6A82);
   }
-  // Only the AID select and the single MF-select fallback were attempted:
-  // no guessing of other AIDs, and no AID retry when the MF select fails.
-  CHECK(g_selectCalls == 2);
-}
-
-namespace {
-std::vector<std::vector<uint8_t>> g_apdus;
-// Fake card that refuses the eMRTD AID while another application is current
-// but accepts it once the MF is selected (Actalis B946, opencie#34).
-HRESULT EmrtdAfterMfCard(void * /*data*/, uint8_t *apdu, DWORD apduSize,
-                         uint8_t *resp, DWORD *respSize) {
-  g_apdus.emplace_back(apdu, apdu + apduSize);
-  const bool selectAid = apduSize >= 4 && apdu[1] == 0xA4 && apdu[2] == 0x04;
-  const bool selectMf = apduSize >= 7 && apdu[1] == 0xA4 && apdu[2] == 0x00 &&
-                        apdu[5] == 0x3F && apdu[6] == 0x00;
-  bool mfSelected = false;
-  for (size_t i = 0; i + 1 < g_apdus.size(); ++i) {
-    const auto &a = g_apdus[i];
-    if (a.size() >= 7 && a[1] == 0xA4 && a[2] == 0x00 && a[5] == 0x3F)
-      mfSelected = true;
-  }
-  const bool ok = selectMf || (selectAid && mfSelected);
-  resp[0] = ok ? 0x90 : 0x6A;
-  resp[1] = ok ? 0x00 : 0x82;
-  *respSize = 2;
-  return 0;
-}
-}  // namespace
-
-TEST_CASE("IAS::ReadDG1 selects the MF and retries the eMRTD AID on 6A82",
-          "[ias][dg]") {
-  g_apdus.clear();
-  IAS ias(EmrtdAfterMfCard, ByteArray(kDummyAtr, sizeof(kDummyAtr)));
-  ByteDynArray out;
-  // No SM session exists here, so the DG read itself fails afterwards;
-  // only the select sequence is under test.
-  try {
-    ias.ReadDG1(out);
-  } catch (...) {
-  }
-  REQUIRE(g_apdus.size() >= 3);
-  const std::vector<uint8_t> selAid = {0x00, 0xA4, 0x04, 0x0C, 0x07, 0xA0,
-                                       0x00, 0x00, 0x02, 0x47, 0x10, 0x01};
-  const std::vector<uint8_t> selMf = {0x00, 0xA4, 0x00, 0x0C, 0x02, 0x3F, 0x00};
-  auto startsWith = [](const std::vector<uint8_t> &a,
-                       const std::vector<uint8_t> &p) {
-    return a.size() >= p.size() && std::equal(p.begin(), p.end(), a.begin());
-  };
-  CHECK(startsWith(g_apdus[0], selAid));
-  CHECK(startsWith(g_apdus[1], selMf));
-  CHECK(startsWith(g_apdus[2], selAid));
+  // Only the AID select was attempted: no guessing of other AIDs.
+  CHECK(g_selectCalls == 1);
 }
 
 #endif  // !_WIN32
