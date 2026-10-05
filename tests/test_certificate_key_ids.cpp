@@ -185,11 +185,18 @@ TEST_CASE(
   REQUIRE(leafAki.getLength() == issuerKeyHash.getLength());
   REQUIRE(*leafAki.getValue() == *issuerKeyHash.getValue());
 
-  REQUIRE(serialNumber.getLength() ==
-          static_cast<unsigned int>(ASN1_STRING_length(expSerial)));
-  REQUIRE(memcmp(serialNumber.getValue()->data(),
-                 ASN1_STRING_get0_data(expSerial),
-                 serialNumber.getLength()) == 0);
+  // OpenSSL keeps an INTEGER's magnitude, while the DER content carries a
+  // leading 0x00 when the top bit of the first magnitude byte is set. With
+  // the 159-bit random serial from -CAcreateserial that happens about once
+  // in 256 runs (the cause of an intermittent 20 == 19 failure).
+  const uint8_t* serialData = serialNumber.getValue()->data();
+  size_t serialLen = serialNumber.getLength();
+  if (serialLen > 1 && serialData[0] == 0x00 && (serialData[1] & 0x80)) {
+    ++serialData;
+    --serialLen;
+  }
+  REQUIRE(serialLen == static_cast<size_t>(ASN1_STRING_length(expSerial)));
+  REQUIRE(memcmp(serialData, ASN1_STRING_get0_data(expSerial), serialLen) == 0);
 
   OCSP_CERTID_free(expected);
   X509_free(leafX509);
