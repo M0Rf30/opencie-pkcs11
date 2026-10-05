@@ -99,7 +99,9 @@ DWORD CardAuthenticateEx(IAS* ias, DWORD PinId, DWORD dwFlags, BYTE* pbPinData,
  * @param szPAN    PAN to look for (same hex-encoded PAN.mid(5,6) key used
  *                 throughout the cache and IAS::IsEnrolled()).
  * @param certOut  If non-null, filled with the DER certificate (truncated to
- *                 its actual ASN.1 length) read from the matching card.
+ *                 its actual ASN.1 length), obtained from the legacy pairing
+ *                 cache (.cache) decrypted with the card-derived key; the
+ *                 certificate cannot be read on-card without a PIN.
  *                 Ignored if no match is found.
  * @return true if a card with that PAN was found (and, if @p certOut was
  *         requested, its certificate was read successfully); false on any
