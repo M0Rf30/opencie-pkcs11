@@ -203,7 +203,11 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
  * @param proxyAddress  HTTP proxy address; may be NULL.
  * @param proxyPort     HTTP proxy port (0 = no proxy).
  * @param usrPass       Proxy username:password; may be NULL.
- * @return Number of valid signatures found, or a PKCS#11 error code.
+ * @return Number of signatures found (also returned by cie_get_sign_count()),
+ *         0 if the file has none, or an error code when no signature could
+ *         be read: a CIE_SIGN_ERROR_* value (0x84000000 and up) or a negative
+ *         status cast to CK_RV. A return value that differs from
+ *         cie_get_sign_count() is an error.
  */
 CK_RV CK_ENTRY cie_verify(const char* inFilePath, const char* proxyAddress,
                           int proxyPort, const char* usrPass);
@@ -240,9 +244,13 @@ int CK_ENTRY cie_reader_name(char* buf, int buf_len);
 CK_RV CK_ENTRY cie_extract_p7m(const char* inFilePath, const char* outFilePath);
 
 /**
- * Retrieve the DER-encoded X.509 certificate for an enrolled CIE card.
+ * Retrieve the DER-encoded X.509 certificate for a paired CIE card.
  *
- * Reads from the local AES-encrypted cache written by cie_enable().
+ * Reads the cache written by cie_enable(). If there is none and the card is
+ * on a reader, the certificate is taken from the CIE ID pairing cache
+ * (~/.CIEPKI/<PAN>.cache), which needs the card present to decrypt; the
+ * result is then cached for later calls. The card itself never releases the
+ * certificate without a verified PIN, so an unpaired card fails here.
  *
  * Ownership: *outDer is malloc'd inside libopencie-pkcs11. Release it with
  * cie_free(), not the caller's own free(): on Windows the DLL and a
@@ -398,6 +406,15 @@ typedef enum cie_error_kind {
   CIE_ERR_WRONG_CAN = 11              /* PACE rejected the CAN (mutual
                                          authentication failed) */
 } cie_error_kind;
+
+#ifdef __ANDROID__
+/**
+ * Android only: set the directory used for the certificate cache and logs
+ * (the app's private files dir). Call it before any function that reads or
+ * writes the cache.
+ */
+void cie_set_data_dir(const char* dir);
+#endif
 
 /**
  * Classify an ISO 7816 status word. Pure function, no card required.
