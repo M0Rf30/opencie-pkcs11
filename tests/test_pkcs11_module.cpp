@@ -42,6 +42,10 @@ class ModuleHandle {
     return fl;
   }
 
+  void* symbol(const char* name) const {
+    return handle_ == nullptr ? nullptr : dlsym(handle_, name);
+  }
+
  private:
   void* handle_ = nullptr;
 };
@@ -104,4 +108,54 @@ TEST_CASE("C_OpenSession rejects a NULL session pointer", "[pkcs11]") {
         CKR_ARGUMENTS_BAD);
 
   CHECK(fl->C_Finalize(nullptr) == CKR_OK);
+}
+
+// The progress/completion callbacks of the cie_* extension API are optional.
+// Each call below used to dereference the NULL callback unconditionally and
+// crash; now it must run to completion (here: fail, there is no PC/SC
+// service and no card) without ever invoking a callback.
+TEST_CASE("cie_* functions accept NULL callbacks", "[cie][callbacks]") {
+  ModuleHandle module;
+
+  SECTION("cie_timestamp reports an unreadable input file") {
+    using Fn = CK_RV (*)(const char*, const char*, const char*, const char*,
+                         const char*, void*);
+    auto fn = reinterpret_cast<Fn>(module.symbol("cie_timestamp"));
+    REQUIRE(fn != nullptr);
+    CHECK(fn("/nonexistent/opencie-input", "http://127.0.0.1:9/tsa", nullptr,
+             nullptr, "/nonexistent/opencie-token.tst",
+             nullptr) == CKR_DEVICE_ERROR);
+  }
+
+  SECTION("cie_enable") {
+    using Fn = CK_RV (*)(const char*, const char*, int*, void*, void*);
+    auto fn = reinterpret_cast<Fn>(module.symbol("cie_enable"));
+    REQUIRE(fn != nullptr);
+    CHECK(fn("", "12345678", nullptr, nullptr, nullptr) != CKR_OK);
+  }
+
+  SECTION("cie_change_pin") {
+    using Fn = CK_RV (*)(const char*, const char*, int*, void*);
+    auto fn = reinterpret_cast<Fn>(module.symbol("cie_change_pin"));
+    REQUIRE(fn != nullptr);
+    CHECK(fn("12345678", "87654321", nullptr, nullptr) != CKR_OK);
+  }
+
+  SECTION("cie_unblock_pin") {
+    using Fn = CK_RV (*)(const char*, const char*, int*, void*);
+    auto fn = reinterpret_cast<Fn>(module.symbol("cie_unblock_pin"));
+    REQUIRE(fn != nullptr);
+    CHECK(fn("12345678", "87654321", nullptr, nullptr) != CKR_OK);
+  }
+
+  SECTION("cie_sign") {
+    using Fn = CK_RV (*)(const char*, const char*, const char*, const char*,
+                         int, float, float, float, float, const unsigned char*,
+                         int, const char*, void*, void*);
+    auto fn = reinterpret_cast<Fn>(module.symbol("cie_sign"));
+    REQUIRE(fn != nullptr);
+    CHECK(fn("/nonexistent/in.pdf", "pdf", "12345678", "", 0, 0.f, 0.f, 0.f,
+             0.f, nullptr, 0, "/nonexistent/out.pdf", nullptr,
+             nullptr) != CKR_OK);
+  }
 }

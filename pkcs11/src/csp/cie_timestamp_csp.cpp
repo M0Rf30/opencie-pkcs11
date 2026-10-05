@@ -13,6 +13,7 @@
 #include <memory>
 
 #include "crypto/sha256.h"
+#include "csp/callback_util.h"
 #include "logger/logger.h"
 #include "opencie/cie_ext.h"
 #include "pkcs11/pkcs11_functions.h"
@@ -29,6 +30,8 @@ extern "C" CK_RV CK_ENTRY cie_timestamp(const char* inFilePath,
                                         const char* outTokenPath,
                                         PROGRESS_CALLBACK progressCallBack) {
   LOG_INFO("****** Starting cie_timestamp ******");
+  if (progressCallBack == nullptr)
+    progressCallBack = opencie::noopProgressCallback;
 
   if (inFilePath == nullptr || tsaUrl == nullptr || outTokenPath == nullptr) {
     LOG_ERROR("cie_timestamp - NULL argument");

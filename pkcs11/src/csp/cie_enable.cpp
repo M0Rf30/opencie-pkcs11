@@ -43,6 +43,7 @@ extern char** environ;
 #include "crypto/crypto_util.h"
 #include "crypto/sha256.h"
 #include "crypto/sha512.h"
+#include "csp/callback_util.h"
 #include "csp/cie_error.h"
 #include "csp/ias.h"
 #include "logger/logger.h"
@@ -269,6 +270,10 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
   char* ATR = nullptr;
 
   LOG_INFO("***** Starting cie_enable *****");
+  if (progressCallBack == nullptr)
+    progressCallBack = opencie::noopProgressCallback;
+  if (completedCallBack == nullptr)
+    completedCallBack = opencie::noopCompletedCallback;
 
   // Validate PIN before use
   if (szPIN == nullptr || strnlen(szPIN, 9) != 8) {

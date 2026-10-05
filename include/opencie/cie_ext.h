@@ -20,6 +20,9 @@
 //
 //   SIGN_COMPLETED_CALLBACK – fired once cie_sign finishes
 //     int ret         : result code (0 = success)
+//
+// Every callback argument of the cie_* functions is optional: pass NULL to
+// receive no notifications.
 
 #pragma once
 
@@ -115,8 +118,8 @@ extern "C" {
  * @param szPAN             PAN identifying the card (NUL-terminated string).
  * @param szPIN             8-digit numeric PIN (NUL-terminated string).
  * @param attempts          Set to remaining attempts on PIN error; may be NULL.
- * @param progressCallBack  Progress callback; must not be NULL.
- * @param completedCallBack Completion callback; must not be NULL.
+ * @param progressCallBack  Progress callback; may be NULL.
+ * @param completedCallBack Completion callback; may be NULL.
  * @return CKR_OK on success, a PKCS#11 error code otherwise.
  */
 CK_RV CK_ENTRY cie_enable(const char* szPAN, const char* szPIN, int* attempts,
@@ -144,7 +147,7 @@ CK_RV CK_ENTRY cie_disable(const char* szPAN);
  * @param szCurrentPIN     Current PIN (NUL-terminated).
  * @param szNewPIN         New PIN (NUL-terminated).
  * @param attempts         Set to remaining attempts on error; may be NULL.
- * @param progressCallBack Progress callback; must not be NULL.
+ * @param progressCallBack Progress callback; may be NULL.
  * @return CKR_OK on success.
  */
 CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
@@ -156,7 +159,7 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
  * @param szPUK            PUK string (NUL-terminated).
  * @param szNewPIN         New PIN to set (NUL-terminated).
  * @param attempts         Set to remaining PUK attempts on error; may be NULL.
- * @param progressCallBack Progress callback; must not be NULL.
+ * @param progressCallBack Progress callback; may be NULL.
  * @return CKR_OK on success.
  */
 CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
@@ -184,8 +187,8 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
  * @param imageDataLen      Length of imageData in bytes; 0 if imageData is
  * NULL.
  * @param outFilePath       Path where the signed output file is written.
- * @param progressCallBack  Progress callback; must not be NULL.
- * @param completedCallBack Sign-completion callback; must not be NULL.
+ * @param progressCallBack  Progress callback; may be NULL.
+ * @param completedCallBack Sign-completion callback; may be NULL.
  * @return CKR_OK on success.
  */
 CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
@@ -299,7 +302,7 @@ void CK_ENTRY cie_free(void* ptr);
  * @param tsaUsername       HTTP Basic auth username; may be NULL.
  * @param tsaPassword       HTTP Basic auth password; may be NULL.
  * @param outTokenPath      Path where the .tst token is written.
- * @param progressCallBack  Progress callback; must not be NULL.
+ * @param progressCallBack  Progress callback; may be NULL.
  * @return CKR_OK on success.
  */
 CK_RV CK_ENTRY cie_timestamp(const char* inFilePath, const char* tsaUrl,

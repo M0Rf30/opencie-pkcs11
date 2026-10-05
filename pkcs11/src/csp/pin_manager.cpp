@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "csp/callback_util.h"
 #include "csp/cie_enable.h"
 #include "csp/cie_error.h"
 #include "csp/ias.h"
@@ -56,6 +57,8 @@ CK_RV CK_ENTRY cie_change_pin(const char* szCurrentPIN, const char* szNewPIN,
   char* ATR = nullptr;
 
   LOG_INFO("******** Starting PINManager::ChangePIN ********");
+  if (progressCallBack == nullptr)
+    progressCallBack = opencie::noopProgressCallback;
   // Validate PIN
   if (szCurrentPIN == nullptr || strnlen(szCurrentPIN, 9) != 8)
     return CKR_PIN_LEN_RANGE;
@@ -290,6 +293,8 @@ CK_RV CK_ENTRY cie_unblock_pin(const char* szPUK, const char* szNewPIN,
   char* readers = nullptr;
   char* ATR = nullptr;
   LOG_INFO("******** Starting PINManager::cie_unblock_pin ********");
+  if (progressCallBack == nullptr)
+    progressCallBack = opencie::noopProgressCallback;
   // Validate PIN
   if (szPUK == nullptr || strnlen(szPUK, 9) != 8) return CKR_PIN_LEN_RANGE;
 
