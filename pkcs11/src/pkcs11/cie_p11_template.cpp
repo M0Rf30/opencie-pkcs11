@@ -172,15 +172,15 @@ void CIEtemplateInitSession(void *pTemplateData) {
       cie->ias.GetCertificate(certRaw, true);
       if (certRaw.isEmpty()) {
         // GetCertificate() already tried the local cache (including a
-        // legacy-format fallback for third-party caches) and a direct
-        // on-card read; if we still have nothing, the card genuinely has
-        // no certificate available right now. Fail clearly here instead
+        // legacy-format fallback for third-party caches); the certificate
+        // cannot be read on-card without a PIN, so the card has not been
+        // paired yet. Fail clearly here instead
         // of letting an empty buffer reach GetCertInfo(), which would
         // otherwise report a confusing "Failed to parse X.509 certificate".
         throw logged_error(
             "CIEtemplateInitSession: certificate unavailable -- cache "
-            "missing/undecryptable and on-card read failed; card may not "
-            "be enrolled or may be unreachable");
+            "missing/undecryptable; pair the card first with CIE ID or "
+            "cie_enable (the certificate requires the PIN)");
       }
     }
 
