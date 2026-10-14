@@ -139,7 +139,7 @@ jobs:
           LSAN_OPTIONS: suppressions=${{ github.workspace }}/lsan-suppressions.txt
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()
         with:
           name: test-meson-log
@@ -184,7 +184,7 @@ jobs:
         env:
           TSAN_OPTIONS: halt_on_error=1
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()
         with:
           name: tsan-meson-log
@@ -269,21 +269,21 @@ jobs:
           mkdir -p scan-results
           scan-build --status-bugs -o scan-results meson compile -C builddir-scan
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: scan-build-results
           path: scan-results/
           if-no-files-found: ignore
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: linux-x86_64
           path: |
             builddir/libopencie-pkcs11.so
             builddir/libopencie-sign-sdk.a
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()
         with:
           name: linux-meson-log
@@ -356,12 +356,12 @@ jobs:
       - name: Strip
         run: aarch64-linux-gnu-strip builddir-arm64/libopencie-pkcs11.so
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: linux-aarch64
           path: builddir-arm64/libopencie-pkcs11.so
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()
         with:
           name: linux-arm64-meson-log
@@ -446,18 +446,18 @@ jobs:
              /usr/x86_64-w64-mingw32/bin/libwinpthread-1.dll \
              dist-win/runtime/ || true
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: windows-x86_64
           path: dist-win/libopencie-pkcs11.dll
 
       - name: Upload runtime DLL bundle
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: windows-x86_64-runtime-deps
           path: dist-win/runtime/
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()
         with:
           name: windows-meson-log
@@ -507,12 +507,12 @@ jobs:
           echo '=== All exported symbols ==='
           nm -gU builddir-macos/libopencie-pkcs11.dylib | grep ' T '
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: macos-arm64
           path: builddir-macos/libopencie-pkcs11.dylib
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()
         with:
           name: macos-meson-log
@@ -611,12 +611,12 @@ jobs:
             }
           done
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: android-arm64
           path: builddir-android/libopencie-pkcs11.so
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()
         with:
           name: android-meson-log
@@ -712,12 +712,12 @@ jobs:
             }
           done
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: android-x86_64
           path: builddir-android-x86_64/libopencie-pkcs11.so
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()
         with:
           name: android-x86_64-meson-log
