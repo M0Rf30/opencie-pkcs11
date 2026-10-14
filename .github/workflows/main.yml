@@ -798,7 +798,7 @@ jobs:
       # Written into release/ before the checksums so SHA256SUMS covers it
       # and it is attested below.
       - name: Scan source with Syft (CycloneDX)
-        uses: anchore/sbom-action@fffec3d851af758d56fee099cf3fbf8aa8779843 # v0.24.3
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: .
           format: cyclonedx-json
