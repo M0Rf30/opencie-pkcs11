@@ -551,11 +551,11 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
       X509* x509 = d2i_X509(nullptr, &p, static_cast<long>(CertCIE2.size()));
       if (!x509) throw logged_error("Failed to parse CIE certificate");
 
-      X509_NAME* subj = X509_get_subject_name(x509);
+      const X509_NAME* subj = X509_get_subject_name(x509);
       int idx = X509_NAME_get_index_by_NID(subj, NID_givenName, -1);
       if (idx >= 0) {
-        X509_NAME_ENTRY* entry = X509_NAME_get_entry(subj, idx);
-        ASN1_STRING* val = X509_NAME_ENTRY_get_data(entry);
+        const X509_NAME_ENTRY* entry = X509_NAME_get_entry(subj, idx);
+        const ASN1_STRING* val = X509_NAME_ENTRY_get_data(entry);
         unsigned char* utf8 = nullptr;
         int nameLen = ASN1_STRING_to_UTF8(&utf8, val);
         if (nameLen > 0) {
@@ -565,8 +565,8 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
       }
       idx = X509_NAME_get_index_by_NID(subj, NID_surname, -1);
       if (idx >= 0) {
-        X509_NAME_ENTRY* entry = X509_NAME_get_entry(subj, idx);
-        ASN1_STRING* val = X509_NAME_ENTRY_get_data(entry);
+        const X509_NAME_ENTRY* entry = X509_NAME_get_entry(subj, idx);
+        const ASN1_STRING* val = X509_NAME_ENTRY_get_data(entry);
         unsigned char* utf8 = nullptr;
         int nameLen = ASN1_STRING_to_UTF8(&utf8, val);
         if (nameLen > 0) {
