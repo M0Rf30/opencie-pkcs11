@@ -263,3 +263,4 @@ Never mention IPZS, cie-middleware (including cie-middleware-linux/macos), or th
 | `android` | Android arm64 | NDK r27c | vcpkg, `cross-android-arm64.ini` |
 | `android-x86_64` | Android x86_64 | NDK r27c | vcpkg, `cross-android-x86_64.ini` |
 | `release` | — | — | Tag-triggered, bundles artifacts |
+| `automerge` | — | — | `dependabot-automerge.yml`: arms auto-merge (rebase) on Dependabot PRs; merges once the CI jobs required by the `main` ruleset pass |
