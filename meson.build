@@ -348,7 +348,17 @@ if build_sign_sdk
     # headers (e.g. PdfObjectStream.h) trigger -Wunnecessary-virtual-specifier
     # under our -Wall/-Wextra on clang/macOS; system-include suppresses
     # warnings from headers we don't own without touching vendored code.
-    podofo_dep = podofo_sub.dependency('podofo_static', include_type: 'system')
+    # podofo_static links podofo_private and podofo_3rdparty as PRIVATE
+    # static deps. Older Meson CMake translators (e.g. 1.7.0, Debian
+    # trixie) drop those from the final link line, leaving undefined
+    # references (utls::*, afdko::SubsetFontCFF, FontTrueTypeSubset, ...).
+    # Pull them in explicitly; with newer Meson this is a no-op duplicate
+    # inside the same --start-group/--end-group.
+    podofo_dep = declare_dependency(dependencies: [
+        podofo_sub.dependency('podofo_static', include_type: 'system'),
+        podofo_sub.dependency('podofo_private', include_type: 'system'),
+        podofo_sub.dependency('podofo_3rdparty', include_type: 'system'),
+    ])
   endif
   zlib_dep = dependency('zlib')
 endif
