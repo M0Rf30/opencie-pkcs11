@@ -982,6 +982,20 @@ long HTTPRequest(const ByteDynArray& data, const char* szUrl,
   curl_global_init(CURL_GLOBAL_DEFAULT);
 
   CURL* ctx = curl_easy_init();
+  if (!ctx) {
+    LOG_ERR((0, "HTTPRequest", "curl_easy_init failed"));
+    return -1;
+  }
+
+  // The URL comes from the (untrusted) certificate's AIA/CDP extension: only
+  // HTTP(S) may be used for the initial request, as for redirects below
+  // (no file://, ftp://, gopher://, ldap://, ...).
+#if LIBCURL_VERSION_NUM >= 0x075500  // 7.85.0
+  curl_easy_setopt(ctx, CURLOPT_PROTOCOLS_STR, "http,https");
+#else
+  curl_easy_setopt(ctx, CURLOPT_PROTOCOLS,
+                   static_cast<long>(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+#endif
 
   // set URL
   curl_easy_setopt(ctx, CURLOPT_URL, szUrl);
