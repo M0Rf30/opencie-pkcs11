@@ -72,3 +72,13 @@ TEST_CASE("3DES RawEncode rejects non-block-aligned input", "[crypto][des3]") {
   CDES3 enc(key, iv);
   CHECK_THROWS_AS(enc.RawEncode(data), logged_error);
 }
+
+TEST_CASE("CDES3::Init rejects an IV that is not 8 bytes", "[des3]") {
+  std::vector<uint8_t> key(16, 1), longIv(16, 0);
+  CDES3 c;
+  CHECK_THROWS_AS(c.Init(ByteArray(key.data(), key.size()),
+                         ByteArray(longIv.data(), longIv.size())),
+                  logged_error);
+  CHECK_THROWS_AS(c.Init(ByteArray(key.data(), key.size()), ByteArray()),
+                  logged_error);
+}

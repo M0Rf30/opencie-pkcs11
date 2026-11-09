@@ -82,3 +82,13 @@ TEST_CASE("MAC rejects invalid key size", "[crypto][mac]") {
   CMAC m;
   CHECK_THROWS_AS(m.Init(key, iv), logged_error);
 }
+
+TEST_CASE("CMAC::Init rejects an IV that is not 8 bytes", "[mac]") {
+  std::vector<uint8_t> key(16, 1), longIv(16, 0);
+  CMAC m;
+  CHECK_THROWS_AS(m.Init(ByteArray(key.data(), key.size()),
+                         ByteArray(longIv.data(), longIv.size())),
+                  logged_error);
+  CHECK_THROWS_AS(m.Init(ByteArray(key.data(), key.size()), ByteArray()),
+                  logged_error);
+}

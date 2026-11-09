@@ -41,6 +41,7 @@ ByteDynArray CAES::AES(const ByteArray &data, int encOp) {
   return perform_cipher_operation(data, encOp, cipher, AES_BLOCK_SIZE);
 }
 void CAES::Init(const ByteArray &key, const ByteArray &iv) {
+  if (iv.size() != AES_BLOCK_SIZE) throw logged_error("Invalid AES IV size");
   this->iv = ByteDynArray(iv);
   this->key = ByteDynArray(key);
 }

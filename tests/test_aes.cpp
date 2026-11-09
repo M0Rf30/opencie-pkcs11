@@ -83,3 +83,13 @@ TEST_CASE("AES different keys produce different ciphertext", "[crypto][aes]") {
   ByteDynArray ct2 = enc2.RawEncode(data);
   CHECK(ct1 != ct2);
 }
+
+TEST_CASE("CAES::Init rejects an IV that is not one block", "[aes]") {
+  std::vector<uint8_t> key(16, 1), shortIv(8, 0), empty;
+  CAES c;
+  CHECK_THROWS_AS(c.Init(ByteArray(key.data(), key.size()),
+                         ByteArray(shortIv.data(), shortIv.size())),
+                  logged_error);
+  CHECK_THROWS_AS(c.Init(ByteArray(key.data(), key.size()), ByteArray()),
+                  logged_error);
+}

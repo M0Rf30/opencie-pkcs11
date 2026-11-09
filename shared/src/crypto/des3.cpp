@@ -19,6 +19,7 @@
 extern CLog Log;
 
 void CDES3::Init(const ByteArray &key, const ByteArray &iv) {
+  if (iv.size() != DES_BLOCK_SIZE) throw logged_error("Invalid 3DES IV size");
   long KeySize = key.size();
 
   switch (KeySize) {

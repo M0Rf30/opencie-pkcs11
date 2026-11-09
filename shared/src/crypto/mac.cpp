@@ -27,7 +27,7 @@ struct ScopedCleanse {
   ScopedCleanse &operator=(const ScopedCleanse &) = delete;
   uint8_t (&buf_)[N];
 };
-}
+}  // namespace
 
 extern CLog Log;
 
@@ -39,6 +39,8 @@ extern CLog Log;
  */
 void CMAC::Init(const ByteArray &key, const ByteArray &iv) {
   init_func long KeySize = key.size();
+
+  if (iv.size() != 8) throw logged_error("Invalid MAC IV size");
 
   switch (KeySize) {
     case 8:
