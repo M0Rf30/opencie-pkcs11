@@ -449,24 +449,26 @@ CXAdESVerifier::CXAdESVerifier(void) : m_pXAdESDoc(nullptr) {
   }
 }
 
-CXAdESVerifier::~CXAdESVerifier(void) {
-  if (m_pXAdESDoc) {
-    if (m_pXAdESDoc->ppSignatures) {
-      int count = m_pXAdESDoc->nSignatures;
-      for (int i = 0; i < count; i++) {
-        SAFEDELETE(m_pXAdESDoc->ppSignatures[i]->pX509Cert);
-        SAFEDELETE(m_pXAdESDoc->ppSignatures[i]);
-      }
-
-      SAFEDELETE(*(m_pXAdESDoc->ppSignatures));
-      SAFEDELETE(m_pXAdESDoc->ppSignatures);
+XAdESDoc::~XAdESDoc() {
+  if (ppSignatures) {
+    // ppSignatures is an array of nSignatures pointers; entries not yet
+    // created (parse aborted part-way) are null.
+    for (int i = 0; i < nSignatures; i++) {
+      if (!ppSignatures[i]) continue;
+      SAFEDELETE(ppSignatures[i]->pX509Cert);
+      SAFEDELETE(ppSignatures[i]);
     }
+    delete[] ppSignatures;
+    ppSignatures = nullptr;
+  }
 
-    if (m_pXAdESDoc->pXmlDoc) xmlFreeDoc(m_pXAdESDoc->pXmlDoc);
-
-    SAFEDELETE(m_pXAdESDoc);
+  if (pXmlDoc) {
+    xmlFreeDoc(pXmlDoc);
+    pXmlDoc = nullptr;
   }
 }
+
+CXAdESVerifier::~CXAdESVerifier(void) { SAFEDELETE(m_pXAdESDoc); }
 
 CCertificate* CXAdESVerifier::GetCertificate(int index) {
   const SignatureInfo* pSignatureInfo = m_pXAdESDoc->ppSignatures[index];
@@ -626,6 +628,7 @@ int CXAdESVerifier::verifySignature(int index, const char* szDateTime,
 }
 
 long CXAdESVerifier::Load(char* szFilename) {
+  SAFEDELETE(m_pXAdESDoc);
   m_pXAdESDoc = parseXAdESFile(szFilename);
   if (!m_pXAdESDoc)
     return CIE_SIGN_ERROR_INVALID_FILE;
@@ -716,9 +719,10 @@ XAdESDoc* CXAdESVerifier::parseXAdESFile(char* szFilename) {
 void CXAdESVerifier::parseSignatureNode(xmlXPathContextPtr xpathCtx,
                                         xmlNodeSetPtr signatureNodes,
                                         XAdESDoc* pXAdESDoc) {
+  // One pointer per signature, null-initialised so the destructor can run
+  // even if parsing of a later signature throws.
+  pXAdESDoc->ppSignatures = new SignatureInfo*[signatureNodes->nodeNr]();
   pXAdESDoc->nSignatures = signatureNodes->nodeNr;
-  pXAdESDoc->ppSignatures = new SignatureInfo*;
-  *pXAdESDoc->ppSignatures = new SignatureInfo[pXAdESDoc->nSignatures];
 
   xmlXPathObjectPtr xpathObj;
   xmlNodePtr signatureMethodNode;
@@ -729,7 +733,7 @@ void CXAdESVerifier::parseSignatureNode(xmlXPathContextPtr xpathCtx,
   char szPath[BUFFERSIZE];
 
   for (int i = 0; i < signatureNodes->nodeNr; i++) {
-    pXAdESDoc->ppSignatures[i] = new SignatureInfo;
+    pXAdESDoc->ppSignatures[i] = new SignatureInfo();
 
     curNode = signatureNodes->nodeTab[i];
     pXAdESDoc->ppSignatures[i]->pSignatureNode = curNode;

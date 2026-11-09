@@ -60,6 +60,13 @@ struct SignatureInfo {
  * Parsed XAdES document containing data file references and signature info.
  */
 struct XAdESDoc {
+  XAdESDoc() = default;
+  /** Frees every SignatureInfo (and its certificate), the pointer array and
+   * the XML document. Safe on a partially built object. */
+  ~XAdESDoc();
+  XAdESDoc(const XAdESDoc&) = delete;
+  XAdESDoc& operator=(const XAdESDoc&) = delete;
+
   char* szFormat = nullptr;     ///< Data format name.
   char* szFormatVer = nullptr;  ///< Data format version.
   int nDataFiles = 0;
