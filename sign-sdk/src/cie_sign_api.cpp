@@ -1081,6 +1081,12 @@ long verify_xml(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
 
   for (int i = 0; i < signatureCount; i++) {
     CCertificate* pCert = verifier.GetCertificate(i);
+    if (!pCert) {
+      LOG_ERR((0, "verify_xml", "Signature %d has no signer certificate", i));
+      freeSignerInfos(pVerifyInfo->pSignerInfos, i);
+      pVerifyInfo->pSignerInfos = nullptr;
+      return CIE_SIGN_ERROR_CERT_NOTFOUND;
+    }
 
     // SIGNER_INFO* pSI = new SIGNER_INFO;
     SIGNER_INFO* pSI = &(pVerifyInfo->pSignerInfos->pSignerInfo[i]);
