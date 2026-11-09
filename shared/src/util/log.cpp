@@ -27,6 +27,9 @@
 
 #include "module_info.h"
 #include "properties.h"
+#ifndef _WIN32
+#include "util/private_dir.h"
+#endif
 
 std::string globalLogDir;
 std::string globalLogName;
@@ -155,6 +158,7 @@ std::string currentLogDate() {
  * fopen()-then-lstat() sequence, which was subject to a TOCTOU race.
  */
 FILE *openLogFileAppend(const std::string &path) {
+  if (!ParentDirIsPrivate(path)) return nullptr;
   int fd = open(path.c_str(),
                 O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_CLOEXEC, 0600);
   if (fd == -1) return nullptr;

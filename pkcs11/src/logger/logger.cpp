@@ -3,6 +3,12 @@
 #include "logger/logger.h"
 
 #include <sys/stat.h>
+#ifndef _WIN32
+#include <fcntl.h>
+#include <unistd.h>
+
+#include "util/private_dir.h"
+#endif
 
 #include <climits>
 #include <cstdarg>
@@ -31,6 +37,30 @@
 #include <iostream>
 
 namespace CieIDLogger {
+
+// Make sure `path` exists, is a regular file (never follow a symlink) and is
+// readable only by the owner before an ofstream opens it: ofstream would
+// create it under the default umask (typically 0644) and follow symlinks.
+// Returns false if the file must not be written. Windows keeps the ACLs of
+// its per-user/ProgramData directory.
+static bool preparePrivateFile(const char* path, bool truncate) {
+#ifdef _WIN32
+  (void)path;
+  (void)truncate;
+  return true;
+#else
+  if (!ParentDirIsPrivate(path)) return false;
+  int flags = O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC;
+  if (truncate) flags |= O_TRUNC;
+  int fd = open(path, flags, 0600);
+  if (fd < 0) return false;
+  struct stat st;
+  bool ok = fstat(fd, &st) == 0 && S_ISREG(st.st_mode);
+  if (ok && (st.st_mode & 077) != 0) ok = fchmod(fd, 0600) == 0;
+  close(fd);
+  return ok;
+#endif
+}
 
 inline bool config_exists(const std::string& name) {
   std::ifstream f(name.c_str());
@@ -119,7 +149,8 @@ Logger::Logger() {
   if (log_level == LOG_STATUS_DISABLED) {
     disableLog();
   } else {
-    m_File.open(pbLog, std::ios::out | std::ios::app);
+    if (preparePrivateFile(pbLog, false))
+      m_File.open(pbLog, std::ios::out | std::ios::app);
     m_File
         << '\n'
         << "-----------------------------------------------------------------"
@@ -185,6 +216,7 @@ void Logger::writeConfigFile(const std::string& filePath,
   // initialization could both see a missing config and use that same
   // std::fstream concurrently, which is undefined behaviour. A
   // stack-local stream removes the shared mutable state entirely.
+  if (!preparePrivateFile(filePath.c_str(), true)) return;
   std::ofstream f(filePath, std::ios::out);
   f << sConfig;
 }
@@ -396,7 +428,8 @@ void Logger::log_log(std::ostream& /*out*/, LogLevel level,
       data.append(text);
 
       std::lock_guard<std::mutex> guard(m_Mutex);
-      m_File.open(pbLog, std::ios::out | std::ios::app);
+      if (preparePrivateFile(pbLog, false))
+        m_File.open(pbLog, std::ios::out | std::ios::app);
       m_File << getCurrentTime() << "  " << data << '\n';
       m_File.flush();
       m_File.close();
@@ -518,7 +551,8 @@ void Logger::print_bytes(std::ostream& /*out*/, const uint8_t* data,
     size_t index = 0;
 
     std::lock_guard<std::mutex> guard(m_Mutex);
-    m_File.open(pbLog, std::ios::out | std::ios::app);
+    if (preparePrivateFile(pbLog, false))
+      m_File.open(pbLog, std::ios::out | std::ios::app);
 
     m_File << std::setfill('0');
     m_File << '\n';
