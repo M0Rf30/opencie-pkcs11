@@ -1189,3 +1189,24 @@ TEST_CASE("PACE does not rewrite case-3 command data on a 6Cxx answer",
   // Not retried: the password reference byte was never mutated.
   CHECK(mseApdus.size() == 1);
 }
+
+TEST_CASE("selectProtocol refuses weak unauthenticated parameters",
+          "[pace][cardaccess]") {
+  Params p;
+  // DH-GM AES-128 with the 1024-bit group 0
+  CHECK_FALSE(selectProtocol(
+      parseCardAccess(H("3114 3012060A04007F00070202040102 020102 020100")),
+      p));
+  // ECDH-GM AES-128 with secp192r1 (id 8) and brainpoolP192r1 (id 9)
+  CHECK_FALSE(selectProtocol(
+      parseCardAccess(H("3114 3012060A04007F00070202040202 020102 020108")),
+      p));
+  CHECK_FALSE(selectProtocol(
+      parseCardAccess(H("3114 3012060A04007F00070202040202 020102 020109")),
+      p));
+  // A strong option next to a weak one is still chosen.
+  Bytes body = H("3012060A04007F00070202040102 020102 020100");
+  body = cat(body, H("3012060A04007F00070202040101 020102 020102"));
+  REQUIRE(selectProtocol(parseCardAccess(ber(0x31, body)), p));
+  CHECK(p.parameterId == 2);
+}

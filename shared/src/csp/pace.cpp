@@ -1055,12 +1055,16 @@ bool selectProtocol(const std::vector<PaceInfo>& infos, Params& out) {
         p.ec = false;
         p.mapping = Mapping::GM;
         if (!findDhGroup(i.parameterId)) continue;
+        // EF.CardAccess is unauthenticated: refuse the 1024-bit group.
+        if (i.parameterId == 0) continue;
         break;
       case 2:  // ECDH-GM
       case 6:  // ECDH-CAM (PACE phase identical to GM)
         p.ec = true;
         p.mapping = (mapId == 2) ? Mapping::GM : Mapping::CAM;
         if (!findCurve(i.parameterId)) continue;
+        // Refuse 192-bit curves (ids 8, 9) for the same reason.
+        if (i.parameterId == 8 || i.parameterId == 9) continue;
         break;
       default:  // Integrated Mapping is not supported
         continue;
