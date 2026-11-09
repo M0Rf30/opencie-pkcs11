@@ -228,6 +228,13 @@ void validateDhPublicKey(const ByteArray &yBa, const ByteArray &pBa,
     throw logged_error("DH public key is not in the order-q subgroup");
 }
 
+// Length-checked comparison whose running time does not depend on where the
+// first differing byte is. Used for MACs and authentication hashes.
+bool ctEqual(const ByteArray &a, const ByteArray &b) {
+  return a.size() == b.size() &&
+         CRYPTO_memcmp(a.data(), b.data(), a.size()) == 0;
+}
+
 ByteArray stripLeadingZeros(const ByteArray &v) {
   size_t skip = 0;
   while (skip < v.size() && v.data()[skip] == 0) ++skip;
@@ -856,7 +863,7 @@ void IAS::DAPP() {
 
   ByteDynArray calcHashIFD = sha256.Digest(toHashIFD);
 
-  ER_ASSERT(calcHashIFD == hashICC, "Chip authentication error")
+  ER_ASSERT(ctEqual(calcHashIFD, hashICC), "Chip authentication error")
   ER_ASSERT(intAuthResp.right(1)[0] == 0xbc, "Chip authentication error");
 
   ByteArray challengeBa = challenge.right(4);
@@ -1022,6 +1029,7 @@ StatusWord IAS::respSM(const ByteArray &keyEnc, const ByteArray &keySig,
   increment(seq);
   DWORD index, llen, lgn;
   StatusWord sw = 0xffff;
+  bool haveSw = false;
   ByteDynArray encData;
   ByteDynArray respMac, calcMac;
   ByteDynArray iv(8);
@@ -1050,11 +1058,15 @@ StatusWord IAS::respSM(const ByteArray &keyEnc, const ByteArray &keySig,
           throw logged_error("Invalid status word length");
         calcMac.append(resp.mid(index, resp[index + 1] + 2));
         sw = resp[index + 2] << 8 | resp[index + 3];
+        haveSw = true;
         index += 4;
       } else if (resp[index] == 0x8e) {
         if (resp[index + 1] != 0x08) throw logged_error("Invalid MAC length");
         respMac = ByteDynArray(resp.mid(index + 2, 8));
         index += 10;
+        // The MAC covers everything before it; nothing may follow it.
+        if (index != resp.size())
+          throw logged_error("Data after the MAC in Secure Messaging response");
       } else if (resp[index] == 0x85) {
         if (resp[index + 1] > 0x80) {
           llen = resp[index + 1] - 0x80;
@@ -1099,8 +1111,11 @@ StatusWord IAS::respSM(const ByteArray &keyEnc, const ByteArray &keySig,
         throw logged_error("Unrecognized tag in Secure Messaging response");
     } while (index < resp.size());
 
+    // The status word DO is mandatory and the MAC must be present and equal.
+    if (!haveSw)
+      throw logged_error("Secure Messaging response without status word");
     auto smMac = sigMac.Mac(ISOPad(calcMac));
-    ER_ASSERT(smMac == respMac, "Chip response checksum error")
+    ER_ASSERT(ctEqual(smMac, respMac), "Chip response checksum error")
   } catch (const logged_error &e) {
     throw card_link_error(std::string("SM response: ") + e.what());
   }

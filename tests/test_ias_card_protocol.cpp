@@ -604,4 +604,49 @@ TEST_CASE("VerificaSOD rejects a SHA-1 signature algorithm", "[ias][cp04]") {
   }
 }
 
+// CP-08: Secure Messaging responses must carry a valid, final MAC.
+
+TEST_CASE("Secure Messaging responses without a valid MAC are rejected",
+          "[ias][cp08]") {
+  DhGroup grp;
+  BIGNUM *p = BN_bin2bn(grp.p.data(), static_cast<int>(grp.p.size()), nullptr);
+  BIGNUM *g = BN_bin2bn(grp.g.data(), static_cast<int>(grp.g.size()), nullptr);
+  BIGNUM *y = BN_new();
+  BIGNUM *k = BN_new();
+  BN_CTX *ctx = BN_CTX_new();
+  BN_set_word(k, 0x7654321);
+  BN_mod_exp(y, g, k, p, ctx);
+  const Bytes iccPub = BnBytes(y, grp.p.size());
+  BN_CTX_free(ctx);
+  BN_free(k);
+  BN_free(y);
+  BN_free(g);
+  BN_free(p);
+
+  const Bytes status = {0x99, 0x02, 0x90, 0x00};
+  const Bytes zeroMac = Cat({0x8E, 0x08}, Bytes(8, 0x00));
+  Bytes smResponse;
+  SECTION("wrong MAC") { smResponse = Cat(status, zeroMac); }
+  SECTION("no status word DO") { smResponse = zeroMac; }
+  SECTION("no MAC DO") { smResponse = status; }
+  SECTION("data after the MAC") {
+    smResponse = Cat(Cat(status, zeroMac), {0x00});
+  }
+  SECTION("short MAC") { smResponse = Cat(status, {0x8E, 0x04, 1, 2, 3, 4}); }
+
+  FakeCard::Handler plain = DhCard(grp, iccPub);
+  Rig rig([plain, smResponse](const Bytes &apdu) -> Bytes {
+    if (apdu[0] == 0x0C) return WithSw(smResponse, 0x9000);  // SM command
+    return plain(apdu);
+  });
+  rig.ias.SelectAID_IAS();
+  REQUIRE_NOTHROW(rig.ias.InitDHParam());
+  REQUIRE_NOTHROW(rig.ias.DHKeyExchange());
+  REQUIRE(rig.ias.ActiveSM);
+
+  // ReadDappPubKey goes through readfile_SM once the session is active.
+  ByteDynArray out;
+  CHECK_THROWS_AS(rig.ias.ReadDappPubKey(out), card_link_error);
+}
+
 #endif  // _WIN32
