@@ -88,6 +88,26 @@ CSlot::~CSlot() { Final(); }
 
 CK_SLOT_ID CSlot::GetNewSlotID() { return ++dwSlotCnt; }
 
+// Publishes the monitor's stack CCardContext through CSlot::ThreadContext for
+// C_Finalize() (which cancels the blocking GetStatusChange through it). Both
+// publishing and retracting happen under p11Mutex, the lock C_Finalize holds
+// while it dereferences the pointer, so the context cannot be destroyed
+// underneath it. Declared right after the context so it is retracted first.
+// Must not be live while the monitor holds p11Mutex when it is destroyed:
+// every exit path leaves its locked scope before the guard goes away.
+struct ContextPublisher {
+  explicit ContextPublisher(CCardContext &ctx) {
+    std::unique_lock<std::mutex> lock(p11Mutex);
+    CSlot::ThreadContext = &ctx;
+  }
+  ~ContextPublisher() {
+    std::unique_lock<std::mutex> lock(p11Mutex);
+    CSlot::ThreadContext = nullptr;
+  }
+  ContextPublisher(const ContextPublisher &) = delete;
+  ContextPublisher &operator=(const ContextPublisher &) = delete;
+};
+
 static DWORD slotMonitor(SlotMap *pSlotMap) {
   while (true) {
     // The slot map is mutated by InitSlotList() under p11Mutex, so every
@@ -101,7 +121,7 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
     }
     ISmartCardTransport &transport = *pTransport;
     CCardContext Context(transport);
-    CSlot::ThreadContext = &Context;
+    ContextPublisher publisher(Context);
     size_t dwSlotNum = 0;
     std::vector<SCARD_READERSTATE> state;
     std::vector<std::shared_ptr<CSlot>> slot;
@@ -114,7 +134,6 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
       size_t i = 0;
       for (auto &[id, pSlot] : *pSlotMap) {
         if (!bP11Initialized) {
-          CSlot::ThreadContext = nullptr;
           return 0;
         }
 
@@ -128,7 +147,6 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
             // don't use ExitThread!!!
             // otherwise I don't call destructors, and everything hangs
             // ESPECIALLY the p11Mutex
-            CSlot::ThreadContext = nullptr;
             return 1;
           }
         }
@@ -161,7 +179,6 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
             !bP11Initialized) {
           LOG_DEBUG("slotMonitor - Terminate");
           p11slotEvent.set();
-          CSlot::ThreadContext = nullptr;
           // no exitThread, vedi sopra;
           return 0;
         }
@@ -170,14 +187,12 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
           LOG_ERROR("slotMonitor - SCardGetStatusChange error: %08lX",
                     static_cast<unsigned long>(ris));
           p11slotEvent.set();
-          CSlot::ThreadContext = nullptr;
           // no exitThread, vedi sopra;
           return 1;
         }
         if (ris == static_cast<LONG>(SCARD_E_NO_READERS_AVAILABLE)) {
           LOG_INFO("slotMonitor - No smart card reader connected: %08lX",
                    static_cast<unsigned long>(ris));
-          CSlot::ThreadContext = nullptr;
           // no exitThread, vedi sopra;
           return 1;
         }
@@ -185,7 +200,6 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
       if (bP11Terminate || !bP11Initialized) {
         LOG_INFO("slotMonitor - Terminate");
         p11slotEvent.set();
-        CSlot::ThreadContext = nullptr;
         // no exitThread, see above;
         return 0;
       }
@@ -222,7 +236,6 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
             state[i].dwEventState & (~SCARD_STATE_CHANGED);
       }
     }
-    CSlot::ThreadContext = nullptr;
   }
   // no exitThread, vedi sopra;
   return 0;
