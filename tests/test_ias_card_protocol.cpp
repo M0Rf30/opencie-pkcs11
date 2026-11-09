@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -452,6 +453,154 @@ TEST_CASE("ReadDappPubKey rejects out-of-range RSA keys", "[ias][cp03]") {
     Rig rig(
         FileCard(Tlv(0x30, Cat(DerUInt(modulus), DerUInt(Bytes(64, 0x7F))))));
     CHECK_THROWS_AS(rig.ias.ReadDappPubKey(out), logged_error);
+  }
+}
+
+// CP-04: SOD verification enforces digests, signer identity and SHA-1 ban.
+
+namespace {
+
+const Bytes kOidSha256 = {0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01};
+
+Bytes Digest32(uint8_t fill) { return Bytes(32, fill); }
+
+Bytes DgEntry(const Bytes &num, const Bytes &digest) {
+  return Tlv(0x30, Cat(Tlv(0x02, num), Tlv(0x04, digest)));
+}
+
+Bytes Lds(uint8_t version, const Bytes &hashOid, const Bytes &dgEntries) {
+  return Tlv(0x30, Cat(Cat(Tlv(0x02, {version}), Tlv(0x30, Tlv(0x06, hashOid))),
+                       Tlv(0x30, dgEntries)));
+}
+
+std::map<uint8_t, ByteDynArray> HostDigests(
+    std::initializer_list<std::pair<uint8_t, Bytes>> in) {
+  std::map<uint8_t, ByteDynArray> out;
+  for (const auto &e : in)
+    out[e.first] = ByteDynArray(ByteArray(e.second.data(), e.second.size()));
+  return out;
+}
+
+void VerifyLds(const Bytes &lds, uint8_t version,
+               const std::map<uint8_t, ByteDynArray> &hashes) {
+  IAS::VerifyLdsSecurityObject(ByteArray(lds.data(), lds.size()), version,
+                               ByteArray(kOidSha256.data(), kOidSha256.size()),
+                               hashes);
+}
+
+}  // namespace
+
+TEST_CASE("LDSSecurityObject digests must match the files read",
+          "[ias][cp04]") {
+  const Bytes dgs =
+      Cat(Cat(DgEntry({0xA1}, Digest32(1)), DgEntry({0x00, 0xA2}, Digest32(2))),
+          DgEntry({0xA3}, Digest32(3)));
+  const Bytes lds = Lds(0, kOidSha256, dgs);
+
+  SECTION("all digests equal") {
+    CHECK_NOTHROW(VerifyLds(
+        lds, 0, HostDigests({{0xA1, Digest32(1)}, {0xA2, Digest32(2)}})));
+  }
+  SECTION("a DG listed in the SOD but never read is ignored") {
+    CHECK_NOTHROW(VerifyLds(lds, 0, HostDigests({{0xA3, Digest32(3)}})));
+  }
+  SECTION("digest mismatch is fatal") {
+    CHECK_THROWS_AS(
+        VerifyLds(lds, 0,
+                  HostDigests({{0xA1, Digest32(1)}, {0xA2, Digest32(9)}})),
+        logged_error);
+  }
+  SECTION("a file read but absent from the SOD is fatal") {
+    CHECK_THROWS_AS(
+        VerifyLds(lds, 0,
+                  HostDigests({{0xA1, Digest32(1)}, {0xA4, Digest32(4)}})),
+        logged_error);
+  }
+  SECTION("an empty host digest never matches") {
+    CHECK_THROWS_AS(VerifyLds(lds, 0, HostDigests({{0xA1, Bytes {}}})),
+                    logged_error);
+  }
+  SECTION("no host digests at all is fatal") {
+    CHECK_THROWS_AS(VerifyLds(lds, 0, {}), logged_error);
+  }
+  SECTION("wrong version or digest algorithm is fatal") {
+    CHECK_THROWS_AS(VerifyLds(lds, 1, HostDigests({{0xA1, Digest32(1)}})),
+                    logged_error);
+    const Bytes sha1Oid = {0x2B, 0x0E, 0x03, 0x02, 0x1A};
+    CHECK_THROWS_AS(
+        VerifyLds(Lds(0, sha1Oid, dgs), 0, HostDigests({{0xA1, Digest32(1)}})),
+        logged_error);
+  }
+  SECTION("duplicate DG entries are fatal") {
+    const Bytes dup =
+        Lds(0, kOidSha256,
+            Cat(DgEntry({0xA1}, Digest32(1)), DgEntry({0xA1}, Digest32(1))));
+    CHECK_THROWS_AS(VerifyLds(dup, 0, HostDigests({{0xA1, Digest32(1)}})),
+                    logged_error);
+  }
+  SECTION("a malformed DG number is fatal") {
+    const Bytes bad = Lds(0, kOidSha256, DgEntry({}, Digest32(1)));
+    CHECK_THROWS_AS(VerifyLds(bad, 0, HostDigests({{0xA1, Digest32(1)}})),
+                    logged_error);
+  }
+}
+
+TEST_CASE("VerificaSOD rejects a SHA-1 signature algorithm", "[ias][cp04]") {
+  const Bytes oidSignedData = {0x2A, 0x86, 0x48, 0x86, 0xF7,
+                               0x0D, 0x01, 0x07, 0x02};
+  const Bytes oidLds = {0x67, 0x81, 0x08, 0x01, 0x01, 0x01};
+  const Bytes oidContentType = {0x2A, 0x86, 0x48, 0x86, 0xF7,
+                                0x0D, 0x01, 0x09, 0x03};
+  const Bytes oidMessageDigest = {0x2A, 0x86, 0x48, 0x86, 0xF7,
+                                  0x0D, 0x01, 0x09, 0x04};
+  const Bytes oidSha1WithRsa = {0x2A, 0x86, 0x48, 0x86, 0xF7,
+                                0x0D, 0x01, 0x01, 0x05};
+  const Bytes oidSha256WithRsa = {0x2A, 0x86, 0x48, 0x86, 0xF7,
+                                  0x0D, 0x01, 0x01, 0x0B};
+
+  auto buildSod = [&](const Bytes &sigAlgo) {
+    const Bytes lds = Lds(0, kOidSha256, DgEntry({0xA1}, Digest32(1)));
+    const Bytes encap =
+        Tlv(0x30, Cat(Tlv(0x06, oidLds), Tlv(0xA0, Tlv(0x04, lds))));
+    const Bytes signedAttrs =
+        Tlv(0xA0, Cat(Tlv(0x30, Cat(Tlv(0x06, oidContentType),
+                                    Tlv(0x31, Tlv(0x06, oidLds)))),
+                      Tlv(0x30, Cat(Tlv(0x06, oidMessageDigest),
+                                    Tlv(0x31, Tlv(0x04, Digest32(7)))))));
+    const Bytes sid = Tlv(0x30, Cat(Tlv(0x30, Tlv(0x31, {})), Tlv(0x02, {1})));
+    const Bytes signerInfo =
+        Tlv(0x30, Cat(Cat(Cat(Cat(Cat(Tlv(0x02, {1}), sid),
+                                  Tlv(0x30, Tlv(0x06, kOidSha256))),
+                              signedAttrs),
+                          Tlv(0x30, Tlv(0x06, sigAlgo))),
+                      Tlv(0x04, Bytes(128, 0x11))));
+    const Bytes cert = Tlv(0x30, Tlv(0x02, {1}));
+    const Bytes signedData =
+        Tlv(0x30, Cat(Cat(Cat(Cat(Tlv(0x02, {3}),
+                                  Tlv(0x31, Tlv(0x30, Tlv(0x06, kOidSha256)))),
+                              encap),
+                          Tlv(0xA0, cert)),
+                      Tlv(0x31, signerInfo)));
+    // EF.SOD: application tag 0x77 wrapping the CMS ContentInfo.
+    return Tlv(0x77,
+               Tlv(0x30, Cat(Tlv(0x06, oidSignedData), Tlv(0xA0, signedData))));
+  };
+
+  std::map<uint8_t, ByteDynArray> hashes = HostDigests({{0xA1, Digest32(1)}});
+
+  SECTION("sha1WithRSAEncryption") {
+    Bytes sod = buildSod(oidSha1WithRsa);
+    CHECK_THROWS_WITH(
+        IAS::VerificaSOD(ByteArray(sod.data(), sod.size()), hashes),
+        Catch::Matchers::ContainsSubstring("SHA-1"));
+  }
+  SECTION("sha256WithRSAEncryption gets past the algorithm check") {
+    // The messageDigest attribute does not match the content digest, so the
+    // next check (not the algorithm one) is what rejects it.
+    Bytes sod = buildSod(oidSha256WithRsa);
+    CHECK_THROWS_WITH(
+        IAS::VerificaSOD(ByteArray(sod.data(), sod.size()), hashes),
+        Catch::Matchers::ContainsSubstring("does not match"));
   }
 }
 

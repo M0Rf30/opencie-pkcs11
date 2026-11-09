@@ -234,12 +234,38 @@ class IAS {
 
   /** @brief Determine the digest algorithm used in the SOD signature. */
   static uint8_t GetSODDigestAlg(const ByteArray &SOD);
-  /** @brief Verify the SOD signature using RSA-PSS and extract hash set. */
+  /**
+   * @brief Verify the SOD (RSA-PSS / SHA-512 variant) against the digests of
+   *        the files read from the card.
+   * @param hashSet  Digest of each file read, keyed by data group number.
+   * @throws logged_error if the SOD is malformed, its signature, signer
+   *         identity or any digest does not verify, or a read file is not
+   *         covered by the SOD.
+   * @note The signature is checked against the signer certificate embedded in
+   *       the SOD; the certificate is not chained to a trust anchor.
+   */
   static void VerificaSODPSS(const ByteArray &SOD,
-                             std::map<uint8_t, ByteDynArray> &hashSet);
-  /** @brief Verify the SOD signature and extract the data group hash set. */
+                             const std::map<uint8_t, ByteDynArray> &hashSet);
+  /**
+   * @brief Verify the SOD (RSA PKCS#1 v1.5 / SHA-256 variant, SHA-1 is
+   *        rejected) against the digests of the files read from the card.
+   * @copydetails VerificaSODPSS
+   */
   static void VerificaSOD(const ByteArray &SOD,
-                          std::map<uint8_t, ByteDynArray> &hashSet);
+                          const std::map<uint8_t, ByteDynArray> &hashSet);
+  /**
+   * @brief Check a DER LDSSecurityObject (the SOD's signed content) against
+   *        the digests of the files read from the card.
+   * @param lds      DER of the LDSSecurityObject.
+   * @param version  Expected LDSSecurityObject version.
+   * @param hashOid  Expected digest algorithm OID content bytes.
+   * @param hashSet  Digest of each file read, keyed by data group number. Each
+   *                 entry must appear in the object with an equal digest.
+   * @throws logged_error on any mismatch, duplicate or missing digest.
+   */
+  static void VerifyLdsSecurityObject(
+      const ByteArray &lds, uint8_t version, const ByteArray &hashOid,
+      const std::map<uint8_t, ByteDynArray> &hashSet);
 
   /** @brief Progress callback invoked during long-running operations.
    *  @param progress  Percentage of completion (0-100).

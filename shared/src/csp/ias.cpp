@@ -8,13 +8,13 @@
 #include <algorithm>
 #include <initializer_list>
 #include <memory>
+#include <set>
 
 #include "crypto/aes.h"
 #include "crypto/asn_parser.h"
 #include "crypto/des3.h"
 #include "crypto/mac.h"
 #include "crypto/rsa.h"
-#include "crypto/sha1.h"
 #include "crypto/sha256.h"
 #include "crypto/sha512.h"
 #include "logger/logger.h"
@@ -226,6 +226,30 @@ void validateDhPublicKey(const ByteArray &yBa, const ByteArray &pBa,
     throw logged_error("BN_mod_exp failed");
   if (!BN_is_one(yq.get()))
     throw logged_error("DH public key is not in the order-q subgroup");
+}
+
+ByteArray stripLeadingZeros(const ByteArray &v) {
+  size_t skip = 0;
+  while (skip < v.size() && v.data()[skip] == 0) ++skip;
+  return v.mid(skip);
+}
+
+// SignerInfo.sid (IssuerAndSerialNumber) names the certificate the SOD
+// signature has to verify against. The certificate that is actually used is
+// the one embedded in the SOD, so the two must agree: otherwise the signature
+// is checked against a key the SignerInfo never referred to.
+void requireSignerIdentity(const ByteArray &sod, const CASNTag &sidIssuer,
+                           const CASNTag &sidSerial,
+                           const ByteArray &certIssuerDer,
+                           const ByteArray &certSerial) {
+  ByteArray sidIssuerDer =
+      sod.mid(sidIssuer.startPos, sidIssuer.endPos - sidIssuer.startPos);
+  if (certIssuerDer.isEmpty() || sidIssuerDer != certIssuerDer)
+    throw logged_error(
+        "SOD signer issuer does not match the signer certificate");
+  if (stripLeadingZeros(sidSerial.content) != stripLeadingZeros(certSerial))
+    throw logged_error(
+        "SOD signer serial does not match the signer certificate");
 }
 
 // Bounds the DAPP RSA public key read from the card.
@@ -1503,8 +1527,49 @@ uint8_t IAS::GetSODDigestAlg(const ByteArray &SOD) {
     throw logged_error("GetSODDigestAlg - Digest algorithm not supported");
 }
 
+void IAS::VerifyLdsSecurityObject(
+    const ByteArray &lds, uint8_t version, const ByteArray &hashOid,
+    const std::map<uint8_t, ByteDynArray> &hashSet) {
+  // Nothing read from the card would be authenticated by an empty set.
+  if (hashSet.empty())
+    throw logged_error("SOD verification - no data group digests to check");
+
+  CASNParser parser;
+  parser.Parse(lds);
+  CASNTag &so = asnRoot(parser).CheckTag(0x30);
+  so.Child(0, 02).Verify(VarToByteArray(version));
+  so.Child(1, 0x30).Child(0, 06).Verify(hashOid);
+
+  // Every data group digest the SOD announces for a file we read has to match
+  // what we computed. DGs listed in the SOD that were not read are ignored:
+  // no card data depends on them.
+  std::set<uint8_t> listed;
+  for (const auto &tagPtr : so.Child(2, 0x30).tags) {
+    CASNTag &hashDG = tagPtr->CheckTag(0x30);
+    uint8_t num = asnDgNumber(hashDG.Child(0, 02).content);
+    const CASNTag &dgHash = hashDG.Child(1, 04);
+
+    if (!listed.insert(num).second)
+      throw logged_error(
+          stdPrintf("SOD verification - duplicate digest for DG %02X", num));
+
+    auto it = hashSet.find(num);
+    if (it == hashSet.end()) continue;
+    if (it->second.isEmpty() || it->second != dgHash.content)
+      throw logged_error(
+          stdPrintf("SOD verification - digest mismatch for DG %02X", num));
+  }
+
+  // Conversely, every file we read has to be covered by the SOD, otherwise its
+  // content is unauthenticated.
+  for (const auto &entry : hashSet)
+    if (listed.find(entry.first) == listed.end())
+      throw logged_error(stdPrintf(
+          "SOD verification - no digest in the SOD for DG %02X", entry.first));
+}
+
 void IAS::VerificaSODPSS(const ByteArray &SOD,
-                         std::map<uint8_t, ByteDynArray> &hashSet) {
+                         const std::map<uint8_t, ByteDynArray> &hashSet) {
   CASNParser parser;
   parser.Parse(SOD);
 
@@ -1546,7 +1611,7 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
   temp3.Child(0, 02).Verify(VarToByteArray(val1));
 
   CASNTag &issuerName = temp3.Child(1, 0x30).Child(0, 0x30);
-  temp3.Child(1, 0x30).Child(1, 02);
+  CASNTag &signerSerial = temp3.Child(1, 0x30).Child(1, 02);
 
   temp3.Child(2, 0x30).Child(0, 06).Verify(VarToByteArray(OID_SHA512));
 
@@ -1633,37 +1698,15 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
     throw logged_error("VerificaSODPSS - SOD Sign not valid");
   }
 
-  issuerName.Reparse();
-  CASNParser issuerParser;
+  requireSignerIdentity(SOD, issuerName, signerSerial, issuerBa, serialBa);
 
-  issuerParser.Parse(issuerBa);
-
-  CASNTag &CertIssuer = asnRoot(issuerParser);
-  if (issuerName.tags.size() != CertIssuer.tags.size())
-    Log.writePure("Issuer name mismatch");
-
-  uint8_t val = 1;
-  signedData.Child(0, 02).Verify(VarToByteArray(val));
-  signedData.Child(1, 0x30).Child(0, 06).Verify(VarToByteArray(OID_SHA512));
-
-  CASNTag &hashTag = signedData.Child(2, 0x30);
-  for (const auto &tagPtr : hashTag.tags) {
-    CASNTag &hashDG = *tagPtr;
-    CASNTag &dgNum = hashDG.CheckTag(0x30).Child(0, 02);
-    const CASNTag &dgHash = hashDG.Child(1, 04);
-    uint8_t num = asnDgNumber(dgNum.content);
-
-    if (hashSet.find(num) == hashSet.end() || hashSet[num].size() == 0)
-      throw logged_error(stdPrintf("Digest not found for DG %02X", num));
-
-    if (hashSet[num] != dgHash.content)
-      throw logged_error(
-          stdPrintf("VerificaSODPSS - Digest for DG %02X not found", num));
-  }
+  VerifyLdsSecurityObject(
+      ttData.mid(signedData.startPos, signedData.endPos - signedData.startPos),
+      1, VarToByteArray(OID_SHA512), hashSet);
 }
 
 void IAS::VerificaSOD(const ByteArray &SOD,
-                      std::map<BYTE, ByteDynArray> &hashSet) {
+                      const std::map<uint8_t, ByteDynArray> &hashSet) {
   CASNParser parser;
   parser.Parse(SOD);
 
@@ -1698,6 +1741,7 @@ void IAS::VerificaSOD(const ByteArray &SOD,
   uint8_t val1 = 1;
   temp3.Child(0, 02).Verify(VarToByteArray(val1));
   CASNTag &issuerName = temp3.Child(1, 0x30).Child(0, 0x30);
+  CASNTag &signerSerial = temp3.Child(1, 0x30).Child(1, 02);
   temp3.Child(2, 0x30).Child(0, 06).Verify(VarToByteArray(OID_SH256));
 
   CASNTag &signerInfo = temp3.Child(3, 0xA0);
@@ -1717,13 +1761,9 @@ void IAS::VerificaSOD(const ByteArray &SOD,
   uint8_t OID_RSAwithSHA1[] = {0x2a, 0x86, 0x48, 0x86, 0xf7,
                                0x0d, 0x01, 0x01, 0x05};
   auto &digestAlgo = temp3.Child(4, 0x30).Child(0, 06).content;
-  bool isSHA1 = false;
-  bool isSHA256 = false;
   if (digestAlgo == VarToByteArray(OID_RSAwithSHA1))
-    isSHA1 = true;
-  else if (digestAlgo == VarToByteArray(OID_RSAwithSHA256))
-    isSHA256 = true;
-  else
+    throw logged_error("VerificaSOD - SHA-1 signatures are not accepted");
+  if (digestAlgo != VarToByteArray(OID_RSAwithSHA256))
     throw logged_error("VerificaSOD - Digest algorithm not valid");
 
   CASNTag &signature = temp3.Child(5, 04);
@@ -1770,54 +1810,22 @@ void IAS::VerificaSOD(const ByteArray &SOD,
       static_cast<int>(signerInfo.tags[signerInfo.tags.size() - 1]->endPos -
                        signerInfo.tags[0]->startPos));
 
-  ByteDynArray digestSignature;
-  if (isSHA1) {
-    CSHA1 sha1;
-    decryptedSignature =
-        ByteDynArray(decryptedSignature.mid(RemoveSha1(decryptedSignature)));
-    digestSignature = sha1.Digest(toSign.getASN1Tag(0x31));
-  }
-  if (isSHA256) {
-    CSHA256 sha256_2;
-    decryptedSignature =
-        ByteDynArray(decryptedSignature.mid(RemoveSha256(decryptedSignature)));
+  CSHA256 sha256_2;
+  decryptedSignature =
+      ByteDynArray(decryptedSignature.mid(RemoveSha256(decryptedSignature)));
 
-    ByteDynArray toSignBa = toSign.getASN1Tag(0x31);
-    ByteArray ba(toSignBa.data(), toSignBa.size());
+  ByteDynArray toSignBa = toSign.getASN1Tag(0x31);
+  ByteArray ba(toSignBa.data(), toSignBa.size());
 
-    digestSignature = sha256_2.Digest(ba);
-  }
+  ByteDynArray digestSignature = sha256_2.Digest(ba);
   if (digestSignature != decryptedSignature)
     throw logged_error("VerificaSOD - SOD sign not valid");
 
-  issuerName.Reparse();
-  CASNParser issuerParser;
+  requireSignerIdentity(SOD, issuerName, signerSerial, issuerBa, serialBa);
 
-  issuerParser.Parse(issuerBa);
-
-  CASNTag &CertIssuer = asnRoot(issuerParser);
-  if (issuerName.tags.size() != CertIssuer.tags.size())
-    Log.writePure("Issuer name mismatch");
-
-  uint8_t val0 = 0;
-  signedData.Child(0, 02).Verify(VarToByteArray(val0));
-  signedData.Child(1, 0x30).Child(0, 06).Verify(VarToByteArray(OID_SH256));
-
-  CASNTag &hashTag = signedData.Child(2, 0x30);
-  for (const auto &tagPtr : hashTag.tags) {
-    CASNTag &hashDG = *tagPtr;
-    CASNTag &dgNum = hashDG.CheckTag(0x30).Child(0, 02);
-    const CASNTag &dgHash = hashDG.Child(1, 04);
-    uint8_t num = asnDgNumber(dgNum.content);
-
-    if (hashSet.find(num) == hashSet.end() || hashSet[num].size() == 0)
-      Log.writePure("%s",
-                    stdPrintf("Digest not found for DG %02X", num).c_str());
-
-    if (hashSet[num] != dgHash.content)
-      Log.writePure("%s",
-                    stdPrintf("Digest mismatch for DG %02X", num).c_str());
-  }
+  VerifyLdsSecurityObject(
+      ttData.mid(signedData.startPos, signedData.endPos - signedData.startPos),
+      0, VarToByteArray(OID_SH256), hashSet);
 }
 
 #define DWL_MSGRESULT 0
