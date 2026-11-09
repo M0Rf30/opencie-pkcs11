@@ -82,6 +82,9 @@ void PdfSignatureGenerator::InitSignature(
     const char* /*szLocationLabel*/, const char* szFieldName,
     const char* /*szSubFilter*/, const unsigned char* imageData,
     int imageDataLen, const char* /*szDescription*/) {
+  if (pageIndex < 0 ||
+      static_cast<unsigned>(pageIndex) >= m_pPdfDocument->GetPages().GetCount())
+    throw logged_error("PdfSignatureGenerator: page index out of range");
   auto& page = m_pPdfDocument->GetPages().GetPageAt(pageIndex);
   PoDoFo::Rect cropBox = page.GetCropBox();
 
@@ -211,6 +214,9 @@ void PdfSignatureGenerator::GetSignedPdf(ByteDynArray& signedPdf) {
 
 double PdfSignatureGenerator::getWidth(int pageIndex) {
   if (m_pPdfDocument) {
+    if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >=
+                             m_pPdfDocument->GetPages().GetCount())
+      return 0;
     return m_pPdfDocument->GetPages().GetPageAt(pageIndex).GetRect().Width;
   }
   return 0;
@@ -218,6 +224,9 @@ double PdfSignatureGenerator::getWidth(int pageIndex) {
 
 double PdfSignatureGenerator::getHeight(int pageIndex) {
   if (m_pPdfDocument) {
+    if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >=
+                             m_pPdfDocument->GetPages().GetCount())
+      return 0;
     return m_pPdfDocument->GetPages().GetPageAt(pageIndex).GetRect().Height;
   }
   return 0;

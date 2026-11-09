@@ -19,7 +19,9 @@ CSignedDocument::CSignedDocument(const BYTE* content, int len) {
 
   ByteDynArray c;
 
-  if (content[0] == 'M' || content[0] == '-') {  // base64
+  // DER always starts with a SEQUENCE tag (0x30); anything else is PEM or
+  // bare base64 (which may start with any alphabet character).
+  if (content[0] != 0x30) {  // base64
     try {
       LOG_DBG((0, "CSignedDocument", "base64"));
 

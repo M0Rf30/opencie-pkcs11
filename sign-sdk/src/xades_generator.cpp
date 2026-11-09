@@ -8,6 +8,7 @@
 
 #include <ctime>
 #include <map>
+#include <memory>
 
 #include "asn1/digest_info.h"
 #include "big_integer_library.h"
@@ -75,12 +76,15 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
                                BOOL bVerifyCertificate) {
   // get the certificate based on alias
   ByteDynArray id;
-  CCertificate* pSignerCertificate;
-  m_pSigner->GetCertificate(m_szAlias, &pSignerCertificate, id);
+  CCertificate* pRawCertificate = nullptr;
+  m_pSigner->GetCertificate(m_szAlias, &pRawCertificate, id);
+  // Owned for every exit path (returns and exceptions).
+  std::unique_ptr<CCertificate> certGuard(pRawCertificate);
+  CCertificate* pSignerCertificate = pRawCertificate;
+  if (!pSignerCertificate) return CIE_SIGN_ERROR_CERT_INVALID;
 
   if (bVerifyCertificate) {
     if (!pSignerCertificate->isValid()) {
-      SAFEDELETE(pSignerCertificate);
       m_pSigner->Close();
       return CIE_SIGN_ERROR_CERT_EXPIRED;
     }
@@ -88,19 +92,16 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
     int bitmask = pSignerCertificate->verify();
 
     if ((bitmask & VERIFIED_CACERT_FOUND) == 0) {
-      SAFEDELETE(pSignerCertificate);
       m_pSigner->Close();
       return CIE_SIGN_ERROR_CACERT_NOTFOUND;
     }
 
     if ((bitmask & VERIFIED_CERT_CHAIN) == 0) {
-      SAFEDELETE(pSignerCertificate);
       m_pSigner->Close();
       return CIE_SIGN_ERROR_CERT_INVALID;
     }
 
     if (pSignerCertificate->verifyStatus(nullptr) != REVOCATION_STATUS_GOOD) {
-      SAFEDELETE(pSignerCertificate);
       m_pSigner->Close();
       return CIE_SIGN_ERROR_CERT_REVOKED;
     }
@@ -121,13 +122,13 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
                         m_data.size());
 
   if (pDoc == nullptr) return CIE_SIGN_ERROR_INVALID_FILE;
+  std::unique_ptr<xmlDoc, decltype(&xmlFreeDoc)> docGuard(pDoc, xmlFreeDoc);
 
   // Check the document is of the right kind
 
   root = xmlDocGetRootElement(pDoc);
   if (root == nullptr) {
     // fprintf(stderr,"empty document\n");
-    xmlFreeDoc(pDoc);
     return CIE_SIGN_ERROR_INVALID_FILE;
   }
 
@@ -289,7 +290,6 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
   xadesData.append(ByteArray(membuf, nSize));
 
   xmlFree(membuf);
-  xmlFreeDoc(pDoc);
 
   return CKR_OK;
 }

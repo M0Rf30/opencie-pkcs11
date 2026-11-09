@@ -48,8 +48,15 @@ static long readFileIntoByteArray(const char* path, ByteDynArray& data) {
   int nRead = 0;
   FILE* f = fopen(path, "rb");
   if (!f) return CIE_SIGN_ERROR_FILE_NOT_FOUND;
-  while ((nRead = fread(buffer, 1, BUFFERSIZE, f)) > 0)
+  // Inputs are parsed in memory: refuse files larger than this.
+  static constexpr size_t kMaxInputFileSize = 256u * 1024 * 1024;
+  while ((nRead = fread(buffer, 1, BUFFERSIZE, f)) > 0) {
+    if (data.size() + static_cast<size_t>(nRead) > kMaxInputFileSize) {
+      fclose(f);
+      return CIE_SIGN_ERROR_INVALID_FILE;
+    }
     data.append(ByteArray(buffer, nRead));
+  }
   fclose(f);
   return 0;
 }
