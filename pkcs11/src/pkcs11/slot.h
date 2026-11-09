@@ -190,6 +190,9 @@ class CSlot {
   static ScopedMonitorThread Thread;  ///< Background card-event monitor thread.
   static std::atomic<CCardContext *>
       ThreadContext;  ///< PC/SC context used by the monitor.
+  /// Set by the monitor thread as its very last action, so a thread that
+  /// returned early (no readers, PC/SC error) can be joined and restarted.
+  static std::atomic<bool> bMonitorExited;
 
   SlotEvent lastEvent;
 

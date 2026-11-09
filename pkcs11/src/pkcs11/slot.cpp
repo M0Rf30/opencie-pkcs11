@@ -36,6 +36,7 @@ SlotMap CSlot::g_mSlots;
 ScopedMonitorThread CSlot::Thread;
 std::atomic<CCardContext *> CSlot::ThreadContext {nullptr};
 std::atomic<bool> CSlot::bMonitorUpdate {false};
+std::atomic<bool> CSlot::bMonitorExited {true};
 
 ScopedMonitorThread::~ScopedMonitorThread() {
   if (!joinable()) return;
@@ -109,6 +110,11 @@ struct ContextPublisher {
 };
 
 static DWORD slotMonitor(SlotMap *pSlotMap) {
+  // Runs after every other local (and the p11Mutex-taking publisher) is gone:
+  // once set, InitSlotList() may join this thread while holding p11Mutex.
+  struct ExitFlag {
+    ~ExitFlag() { CSlot::bMonitorExited = true; }
+  } exitFlag;
   while (true) {
     // The slot map is mutated by InitSlotList() under p11Mutex, so every
     // read of it (size, begin(), iteration) must happen under that lock and
@@ -356,7 +362,14 @@ void CSlot::InitSlotList(ISmartCardTransport &transport) {
 
   if (!bP11Initialized) return;
 
-  if (!Thread.joinable()) Thread = std::thread(slotMonitor, &g_mSlots);
+  // A monitor that returned early (no readers, PC/SC error) stays joinable;
+  // reap it so the next update starts a fresh one instead of leaving the
+  // slot list without event monitoring forever.
+  if (Thread.joinable() && bMonitorExited) Thread.join();
+  if (!Thread.joinable()) {
+    bMonitorExited = false;
+    Thread = std::thread(slotMonitor, &g_mSlots);
+  }
 }
 
 bool CSlot::IsTokenPresent() {

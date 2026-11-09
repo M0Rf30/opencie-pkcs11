@@ -90,6 +90,8 @@ static void sizedOutput(ByteArray &out, CK_ULONG_PTR pulLen, F &&op) {
 }
 
 std::mutex p11Mutex;
+// True while C_Finalize has dropped p11Mutex to join the monitor thread.
+static std::atomic<bool> bP11Finalizing {false};
 auto_reset_event p11slotEvent /*("CardOS_P11_Event")*/;
 
 #ifndef _WIN32
@@ -104,6 +106,11 @@ auto_reset_event p11slotEvent /*("CardOS_P11_Event")*/;
 static void P11AtForkChild() {
   bP11Initialized = false;
   bP11Terminate = false;
+  // The monitor thread does not exist in the child: forget it so a fresh
+  // C_Initialize starts a new one (and C_Finalize never joins a ghost).
+  if (CSlot::Thread.joinable()) CSlot::Thread.detach();
+  CSlot::ThreadContext = nullptr;
+  CSlot::bMonitorExited = true;
   p11Mutex.~mutex();
   new (&p11Mutex) std::mutex();
 }
@@ -386,7 +393,8 @@ CK_RV CK_ENTRY C_Initialize(CK_VOID_PTR pReserved) {
 
     logParam(pReserved)
 
-        if (bP11Initialized) throw p11_error(CKR_CRYPTOKI_ALREADY_INITIALIZED);
+        if (bP11Initialized ||
+            bP11Finalizing) throw p11_error(CKR_CRYPTOKI_ALREADY_INITIALIZED);
 
     // verify that the flags are supported
     CK_C_INITIALIZE_ARGS_PTR iargs = nullptr;
@@ -446,9 +454,11 @@ CK_RV CK_ENTRY C_Finalize(CK_VOID_PTR pReserved) {
         if (hC != 0) tc->transport.Cancel(hC);
       }
       p11slotEvent.set();
+      bP11Finalizing = true;
       lock.unlock();
       CSlot::Thread.join();
       lock.lock();
+      bP11Finalizing = false;
     }
 
     bP11Terminate = false;
@@ -1597,6 +1607,9 @@ CK_RV CK_ENTRY C_WaitForSlotEvent(CK_FLAGS flags, CK_SLOT_ID_PTR pSlot,
       p11slotEvent.wait();
       if (!bP11Initialized) {
         *pSlot = 0;
+        // The event is auto-reset: pass the wake-up on so every other
+        // blocked waiter also observes the shutdown.
+        p11slotEvent.set();
         throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
       }
       {
