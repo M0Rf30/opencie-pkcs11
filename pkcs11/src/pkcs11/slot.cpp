@@ -90,14 +90,27 @@ CK_SLOT_ID CSlot::GetNewSlotID() { return ++dwSlotCnt; }
 
 static DWORD slotMonitor(SlotMap *pSlotMap) {
   while (true) {
-    CCardContext Context(pSlotMap->begin()->second->transport);
+    // The slot map is mutated by InitSlotList() under p11Mutex, so every
+    // read of it (size, begin(), iteration) must happen under that lock and
+    // the snapshot arrays must be sized from the same locked view.
+    ISmartCardTransport *pTransport = nullptr;
+    {
+      std::unique_lock<std::mutex> lock(p11Mutex);
+      if (!bP11Initialized || pSlotMap->empty()) return 0;
+      pTransport = &pSlotMap->begin()->second->transport;
+    }
+    ISmartCardTransport &transport = *pTransport;
+    CCardContext Context(transport);
     CSlot::ThreadContext = &Context;
-    size_t dwSlotNum = pSlotMap->size();
-    std::vector<SCARD_READERSTATE> state(dwSlotNum);
-    std::vector<std::shared_ptr<CSlot>> slot(dwSlotNum);
+    size_t dwSlotNum = 0;
+    std::vector<SCARD_READERSTATE> state;
+    std::vector<std::shared_ptr<CSlot>> slot;
     LONG ris;
     {
       std::unique_lock<std::mutex> lock(p11Mutex);
+      dwSlotNum = pSlotMap->size();
+      state.assign(dwSlotNum, SCARD_READERSTATE {});
+      slot.resize(dwSlotNum);
       size_t i = 0;
       for (auto &[id, pSlot] : *pSlotMap) {
         if (!bP11Initialized) {
@@ -107,8 +120,8 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
 
         state[i].szReader = pSlot->szName.c_str();
         slot[i] = pSlot;
-        if ((ris = pSlotMap->begin()->second->transport.GetStatusChange(
-                 Context, 0, &state[i], 1)) != S_OK) {
+        if ((ris = transport.GetStatusChange(Context, 0, &state[i], 1)) !=
+            S_OK) {
           if (ris != static_cast<LONG>(SCARD_E_TIMEOUT)) {
             LOG_ERROR("slotMonitor - SCardGetStatusChange error: %08lX",
                       static_cast<unsigned long>(ris));
@@ -133,8 +146,8 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
         std::unique_lock<std::mutex> lock(p11Mutex);
         Context.validate();
       }
-      ris = pSlotMap->begin()->second->transport.GetStatusChange(
-          Context, 1000, state.data(), static_cast<DWORD>(dwSlotNum));
+      ris = transport.GetStatusChange(Context, 1000, state.data(),
+                                      static_cast<DWORD>(dwSlotNum));
       if (ris != S_OK) {
         if (CSlot::bMonitorUpdate ||
             ris == static_cast<LONG>(SCARD_E_SYSTEM_CANCELLED) ||
