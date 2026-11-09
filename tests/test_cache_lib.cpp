@@ -267,10 +267,11 @@ TEST_CASE(
   REQUIRE(gotCertAgain.size() == cert.size());
   CHECK(std::string(gotCertAgain.begin(), gotCertAgain.end()) == cert);
 
-  // C_Login needs the cached first PIN half from the same legacy file.
+  // The legacy container is unauthenticated: it must never be accepted for
+  // the PIN half (SU-09 / CT-4 / CT-7), so the caller re-enrolls instead.
   std::vector<uint8_t> gotPin;
-  CacheGetPIN(PAN, gotPin);
-  CHECK(std::string(gotPin.begin(), gotPin.end()) == pin);
+  CHECK_THROWS(CacheGetPIN(PAN, gotPin));
+  CHECK(gotPin.empty());
   CHECK(ReadFileBinary(cachePath) == legacyCiphertext);
 }
 

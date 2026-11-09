@@ -451,14 +451,13 @@ void CacheGetPIN(const char *PAN, std::vector<uint8_t> &PIN) {
     std::string ciphertext(reinterpret_cast<const char *>(data.data()),
                            data.size());
     std::string plaintext;
-    if (decrypt(ciphertext, plaintext) != 0) {
-      // Same fallback as CacheGetCertificate: a card paired through
-      // third-party CIE software has its cache in the legacy AES-128-CBC
-      // zero-IV container. Without this, such a card lists its certificate
-      // but every C_Login with the last 4 PIN digits fails.
-      if (decryptLegacyZeroIv(ciphertext, plaintext) != 0)
-        throw logged_error("CacheGetPIN: failed to decrypt cache");
-    }
+    // The PIN half is only read from the authenticated container. The
+    // legacy zero-IV format carries no integrity tag, so a forged file
+    // could make the module send a wrong PIN and burn retries (findings
+    // SU-09, CT-4, CT-7). A failure here means "no usable cache": the
+    // caller falls back to the enrollment path.
+    if (decrypt(ciphertext, plaintext) != 0)
+      throw logged_error("CacheGetPIN: failed to authenticate cache");
 
     uint8_t *ptr =
         reinterpret_cast<uint8_t *>(const_cast<char *>(plaintext.c_str()));
