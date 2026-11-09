@@ -211,24 +211,32 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
 
       auto cieSign = std::make_unique<CIESign>(ias.get());
 
-      uint16_t ret = cieSign->sign(inFilePath, type, fullPinCStr, page, x, y, w,
-                                   h, imageData, imageDataLen, outFilePath);
+      // Full status: either 0, a status word from VERIFY PIN (63Cx, 6983...)
+      // or a CIE_SIGN_ERROR_* code above 16 bits. Never truncate it.
+      const long ret =
+          cieSign->sign(inFilePath, type, fullPinCStr, page, x, y, w, h,
+                        imageData, imageDataLen, outFilePath);
       // 63Cx: wrong PIN, x retries left (a bit-mask test also matched
       // unrelated words such as 0x6FFF).
-      if ((ret & 0xFFF0) == 0x63C0) {
+      if (ret >= 0 && ret <= 0xFFFF && (ret & 0xFFF0) == 0x63C0) {
         return CKR_PIN_INCORRECT;
       } else if (ret == 0x6983) {
         return CKR_PIN_LOCKED;
       }
 
-      progressCallBack(100, "OK!");
+      if (ret == 0) progressCallBack(100, "OK!");
 
-      LOG_INFO("cie_sign - completed, res: %d", ret);
+      LOG_INFO("cie_sign - completed, res: 0x%lx", ret);
 
       // At this point if there has been a pan mismatch doesn't matter
       panMismatch = false;
 
-      completedCallBack(ret);
+      completedCallBack(static_cast<int>(ret));
+
+      if (ret != 0) {
+        LOG_ERROR("cie_sign - signing failed: 0x%lx", ret);
+        return CKR_GENERAL_ERROR;
+      }
 
       // A this point a CIE has been found, stop looking for it
       break;

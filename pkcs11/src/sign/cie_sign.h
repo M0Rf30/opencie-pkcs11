@@ -44,8 +44,7 @@ class CIESign {
    * @param outFilePath     Output path for the signed document.
    * @return 0 on success, non-zero error code on failure.
    */
-  uint16_t sign(const char* inFilePath, const char* type, const char* pin,
-                int page, float x, float y, float w, float h,
-                const unsigned char* imageData, int imageDataLen,
-                const char* outFilePath);
+  long sign(const char* inFilePath, const char* type, const char* pin, int page,
+            float x, float y, float w, float h, const unsigned char* imageData,
+            int imageDataLen, const char* outFilePath);
 };
