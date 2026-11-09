@@ -162,11 +162,15 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
 
       ByteDynArray IdServizi;
       ias->ReadIdServizi(IdServizi);
-      ByteArray baPan =
-          ByteArray(reinterpret_cast<const uint8_t*>(pan), strlen(pan));
+      // A NULL/empty pan opts out of the check. Otherwise the caller's pan
+      // must cover (and match) the card's service id: the compare length
+      // comes from the caller's buffer, never from card data alone.
+      ByteArray baPan = ByteArray(reinterpret_cast<const uint8_t*>(pan),
+                                  pan != nullptr ? strlen(pan) : 0);
 
       if (baPan.size() > 0 &&
-          memcmp(baPan.data(), IdServizi.data(), IdServizi.size()) != 0) {
+          (baPan.size() < IdServizi.size() ||
+           memcmp(baPan.data(), IdServizi.data(), IdServizi.size()) != 0)) {
         panMismatch = true;
         ATR.reset();
         continue;
