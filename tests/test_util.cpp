@@ -113,6 +113,12 @@ TEST_CASE("ByteArrayToInt converts multi-byte value", "[util]") {
   CHECK(ByteArrayToInt(ba) == 256);
 }
 
+TEST_CASE("ByteArrayToInt rejects values wider than long", "[util]") {
+  ByteDynArray ba(sizeof(long) + 1);
+  ba.fill(1);
+  CHECK_THROWS(ByteArrayToInt(ba));
+}
+
 TEST_CASE("ByteArrayToInt single byte", "[util]") {
   uint8_t raw[] = {0x42};
   ByteArray ba(raw, 1);
@@ -197,8 +203,7 @@ TEST_CASE("ASN1Tag with empty content produces minimal TLV", "[util][asn1]") {
   CHECK(tagged[1] == 0x00);
 }
 
-TEST_CASE("hex parsers do not read out of bounds on short strings",
-          "[util]") {
+TEST_CASE("hex parsers do not read out of bounds on short strings", "[util]") {
   ByteDynArray ba;
   readHexData("0", ba);
   CHECK(ba.size() == 1);

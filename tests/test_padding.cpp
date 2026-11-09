@@ -83,10 +83,25 @@ TEST_CASE("PutPaddingBT2 produces correct PKCS#1 type-2 block",
 TEST_CASE("RemovePaddingBT2 returns offset past separator",
           "[padding][pkcs1]") {
   // 00 02 <random non-zero bytes> 00 <data>
-  uint8_t raw[] = {0x00, 0x02, 0x11, 0x22, 0x33, 0x00, 0xAA, 0xBB};
-  ByteArray ba(raw, 8);
+  uint8_t raw[] = {0x00, 0x02, 0x11, 0x22, 0x33, 0x44, 0x55,
+                   0x66, 0x77, 0x88, 0x00, 0xAA, 0xBB};
+  ByteArray ba(raw, sizeof(raw));
   unsigned long offset = RemovePaddingBT2(ba);
-  CHECK(offset == 6);
+  CHECK(offset == 11);
+}
+
+TEST_CASE("RemovePaddingBT2 rejects short input and PS shorter than 8",
+          "[padding][pkcs1]") {
+  uint8_t tiny[] = {0x00};
+  CHECK_THROWS(RemovePaddingBT2(ByteArray(tiny, 1)));
+  uint8_t shortPs[] = {0x00, 0x02, 0x11, 0x22, 0x33, 0x00,
+                       0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+  CHECK_THROWS(RemovePaddingBT2(ByteArray(shortPs, sizeof(shortPs))));
+}
+
+TEST_CASE("PutPaddingBT0 rejects a negative length", "[padding]") {
+  ByteDynArray ba(8);
+  CHECK_THROWS(PutPaddingBT0(ba, -1));
 }
 
 TEST_CASE("RemovePaddingBT2 throws on wrong block type", "[padding][pkcs1]") {
