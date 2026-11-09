@@ -30,9 +30,9 @@ size_t countHexData(const std::string &data) {
       throw logged_error("Invalid character");
     }
 
-    if ((i < slen - 3) && data[i] == '0' && data[i + 3] == 'h') continue;
+    if ((i + 3 < slen) && data[i] == '0' && data[i + 3] == 'h') continue;
 
-    if ((i < slen - 2) && data[i] == '0' && data[i + 1] == 'x') {
+    if ((i + 2 < slen) && data[i] == '0' && data[i + 1] == 'x') {
       i += 1;
       continue;
     }
@@ -56,9 +56,9 @@ size_t setHexData(const std::string &data, uint8_t *buf) {
       throw logged_error("Invalid character");
     }
 
-    if ((i < slen - 3) && data[i] == '0' && data[i + 3] == 'h') continue;
+    if ((i + 3 < slen) && data[i] == '0' && data[i + 3] == 'h') continue;
 
-    if ((i < slen - 2) && data[i] == '0' && data[i + 1] == 'x') {
+    if ((i + 2 < slen) && data[i] == '0' && data[i + 1] == 'x') {
       i += 1;
       continue;
     }
@@ -90,9 +90,9 @@ void readHexData(const std::string &data, ByteDynArray &ba) {
       throw logged_error("Invalid character");
     }
 
-    if ((i < slen - 3) && data[i] == '0' && data[i + 3] == 'h') continue;
+    if ((i + 3 < slen) && data[i] == '0' && data[i + 3] == 'h') continue;
 
-    if ((i < slen - 2) && data[i] == '0' && data[i + 1] == 'x') {
+    if ((i + 2 < slen) && data[i] == '0' && data[i + 1] == 'x') {
       i += 1;
       continue;
     }
