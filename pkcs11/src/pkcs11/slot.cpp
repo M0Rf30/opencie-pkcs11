@@ -327,14 +327,14 @@ void CSlot::InitSlotList(ISmartCardTransport &transport) {
     szReaderName = szReaderName + strnlen(szReaderName, readersLen) + 1;
   }
   // now I check if all slots in the map are still there
-  for (auto it = g_mSlots.begin(); it != g_mSlots.end(); ++it) {
+  std::vector<CK_SLOT_ID> removed;
+  for (auto &[id, pSlotEntry] : g_mSlots) {
     if (!bP11Initialized) return;
 
-    LOG_DEBUG("InitSlotList - %s", it->second->szName.c_str());
-    const char *name = it->second->szName.c_str();
+    LOG_DEBUG("InitSlotList - %s", pSlotEntry->szName.c_str());
+    const char *name = pSlotEntry->szName.c_str();
 
     const char *szReaderName2 = readers.c_str();
-    // char *szReaderName=szReaderAlloc;
     bool bFound = false;
     while (*szReaderName2 != 0) {
       if (strcmp(name, szReaderName2) == 0) {
@@ -343,12 +343,14 @@ void CSlot::InitSlotList(ISmartCardTransport &transport) {
       }
       szReaderName2 = szReaderName2 + strnlen(szReaderName2, readersLen) + 1;
     }
-    if (!bFound) {
-      CK_SLOT_ID ID = it->second->hSlot;
-      it--;
-      DeleteSlot(ID);
-      bMapChanged = true;
-    }
+    if (!bFound) removed.push_back(pSlotEntry->hSlot);
+  }
+  // Close sessions and drop the slots of readers that disappeared. Done
+  // after the scan so the map is never modified while it is iterated.
+  for (CK_SLOT_ID ID : removed) {
+    DeleteSlot(ID);
+    g_mSlots.erase(ID);
+    bMapChanged = true;
   }
   bMonitorUpdate = bMapChanged;
 
