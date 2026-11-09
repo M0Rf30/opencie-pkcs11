@@ -192,6 +192,16 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
       progressCallBack(75, "Starting signature...");
 
       char fullPinCStr[9];
+      // Wipe the PIN copies on every exit path, including exceptions.
+      struct PinWipe {
+        char *c;
+        size_t cLen;
+        ByteDynArray &full;
+        ~PinWipe() {
+          OPENSSL_cleanse(c, cLen);
+          OPENSSL_cleanse(full.data(), full.size());
+        }
+      } pinWipe {fullPinCStr, sizeof(fullPinCStr), FullPIN};
       memcpy(fullPinCStr, FullPIN.data(), 8);
       fullPinCStr[8] = 0;
 
@@ -199,8 +209,6 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
 
       uint16_t ret = cieSign->sign(inFilePath, type, fullPinCStr, page, x, y, w,
                                    h, imageData, imageDataLen, outFilePath);
-      OPENSSL_cleanse(fullPinCStr, sizeof(fullPinCStr));
-      OPENSSL_cleanse(FullPIN.data(), FullPIN.size());
       if ((ret & (0x63C0)) == 0x63C0) {
         return CKR_PIN_INCORRECT;
       } else if (ret == 0x6983) {
