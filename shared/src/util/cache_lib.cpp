@@ -36,6 +36,7 @@ extern "C" __attribute__((visibility("default"))) void cie_set_data_dir(
 #define CACHE_LOG(fmt, ...)
 #endif
 
+#include <cerrno>
 #include <cstring>
 #include <fstream>
 #include <regex>
@@ -131,22 +132,48 @@ void WriteFileAtomic(const std::string &path, const char *data, size_t len) {
 }
 
 /**
- * @brief Ensure the cache directory exists, is owned by the current user,
- * is a real directory (not a symlink), and is mode 0700.
+ * @brief Verify (and optionally create/tighten) the cache directory.
+ *
+ * Fails closed: throws if @p dir is a symlink, is not a directory, or is
+ * not owned by the effective uid (finding SU-01). The directory is opened
+ * with O_DIRECTORY|O_NOFOLLOW and inspected via fstat() so the checks and
+ * the chmod apply to the same object.
  *
  * ~/.CIEPKI may already exist, e.g. created by third-party CIE software
- * with looser permissions; this tightens it rather than trusting whatever
- * is already there (see finding CIE-CACHE-003).
+ * with looser permissions; when @p create is true this tightens it to
+ * 0700 rather than trusting whatever is already there (see finding
+ * CIE-CACHE-003).
+ *
+ * @param dir    Directory path (a trailing '/' is ignored).
+ * @param create If true, create a missing directory and tighten the mode.
+ *               If false, a missing directory is accepted.
  */
-void EnsureCacheDirSecure(const std::string &dir) {
-  struct stat st {};
-  if (lstat(dir.c_str(), &st) == -1) {
-    mkdir(dir.c_str(), 0700);
-    return;
+void CheckCacheDir(const std::string &dir, bool create) {
+  std::string p = dir;
+  while (p.size() > 1 && p.back() == '/') p.pop_back();
+
+  if (create && mkdir(p.c_str(), 0700) != 0 && errno != EEXIST)
+    throw logged_error("Cannot create cache directory");
+
+  int fd = open(p.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (fd == -1) {
+    if (!create && errno == ENOENT) return;
+    throw logged_error(
+        "Cache directory is not a real directory (symlink or wrong type)");
   }
-  if (!S_ISDIR(st.st_mode) || st.st_uid != geteuid()) return;
-  chmod(dir.c_str(), 0700);
+  struct stat st {};
+  if (fstat(fd, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != geteuid()) {
+    close(fd);
+    throw logged_error("Cache directory is not owned by the current user");
+  }
+  if (create && (st.st_mode & 07777) != 0700 && fchmod(fd, 0700) != 0) {
+    close(fd);
+    throw logged_error("Cannot restrict cache directory permissions");
+  }
+  close(fd);
 }
+
+void EnsureCacheDirSecure(const std::string &dir) { CheckCacheDir(dir, true); }
 #endif
 
 }  // namespace
@@ -192,7 +219,13 @@ std::string GetCardDir() {
     }
   }
 
-  std::string path(home != nullptr ? home : "/tmp");
+  // No /tmp fallback: a world-writable directory must never hold the cache
+  // (finding SU-01).
+  if (home == nullptr || home[0] == '\0')
+    throw logged_error("Cannot determine the home directory for the cache");
+
+  std::string path(home);
+  if (path.back() == '/') path.pop_back();
 
   path.append("/.CIEPKI/");
 
@@ -217,6 +250,7 @@ void GetCardPath(const char *PAN, std::string &sPath) {
 void GetCardPath(const char *PAN, std::string &sPath) {
   RequireValidPAN(PAN);
   auto Path = GetCardDir();
+  CheckCacheDir(Path, false);
 
   Path += std::string(PAN);
   Path += ".cache";
@@ -225,8 +259,14 @@ void GetCardPath(const char *PAN, std::string &sPath) {
 #endif
 
 bool CacheExists(const char *PAN) {
+  RequireValidPAN(PAN);
   std::string sPath;
-  GetCardPath(PAN, sPath);
+  try {
+    GetCardPath(PAN, sPath);
+  } catch (const logged_error &) {
+    // Invalid PAN or an untrustworthy cache directory: treat as no cache.
+    return false;
+  }
   bool exists = file_exists(sPath.c_str());
   CACHE_LOG("CacheExists: path=%s exists=%d", sPath.c_str(), exists ? 1 : 0);
   return exists;
@@ -245,6 +285,9 @@ bool CacheRemove(const char *PAN) {
 static void GetDerPath(const char *PAN, std::string &sPath) {
   RequireValidPAN(PAN);
   auto Path = GetCardDir();
+#ifndef _WIN32
+  CheckCacheDir(Path, false);
+#endif
   Path += std::string(PAN);
   Path += ".der";
   sPath = Path;
@@ -289,8 +332,13 @@ void CacheSetDer(const char *PAN, const uint8_t *der, size_t len) {
 bool CacheGetDer(const char *PAN, std::vector<uint8_t> &certificate) {
   if (PAN == nullptr) return false;
 
+  RequireValidPAN(PAN);
   std::string sPath;
-  GetDerPath(PAN, sPath);
+  try {
+    GetDerPath(PAN, sPath);
+  } catch (const logged_error &) {
+    return false;
+  }
 
   if (!file_exists(sPath.c_str())) return false;
 

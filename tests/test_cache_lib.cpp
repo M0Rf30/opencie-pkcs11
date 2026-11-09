@@ -274,6 +274,65 @@ TEST_CASE(
   CHECK(ReadFileBinary(cachePath) == legacyCiphertext);
 }
 
+TEST_CASE("Cache refuses a symlinked cache directory", "[cache]") {
+  std::string dir = MakeTempDir();
+  ScopedHomeOverride homeGuard(dir);
+
+  std::string target = dir + "/attacker";
+  std::filesystem::create_directories(target);
+  std::filesystem::create_directory_symlink(target, dir + "/.CIEPKI");
+
+  std::string cert = "cert";
+  std::string pin = "1234";
+  const char *PAN = "AABBCCDD";
+  CHECK_THROWS(CacheSetData(
+      PAN, reinterpret_cast<uint8_t *>(cert.data()),
+      static_cast<int>(cert.size()), reinterpret_cast<uint8_t *>(pin.data()),
+      static_cast<int>(pin.size())));
+  CHECK_THROWS(CacheSetDer(PAN, reinterpret_cast<const uint8_t *>(cert.data()),
+                           cert.size()));
+  // Nothing may have been written through the symlink.
+  CHECK(std::filesystem::is_empty(target));
+
+  // Readers refuse it too: a planted file is not seen.
+  std::ofstream(target + "/AABBCCDD.cache") << "x";
+  CHECK_FALSE(CacheExists(PAN));
+  std::vector<uint8_t> out;
+  CHECK_FALSE(CacheGetDer(PAN, out));
+}
+
+TEST_CASE("Cache refuses a regular file in place of the cache directory",
+          "[cache]") {
+  std::string dir = MakeTempDir();
+  ScopedHomeOverride homeGuard(dir);
+  std::ofstream(dir + "/.CIEPKI") << "not a dir";
+
+  std::string cert = "cert";
+  std::string pin = "1234";
+  CHECK_THROWS(CacheSetData(
+      "AABBCCDD", reinterpret_cast<uint8_t *>(cert.data()),
+      static_cast<int>(cert.size()), reinterpret_cast<uint8_t *>(pin.data()),
+      static_cast<int>(pin.size())));
+}
+
+TEST_CASE("Cache tightens a loosely-permissioned own cache directory",
+          "[cache]") {
+  std::string dir = MakeTempDir();
+  ScopedHomeOverride homeGuard(dir);
+  std::filesystem::create_directories(dir + "/.CIEPKI");
+  chmod((dir + "/.CIEPKI").c_str(), 0755);
+
+  std::string cert = "cert";
+  std::string pin = "1234";
+  CacheSetData("AABBCCDD", reinterpret_cast<uint8_t *>(cert.data()),
+               static_cast<int>(cert.size()),
+               reinterpret_cast<uint8_t *>(pin.data()),
+               static_cast<int>(pin.size()));
+  struct stat st {};
+  REQUIRE(stat((dir + "/.CIEPKI").c_str(), &st) == 0);
+  CHECK((st.st_mode & 0777) == 0700);
+}
+
 TEST_CASE("CacheSetData rejects a path-traversal PAN", "[cache]") {
   std::string dir = MakeTempDir();
   ScopedHomeOverride homeGuard(dir);
