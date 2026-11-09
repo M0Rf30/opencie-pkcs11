@@ -123,14 +123,13 @@ static void P11RegisterAtFork() {
 #endif
 
 // supported mechanisms
-CK_MECHANISM_TYPE p11_mechanisms[] = {// CKM_RSA_PKCS_KEY_PAIR_GEN,
-                                      CKM_RSA_PKCS,      CKM_MD5,
-                                      CKM_SHA_1,         CKM_SHA256,
-                                      CKM_SHA1_RSA_PKCS, CKM_SHA256_RSA_PKCS,
-                                      CKM_MD5_RSA_PKCS};
+CK_MECHANISM_TYPE p11_mechanisms[] = {  // CKM_RSA_PKCS_KEY_PAIR_GEN,
+    CKM_RSA_PKCS,    CKM_MD5,           CKM_SHA_1,
+    CKM_SHA256,      CKM_SHA1_RSA_PKCS, CKM_SHA256_RSA_PKCS,
+    CKM_MD5_RSA_PKCS};
 
 const char *getAttributeName(unsigned long dwId);
-// extern CModuleInfo moduleInfo; // informazioni sulla dll (o so)
+// extern CModuleInfo moduleInfo; // information about the dll (or so)
 bool bModuleInit = false;
 
 /* ---- GENERATE CK_FUNCTION_LIST */
@@ -526,8 +525,8 @@ CK_RV CK_ENTRY C_OpenSession(CK_SLOT_ID slotID, CK_FLAGS flags,
     // add the session to the global list
     *phSession = CSession::AddSession(std::move(pSession));
 
-    LOG_INFO("[PKCS11] C_OpenSession - Sessione: %lu", *phSession);
-    LOG_INFO("[PKCS11] C_OpenSession - Lettore: %s", pSlot->szName.c_str());
+    LOG_INFO("[PKCS11] C_OpenSession - Session: %lu", *phSession);
+    LOG_INFO("[PKCS11] C_OpenSession - Reader: %s", pSlot->szName.c_str());
     LOG_INFO("[PKCS11] C_OpenSession - CardManager: %s",
              pSlot->pTemplate->szName.c_str());
     std::string szModel;

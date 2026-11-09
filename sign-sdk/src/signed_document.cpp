@@ -181,8 +181,8 @@ bool CSignedDocument::isDetached() {
   return m_pSignedData->getContentInfo().size() == 1;
 }
 
-// 0 successivo al 30 Giugno 2011, 1 successivo al 30 agosto 2010, 2 precedente
-// al 30 agosto 2010
+// 0 if after 30 June 2011, 1 if after 30 August 2010, 2 if before
+// 30 August 2010
 int CSignedDocument::get452009Range(char* szDateTime) {
   int flag452009 = 0;
 

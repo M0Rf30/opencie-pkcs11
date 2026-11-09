@@ -32,7 +32,8 @@ bool CCrl::isRevoked(const CASN1Integer& serialNumber, const char* szDateTime,
     throw logged_error("CCrl::isRevoked: malformed TBSCertList");
 
   if (pRevocationInfo) {
-    CASN1UTCTime thisUpdate = CASN1UTCTime(tbsCertList.elementAt(thisUpdateIdx));
+    CASN1UTCTime thisUpdate =
+        CASN1UTCTime(tbsCertList.elementAt(thisUpdateIdx));
     thisUpdate.getUTCTime(pRevocationInfo->szThisUpdate);
   }
 
@@ -102,7 +103,7 @@ bool CCrl::isRevoked(const CASN1Integer& serialNumber, const char* szDateTime,
           else
             *pReason = REVOCATION_STATUS_REVOKED;
         } else {
-          // reason non presente
+          // no reason code present
           *pReason = REVOCATION_STATUS_REVOKED;
         }
 

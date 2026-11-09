@@ -302,8 +302,7 @@ static void GetDerPath(const char *PAN, std::string &sPath) {
 }
 
 void CacheSetDer(const char *PAN, const uint8_t *der, size_t len) {
-  if (PAN == nullptr || der == nullptr || len == 0 ||
-      len > UINT32_MAX)
+  if (PAN == nullptr || der == nullptr || len == 0 || len > UINT32_MAX)
     throw logged_error("CacheSetDer: invalid arguments");
 
   auto szDir = GetCardDir();
@@ -426,7 +425,7 @@ void CacheGetCertificate(const char *PAN, std::vector<uint8_t> &certificate) {
     if (len > remaining)
       throw logged_error(
           "CacheGetCertificate: corrupted cache data (invalid PIN length)");
-    // salto il PIN
+    // skip the PIN
     ptr += len;
     remaining -= len;
     if (remaining < sizeof(len))

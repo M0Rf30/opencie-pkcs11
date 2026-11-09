@@ -148,7 +148,7 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
   time_t t = time(nullptr);
   snprintf(m_szID, sizeof(m_szID), "signature_%ld", static_cast<long>(t));
 
-  // hash del documento
+  // document hash
   // string strDocHashB64;
   // string strDocCanonicalForm;
 
@@ -310,7 +310,7 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
 void CXAdESGenerator::CanonicalizeAndHashBase64(xmlDocPtr pDoc,
                                                 std::string& strDocHashB64,
                                                 std::string& strCanonical) {
-  // hash del documento
+  // document hash
   xmlChar* pCanonicalDoc = nullptr;
   int docLen = xmlC14NDocDumpMemory(pDoc, nullptr, XML_C14N_1_0, nullptr, 0,
                                     &pCanonicalDoc);
@@ -425,11 +425,11 @@ xmlDocPtr CXAdESGenerator::CreateSignedInfo(
       xmlNewChild(pN1, nullptr,
                   reinterpret_cast<const xmlChar*>("ds:DigestMethod"), nullptr);
   xmlSetProp(pN2, reinterpret_cast<const xmlChar*>("Algorithm"),
-             reinterpret_cast<const xmlChar*>(
-                 m_bXAdES ? DIGEST_METHOD_SHA256 : DIGEST_METHOD_SHA1));
+             reinterpret_cast<const xmlChar*>(m_bXAdES ? DIGEST_METHOD_SHA256
+                                                       : DIGEST_METHOD_SHA1));
 
   // digest value
-  // hash del documento
+  // document hash
   {
     std::string strDocHashB64;
     std::string strCanonicalDoc;
@@ -517,8 +517,8 @@ xmlDocPtr CXAdESGenerator::CreateQualifyingProperties(
 
   strftime(szTime, 100, "%Y-%m-%dT%H:%M:%SZ", pCurTime);
 
-  xmlNewChild(pSignedSignatureProperties, nullptr,
-              BAD_CAST "xades:SigningTime", BAD_CAST szTime);
+  xmlNewChild(pSignedSignatureProperties, nullptr, BAD_CAST "xades:SigningTime",
+              BAD_CAST szTime);
 
   // SigningCertificate
   xmlNodePtr pSigningCertificate = xmlNewChild(
@@ -575,8 +575,8 @@ xmlDocPtr CXAdESGenerator::CreateQualifyingProperties(
   BN_free(bn);
   if (!szSerial) throw logged_error("cannot encode certificate serial");
 
-  xmlNodePtr pIssuerSerial = xmlNewChild(
-      pCert, nullptr, BAD_CAST "xades:IssuerSerial", nullptr);
+  xmlNodePtr pIssuerSerial =
+      xmlNewChild(pCert, nullptr, BAD_CAST "xades:IssuerSerial", nullptr);
   xmlNewChild(pIssuerSerial, nullptr, BAD_CAST "ds:X509IssuerName",
               BAD_CAST issuer.c_str());
   xmlNewChild(pIssuerSerial, nullptr, BAD_CAST "ds:X509SerialNumber",

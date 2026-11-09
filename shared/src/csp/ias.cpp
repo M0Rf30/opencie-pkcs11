@@ -18,9 +18,9 @@
 #include "crypto/des3.h"
 #include "crypto/mac.h"
 #include "crypto/rsa.h"
-#include "csp/csca_certs.h"
 #include "crypto/sha256.h"
 #include "crypto/sha512.h"
+#include "csp/csca_certs.h"
 #include "logger/logger.h"
 #include "util/cache_lib.h"
 #include "util/module_info.h"
@@ -1723,7 +1723,7 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
 
   CASNTag &temp = SODTag.Child(0, 0x30);
 
-  /* Verifica OID contentInfo */
+  /* Check the contentInfo OID (signedData) */
   uint8_t OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02};
   temp.Child(0, 06).Verify(VarToByteArray(OID));
 
@@ -1738,7 +1738,7 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
   uint8_t OID3[] = {0x67, 0x81, 0x08, 0x01, 0x01, 0x01};
   temp2.Child(2, 0x30).Child(0, 06).Verify(VarToByteArray(OID3));
 
-  /* Prendo gli sha512 dei DG letti */
+  /* The SHA-512 digests of the data groups that were read */
   ByteArray ttData = temp2.Child(2, 0x30).Child(1, 0xA0).Child(0, 04).content;
 
   CASNParser ttParser;
@@ -1746,7 +1746,7 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
   CASNTag &signedData = asnRoot(ttParser);
   signedData.CheckTag(0x30);
 
-  /* Prendo il certificato del signer */
+  /* The signer certificate */
   CASNTag &signerCert = temp2.Child(3, 0xA0).Child(0, 0x30);
 
   CASNTag &temp3 = temp2.Child(4, 0x31).Child(0, 0x30);

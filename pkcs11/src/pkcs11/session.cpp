@@ -147,7 +147,7 @@ std::shared_ptr<CSession> CSession::GetSessionFromID(
   return pPair->second;
 }
 
-// LOGIN e LOGOUT
+// LOGIN and LOGOUT
 void CSession::Login(CK_USER_TYPE userType, CK_CHAR_PTR pPin,
                      CK_ULONG ulPinLen) {
   if (pSlot->User == CKU_USER && userType == CKU_SO)

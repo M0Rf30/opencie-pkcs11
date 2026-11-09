@@ -185,7 +185,7 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
             !bP11Initialized) {
           LOG_DEBUG("slotMonitor - Terminate");
           p11slotEvent.set();
-          // no exitThread, vedi sopra;
+          // no exitThread, see above;
           return 0;
         }
         if (ris != static_cast<LONG>(SCARD_E_TIMEOUT) &&
@@ -193,13 +193,13 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
           LOG_ERROR("slotMonitor - SCardGetStatusChange error: %08lX",
                     static_cast<unsigned long>(ris));
           p11slotEvent.set();
-          // no exitThread, vedi sopra;
+          // no exitThread, see above;
           return 1;
         }
         if (ris == static_cast<LONG>(SCARD_E_NO_READERS_AVAILABLE)) {
           LOG_INFO("slotMonitor - No smart card reader connected: %08lX",
                    static_cast<unsigned long>(ris));
-          // no exitThread, vedi sopra;
+          // no exitThread, see above;
           return 1;
         }
       }
@@ -243,7 +243,7 @@ static DWORD slotMonitor(SlotMap *pSlotMap) {
       }
     }
   }
-  // no exitThread, vedi sopra;
+  // no exitThread, see above;
   return 0;
 }
 

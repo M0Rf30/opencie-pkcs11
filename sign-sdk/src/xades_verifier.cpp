@@ -682,7 +682,7 @@ int CXAdESVerifier::verifySignature(int index, const char* szDateTime,
     }
   }
 
-  // verifica la cert chain
+  // verify the certificate chain
 
   CCertificate* pCert = pSignatureInfo->pX509Cert;
   CCertificate* pCACert =

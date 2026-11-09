@@ -461,7 +461,7 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
 
         ByteDynArray messageDigest;
 
-        // estra i signedattributes
+        // extract the signed attributes
         ByteDynArray signedAttr;
         CASN1SetOf authAttr(signerInfo.getAuthenticatedAttributes());
         int authAttrSize = authAttr.size();
@@ -530,7 +530,7 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
           buff = const_cast<BYTE*>(signedAttr.data());
           bufflen = signedAttr.size();
         } else {
-          // se non ci sono signedattributes l'hash va fatto sul content
+          // without signed attributes the hash is computed over the content
           buff = const_cast<BYTE*>(content2.data());
           bufflen = content2.size();
         }
