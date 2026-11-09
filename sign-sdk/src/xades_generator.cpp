@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #include "xades_generator.h"
 
+#include <openssl/bn.h>
 #include <openssl/evp.h>
 #include <openssl/sha.h>
 
@@ -213,7 +214,9 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
   ByteDynArray hashaux(ByteArray(
       hashauxDyn.data(), static_cast<unsigned long>(hashauxDyn.size())));
 
-  CAlgorithmIdentifier hashOID(szSHA256OID);
+  // The signed hash is SHA-256 for XAdES and SHA-1 otherwise (see
+  // CanonicalizeAndHashBase64); the DigestInfo must name the same algorithm.
+  CAlgorithmIdentifier hashOID(m_bXAdES ? szSHA256OID : szSHA1OID);
   ByteDynArray digest;
 
   CASN1OctetString digestString(hashaux);
@@ -227,16 +230,21 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
 
   // static xmlChar nl[] = "\n";
 
+  std::string strSignatureB64;
   {
-    std::string strSignatureB64;
     ByteArray baSig(signature.data(), signature.size());
     CBase64().Encode(baSig, strSignatureB64);
   }
 
   xmlNodePtr pSignatureRoot = xmlDocGetRootElement(docSignedInfo);
 
+  // SignatureValue (must follow SignedInfo)
+  xmlNewChild(pSignatureRoot, nullptr, BAD_CAST "ds:SignatureValue",
+              BAD_CAST strSignatureB64.c_str());
+
   // KeyInfo
-  xmlNewChild(pSignatureRoot, nullptr, BAD_CAST "ds:KeyInfo", nullptr);
+  xmlNodePtr pKeyInfo =
+      xmlNewChild(pSignatureRoot, nullptr, BAD_CAST "ds:KeyInfo", nullptr);
 
   // certificate in B64
   ByteDynArray baCert;
@@ -246,6 +254,10 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
     std::string strCertB64;
     ByteArray baCertArg(baCert.data(), baCert.size());
     CBase64().Encode(baCertArg, strCertB64);
+    xmlNodePtr pX509Data =
+        xmlNewChild(pKeyInfo, nullptr, BAD_CAST "ds:X509Data", nullptr);
+    xmlNewChild(pX509Data, nullptr, BAD_CAST "ds:X509Certificate",
+                BAD_CAST strCertB64.c_str());
   }
 
   if (docQualifyingProperties) {
@@ -289,9 +301,12 @@ void CXAdESGenerator::CanonicalizeAndHashBase64(xmlDocPtr pDoc,
   xmlChar* pCanonicalDoc = nullptr;
   int docLen = xmlC14NDocDumpMemory(pDoc, nullptr, XML_C14N_1_0, nullptr, 0,
                                     &pCanonicalDoc);
-  if (docLen > 0) pCanonicalDoc[docLen] = 0;
+  if (docLen <= 0 || !pCanonicalDoc) {
+    if (pCanonicalDoc) xmlFree(pCanonicalDoc);
+    throw logged_error("XML canonicalization failed");
+  }
 
-  strCanonical.append(reinterpret_cast<char*>(pCanonicalDoc));
+  strCanonical.append(reinterpret_cast<char*>(pCanonicalDoc), docLen);
 
   ByteDynArray hashaux;
   ByteArray baCan(reinterpret_cast<const uint8_t*>(pCanonicalDoc),
@@ -303,6 +318,7 @@ void CXAdESGenerator::CanonicalizeAndHashBase64(xmlDocPtr pDoc,
     ByteDynArray sha1res = CSHA1().Digest(baCan);
     hashaux.append(ByteArray(sha1res.data(), 20));
   }
+  xmlFree(pCanonicalDoc);
 
   strDocHashB64.clear();
   ByteArray baHash(hashaux.data(), hashaux.size());
@@ -395,7 +411,7 @@ xmlDocPtr CXAdESGenerator::CreateSignedInfo(
                   reinterpret_cast<const xmlChar*>("ds:DigestMethod"), nullptr);
   xmlSetProp(pN2, reinterpret_cast<const xmlChar*>("Algorithm"),
              reinterpret_cast<const xmlChar*>(
-                 "http://www.w3.org/2001/04/xmlenc#sha256"));
+                 m_bXAdES ? DIGEST_METHOD_SHA256 : DIGEST_METHOD_SHA1));
 
   // digest value
   // hash del documento
@@ -485,6 +501,9 @@ xmlDocPtr CXAdESGenerator::CreateQualifyingProperties(
 
   strftime(szTime, 100, "%Y-%m-%dT%H:%M:%SZ", pCurTime);
 
+  xmlNewChild(pSignedSignatureProperties, nullptr,
+              BAD_CAST "xades:SigningTime", BAD_CAST szTime);
+
   // SigningCertificate
   xmlNodePtr pSigningCertificate = xmlNewChild(
       pSignedSignatureProperties, nullptr,
@@ -521,14 +540,32 @@ xmlDocPtr CXAdESGenerator::CreateQualifyingProperties(
     std::string strHashB64;
     ByteArray baHashArg(hashaux.data(), hashaux.size());
     CBase64().Encode(baHashArg, strHashB64);
+    xmlNewChild(pCertDigest, nullptr, BAD_CAST "ds:DigestValue",
+                BAD_CAST strHashB64.c_str());
   }
 
-  // X509IssuerName
+  // IssuerSerial: X509IssuerName
   ByteDynArray strIssuerName;
   pCertificate->getIssuer().getNameAsString(strIssuerName);
+  std::string issuer(reinterpret_cast<const char*>(strIssuerName.data()),
+                     strIssuerName.size());
+  while (!issuer.empty() && issuer.back() == '\0') issuer.pop_back();
 
-  // X509SerialNumber
+  // X509SerialNumber (decimal)
   CASN1Integer serialNumber(pCertificate->getSerialNumber());
+  const ByteDynArray* pSerial = serialNumber.getValue();
+  BIGNUM* bn = BN_bin2bn(pSerial->data(), pSerial->size(), nullptr);
+  char* szSerial = bn ? BN_bn2dec(bn) : nullptr;
+  BN_free(bn);
+  if (!szSerial) throw logged_error("cannot encode certificate serial");
+
+  xmlNodePtr pIssuerSerial = xmlNewChild(
+      pCert, nullptr, BAD_CAST "xades:IssuerSerial", nullptr);
+  xmlNewChild(pIssuerSerial, nullptr, BAD_CAST "ds:X509IssuerName",
+              BAD_CAST issuer.c_str());
+  xmlNewChild(pIssuerSerial, nullptr, BAD_CAST "ds:X509SerialNumber",
+              BAD_CAST szSerial);
+  OPENSSL_free(szSerial);
 
   return doc;
 }
