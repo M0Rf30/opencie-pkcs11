@@ -731,8 +731,8 @@ void CSession::SignRecover(ByteArray &Data, ByteArray &Signature) {
     }
   }
 
-  ByteDynArray baSignRecoverBuffer;
-  pSignRecoverMechanism->SignRecover(Data);
+  // The mechanism's padded block is what the card must sign.
+  ByteDynArray baSignRecoverBuffer = pSignRecoverMechanism->SignRecover(Data);
 
   bool bSilent = false;
 
@@ -746,6 +746,8 @@ void CSession::SignRecover(ByteArray &Data, ByteArray &Signature) {
     mech.release();
     throw p11_error(CKR_BUFFER_TOO_SMALL);
   }
+  Signature.copy(baSignature);
+  Signature = Signature.left(baSignature.size());
 }
 
 void CSession::GenerateRandom(ByteArray &RandomData) {
