@@ -554,6 +554,8 @@ long cie_sign_sign_sign(CIE_SIGN_CTX ctx) {
 
   if (pContext->szTSAPassword[0])
     pContext->pSignatureGenerator->SetTSAPassword(pContext->szTSAPassword);
+  // The generator holds its own copy; do not keep the password in the context.
+  OPENSSL_cleanse(pContext->szTSAPassword, sizeof(pContext->szTSAPassword));
 
   if (pContext->szAlias[0])
     pContext->pSignatureGenerator->SetAlias(pContext->szAlias);
@@ -625,6 +627,7 @@ long cie_sign_sign_cleanup(CIE_SIGN_CTX ctx) {
   }
 
   OPENSSL_cleanse(pContext->szPIN, sizeof(pContext->szPIN));
+  OPENSSL_cleanse(pContext->szTSAPassword, sizeof(pContext->szTSAPassword));
   SAFEDELETE(pContext->pSigner);
   SAFEDELETE(pContext->pSignatureGenerator);
 
@@ -648,6 +651,8 @@ CIE_SIGN_CTX cie_sign_verify_init(void) {
   memset(g_szVerifyProxy, 0, MAX_PATH);
 
   if (g_szVerifyProxyUsrPass) {
+    OPENSSL_cleanse(g_szVerifyProxyUsrPass, strlen(g_szVerifyProxyUsrPass));
+    free(g_szVerifyProxyUsrPass);
     g_szVerifyProxyUsrPass = nullptr;
   }
 
