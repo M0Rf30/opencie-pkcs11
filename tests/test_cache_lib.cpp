@@ -267,12 +267,41 @@ TEST_CASE(
   REQUIRE(gotCertAgain.size() == cert.size());
   CHECK(std::string(gotCertAgain.begin(), gotCertAgain.end()) == cert);
 
-  // The legacy container is unauthenticated: it must never be accepted for
-  // the PIN half (SU-09 / CT-4 / CT-7), so the caller re-enrolls instead.
+  // C_Login needs the cached PIN half: the legacy file is accepted once and
+  // immediately rewritten in the authenticated format.
   std::vector<uint8_t> gotPin;
-  CHECK_THROWS(CacheGetPIN(PAN, gotPin));
-  CHECK(gotPin.empty());
-  CHECK(ReadFileBinary(cachePath) == legacyCiphertext);
+  CacheGetPIN(PAN, gotPin);
+  CHECK(std::string(gotPin.begin(), gotPin.end()) == pin);
+  std::string upgraded = ReadFileBinary(cachePath);
+  CHECK(upgraded != legacyCiphertext);
+  REQUIRE(upgraded.size() >= 4);
+  CHECK(upgraded.substr(0, 4) == "CIE1");
+
+  // Second read goes through the authenticated path; cert still readable.
+  std::vector<uint8_t> pinAgain, certAfter;
+  CacheGetPIN(PAN, pinAgain);
+  CHECK(std::string(pinAgain.begin(), pinAgain.end()) == pin);
+  CacheGetCertificate(PAN, certAfter);
+  CHECK(std::string(certAfter.begin(), certAfter.end()) == cert);
+}
+
+TEST_CASE("CacheGetPIN refuses a tampered authenticated cache", "[cache]") {
+  std::string dir = MakeTempDir();
+  ScopedHomeOverride homeGuard(dir);
+  std::string pin = "1234", cert = "cert-bytes";
+  const char *PAN = "AABBCCDD";
+  CacheSetData(PAN, reinterpret_cast<uint8_t *>(cert.data()),
+               static_cast<int>(cert.size()),
+               reinterpret_cast<uint8_t *>(pin.data()),
+               static_cast<int>(pin.size()));
+  std::string path = homeGuard.dir() + "/.CIEPKI/" + PAN + ".cache";
+  std::string blob = ReadFileBinary(path);
+  blob[blob.size() / 2] ^= 0x01;
+  std::ofstream(path, std::ios::binary | std::ios::trunc)
+      .write(blob.data(), static_cast<std::streamsize>(blob.size()));
+  std::vector<uint8_t> out;
+  CHECK_THROWS(CacheGetPIN(PAN, out));
+  CHECK(ReadFileBinary(path) == blob);
 }
 
 TEST_CASE("Cache refuses a symlinked cache directory", "[cache]") {

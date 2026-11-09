@@ -461,13 +461,35 @@ void CacheGetPIN(const char *PAN, std::vector<uint8_t> &PIN) {
                            data.size());
     std::string plaintext;
     ScopedStringWipe plaintextWipe(plaintext);
-    // The PIN half is only read from the authenticated container. The
-    // legacy zero-IV format carries no integrity tag, so a forged file
-    // could make the module send a wrong PIN and burn retries (findings
-    // SU-09, CT-4, CT-7). A failure here means "no usable cache": the
-    // caller falls back to the enrollment path.
-    if (decrypt(ciphertext, plaintext) != 0)
-      throw logged_error("CacheGetPIN: failed to authenticate cache");
+    // A file in the authenticated container that fails authentication is
+    // treated as tampered: no legacy fallback (findings SU-09, CT-4, CT-7).
+    // Only a file that is not in our format at all (written by third-party
+    // CIE software, legacy zero-IV container) is accepted, and it is
+    // immediately rewritten in the authenticated format so the unauthenticated
+    // window closes after first use.
+    if (decrypt(ciphertext, plaintext) != 0) {
+      const bool hasMagic =
+          ciphertext.compare(0, sizeof(kCacheCryptoMagic), kCacheCryptoMagic,
+                             sizeof(kCacheCryptoMagic)) == 0;
+      if (hasMagic)
+        throw logged_error("CacheGetPIN: failed to authenticate cache");
+      plaintext.clear();
+      if (decryptLegacyZeroIv(ciphertext, plaintext) != 0)
+        throw logged_error("CacheGetPIN: failed to decrypt cache");
+      std::string upgraded;
+      if (encrypt(plaintext, upgraded) != 0)
+        throw logged_error("CacheGetPIN: failed to re-encrypt legacy cache");
+#ifndef _WIN32
+      CheckCacheDir(GetCardDir(), true);
+      WriteFileAtomic(sPath, upgraded.data(), upgraded.size());
+#else
+      std::ofstream file(sPath.c_str(),
+                         std::ofstream::out | std::ofstream::binary);
+      if (!file) throw logged_error("CacheGetPIN: cannot rewrite cache");
+      file.write(upgraded.c_str(), upgraded.length());
+      file.close();
+#endif
+    }
 
     uint8_t *ptr =
         reinterpret_cast<uint8_t *>(const_cast<char *>(plaintext.c_str()));
