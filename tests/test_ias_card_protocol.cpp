@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <cstdint>
 #include <cstring>
@@ -21,8 +22,12 @@
 #include <map>
 #include <vector>
 
+#include "crypto/des3.h"
+#include "crypto/mac.h"
+#include "crypto/sha256.h"
 #include "csp/ias.h"
 #include "util/array.h"
+#include "util/util.h"
 #include "util/util_exception.h"
 
 namespace {
@@ -181,6 +186,154 @@ struct Rig {
   FakeCard card;
   IAS ias;
 };
+
+// A card able to complete the DH key exchange and then answer Secure
+// Messaging commands with correctly protected responses. The test plays the
+// ICC: it knows its DH private value, derives the session keys exactly like
+// the host and seals responses with them, so the SM path (MAC verification,
+// file reads, GET RESPONSE) can be driven end to end without hardware.
+class SmCard {
+ public:
+  using OnSm = std::function<Bytes(SmCard &, const Bytes &apdu)>;
+
+  explicit SmCard(OnSm onSm) : onSm_(std::move(onSm)) {
+    BIGNUM *p =
+        BN_bin2bn(grp.p.data(), static_cast<int>(grp.p.size()), nullptr);
+    BIGNUM *g =
+        BN_bin2bn(grp.g.data(), static_cast<int>(grp.g.size()), nullptr);
+    BIGNUM *k = BN_bin2bn(k_.data(), static_cast<int>(k_.size()), nullptr);
+    BIGNUM *y = BN_new();
+    BN_CTX *ctx = BN_CTX_new();
+    BN_mod_exp(y, g, k, p, ctx);
+    iccPub = BnBytes(y, grp.p.size());
+    BN_CTX_free(ctx);
+    BN_free(y);
+    BN_free(k);
+    BN_free(g);
+    BN_free(p);
+  }
+
+  FakeCard::Handler Handler() {
+    return [this](const Bytes &apdu) -> Bytes {
+      if (apdu[0] == 0x0C || apdu[1] == 0xC0) {  // SM command / GET RESPONSE
+        if (encKey_.empty()) DeriveKeys();
+        if (apdu[1] != 0xC0) ++smCommands;
+        return onSm_(*this, apdu);
+      }
+      if (apdu[1] == 0x22) {  // MSE SET: capture the host DH public value
+        size_t i = 12;        // 80 01 9B 83 01 xx 91 <len> <value>
+        size_t len = apdu[i++];
+        if (len == 0x81) len = apdu[i++];
+        hostPub.assign(apdu.begin() + i, apdu.begin() + i + len);
+        return Sw(0x9000);
+      }
+      if (apdu[1] == 0xCB) {
+        if (apdu[4] == 0x06)  // GET DATA of the ICC public key
+          return WithSw(Tlv(0x30, Tlv(0x04, iccPub)), 0x9000);
+        const Bytes &val = apdu[15] == 0x97   ? grp.g
+                           : apdu[15] == 0x98 ? grp.p
+                                              : grp.q;
+        return WithSw(Tlv(0x30, Tlv(0x30, Tlv(0x30, Tlv(0x04, val)))), 0x9000);
+      }
+      return Sw(0x9000);
+    };
+  }
+
+  // Protected response (DO87/DO85 data, DO99 status, DO8E MAC) to the SM
+  // command currently being answered, as the host expects it.
+  Bytes Seal(const Bytes &data, uint16_t sw, uint8_t ins) {
+    const uint64_t ssc = 1 + 2 * smCommands;  // initial SSC, +2 per exchange
+    Bytes seq(8);
+    for (int i = 0; i < 8; ++i)
+      seq[7 - i] = static_cast<uint8_t>(ssc >> (8 * i));
+
+    ByteDynArray iv(8);
+    iv.fill(0);
+    Bytes body;
+    if (!data.empty()) {
+      ByteDynArray padded = ISOPad(ByteArray(data.data(), data.size()));
+      CDES3 des(ByteArray(encKey_.data(), encKey_.size()), iv);
+      ByteDynArray ct = des.RawEncode(padded);
+      Bytes ctb(ct.data(), ct.data() + ct.size());
+      body = (ins & 1) ? Tlv(0x85, ctb) : Tlv(0x87, Cat({0x01}, ctb));
+    }
+    const Bytes statusDo = {0x99, 0x02, static_cast<uint8_t>(sw >> 8),
+                            static_cast<uint8_t>(sw & 0xFF)};
+    Bytes macIn = Cat(Cat(seq, body), statusDo);
+    CMAC cmac(ByteArray(macKey_.data(), macKey_.size()), iv);
+    ByteDynArray mac = cmac.Mac(ISOPad(ByteArray(macIn.data(), macIn.size())));
+    Bytes out = Cat(Cat(body, statusDo), {0x8E, 0x08});
+    out.insert(out.end(), mac.data(), mac.data() + mac.size());
+    return WithSw(out, 0x9000);
+  }
+
+  DhGroup grp;
+  Bytes iccPub;
+  Bytes hostPub;
+  uint64_t smCommands = 0;
+
+ private:
+  void DeriveKeys() {
+    BIGNUM *p =
+        BN_bin2bn(grp.p.data(), static_cast<int>(grp.p.size()), nullptr);
+    BIGNUM *y =
+        BN_bin2bn(hostPub.data(), static_cast<int>(hostPub.size()), nullptr);
+    BIGNUM *k = BN_bin2bn(k_.data(), static_cast<int>(k_.size()), nullptr);
+    BIGNUM *z = BN_new();
+    BN_CTX *ctx = BN_CTX_new();
+    BN_mod_exp(z, y, k, p, ctx);
+    Bytes secret = BnBytes(z, grp.p.size());
+    BN_CTX_free(ctx);
+    BN_free(z);
+    BN_free(k);
+    BN_free(y);
+    BN_free(p);
+    CSHA256 sha;
+    auto derive = [&](uint8_t diff) {
+      Bytes in = Cat(secret, {0x00, 0x00, 0x00, diff});
+      ByteDynArray d = sha.Digest(ByteArray(in.data(), in.size()));
+      return Bytes(d.data(), d.data() + 16);
+    };
+    encKey_ = derive(1);
+    macKey_ = derive(2);
+  }
+
+  OnSm onSm_;
+  const Bytes k_ = {0x07, 0x65, 0x43, 0x21, 0x99, 0x31, 0x41, 0x59};
+  Bytes encKey_, macKey_;
+};
+
+// An IAS with an established SM session against `card`.
+struct SmRig {
+  explicit SmRig(SmCard::OnSm onSm)
+      : card(std::move(onSm)), rig(card.Handler()) {
+    rig.ias.SelectAID_IAS();
+    rig.ias.InitDHParam();
+    rig.ias.DHKeyExchange();
+  }
+  SmCard card;
+  Rig rig;
+};
+
+// SM-protected transparent file: SELECT answers 9000, READ BINARY serves
+// 224-byte chunks by offset.
+SmCard::OnSm SmFile(Bytes file) {
+  return [file = std::move(file)](SmCard &c, const Bytes &apdu) -> Bytes {
+    if (apdu[1] == 0xA4) return c.Seal({}, 0x9000, 0xA4);
+    size_t off = (static_cast<size_t>(apdu[2]) << 8) | apdu[3];
+    if (off >= file.size()) return c.Seal({}, 0x6B00, 0xB0);
+    size_t n = std::min<size_t>(224, file.size() - off);
+    return c.Seal(Bytes(file.begin() + off, file.begin() + off + n), 0x9000,
+                  0xB0);
+  };
+}
+
+Bytes DappFile() {
+  Bytes modulus(256, 0x5A);
+  modulus[0] = 0xC3;
+  modulus[255] |= 1;
+  return Tlv(0x30, Cat(DerUInt(modulus), DerUInt({0x01, 0x00, 0x01})));
+}
 
 }  // namespace
 
@@ -647,6 +800,101 @@ TEST_CASE("Secure Messaging responses without a valid MAC are rejected",
   // ReadDappPubKey goes through readfile_SM once the session is active.
   ByteDynArray out;
   CHECK_THROWS_AS(rig.ias.ReadDappPubKey(out), card_link_error);
+}
+
+// SM path end to end: key agreement, MAC verification, bounded loops.
+
+TEST_CASE("SM session: DH agreement lets a multi-chunk file be read",
+          "[ias][sm]") {
+  const Bytes file = DappFile();
+  REQUIRE(file.size() > 224);  // needs two READ BINARY rounds
+  SmRig rig(SmFile(file));
+  ByteDynArray out;
+  REQUIRE_NOTHROW(rig.rig.ias.ReadDappPubKey(out));
+  CHECK(rig.rig.ias.DappModule.size() == 256);
+  CHECK(rig.rig.ias.DappPubKey.size() == 3);
+}
+
+TEST_CASE("SM session: host DH public value is a fresh subgroup element",
+          "[ias][sm][ct3]") {
+  SmRig a(SmFile({})), b(SmFile({}));
+  REQUIRE(a.card.hostPub.size() == a.card.grp.p.size());
+  CHECK(a.card.hostPub != b.card.hostPub);  // new ephemeral key every time
+
+  BIGNUM *p = BN_bin2bn(a.card.grp.p.data(),
+                        static_cast<int>(a.card.grp.p.size()), nullptr);
+  BIGNUM *q = BN_bin2bn(a.card.grp.q.data(),
+                        static_cast<int>(a.card.grp.q.size()), nullptr);
+  BIGNUM *y = BN_bin2bn(a.card.hostPub.data(),
+                        static_cast<int>(a.card.hostPub.size()), nullptr);
+  BIGNUM *r = BN_new();
+  BN_CTX *ctx = BN_CTX_new();
+  BN_mod_exp(r, y, q, p, ctx);
+  CHECK(BN_is_one(r));
+  CHECK(BN_cmp(y, BN_value_one()) > 0);
+  BN_CTX_free(ctx);
+  BN_free(r);
+  BN_free(y);
+  BN_free(q);
+  BN_free(p);
+}
+
+TEST_CASE("SM responses with a corrupted MAC or payload are rejected",
+          "[ias][sm][cp08]") {
+  const Bytes file = DappFile();
+  enum { kMac, kCipher, kNone } flip = kNone;
+  SECTION("untouched response is accepted") { flip = kNone; }
+  SECTION("bit flip in the MAC") { flip = kMac; }
+  SECTION("bit flip in the ciphertext") { flip = kCipher; }
+
+  auto inner = SmFile(file);
+  SmRig rig([&](SmCard &c, const Bytes &apdu) -> Bytes {
+    Bytes r = inner(c, apdu);
+    if (apdu[1] == 0xB0 && r.size() > 20) {
+      if (flip == kMac) r[r.size() - 3] ^= 0x01;  // last MAC byte
+      if (flip == kCipher) r[5] ^= 0x80;          // inside DO87
+    }
+    return r;
+  });
+  ByteDynArray out;
+  if (flip == kNone)
+    CHECK_NOTHROW(rig.rig.ias.ReadDappPubKey(out));
+  else
+    CHECK_THROWS_AS(rig.rig.ias.ReadDappPubKey(out), card_link_error);
+}
+
+TEST_CASE("SM file read is bounded against hostile cards", "[ias][sm][cp02]") {
+  SECTION("endless file") {
+    SmRig rig([](SmCard &c, const Bytes &apdu) -> Bytes {
+      if (apdu[1] == 0xA4) return c.Seal({}, 0x9000, 0xA4);
+      return c.Seal(Bytes(224, 0xAB), 0x9000, 0xB0);
+    });
+    ByteDynArray out;
+    CHECK_THROWS_AS(rig.rig.ias.ReadDappPubKey(out), logged_error);
+    CHECK(rig.rig.card.Count(0xB0) < 1000);
+  }
+  SECTION("empty chunk answered 9000") {
+    SmRig rig([](SmCard &c, const Bytes &apdu) -> Bytes {
+      if (apdu[1] == 0xA4) return c.Seal({}, 0x9000, 0xA4);
+      return c.Seal({}, 0x9000, 0xB0);
+    });
+    ByteDynArray out;
+    CHECK_THROWS_AS(rig.rig.ias.ReadDappPubKey(out), logged_error);
+    CHECK(rig.rig.card.Count(0xB0) < 10);
+  }
+}
+
+TEST_CASE("SM GET RESPONSE loop is bounded", "[ias][sm][cp02]") {
+  const bool nonEmpty = GENERATE(false, true);
+  SmRig rig([nonEmpty](SmCard &c, const Bytes &apdu) -> Bytes {
+    if (apdu[1] == 0xA4) return c.Seal({}, 0x9000, 0xA4);
+    if (apdu[1] == 0xC0 || apdu[1] == 0xB0)  // endless 61xx chain
+      return WithSw(nonEmpty ? Bytes(8, 0x11) : Bytes {}, 0x6100);
+    return Sw(0x6D00);
+  });
+  ByteDynArray out;
+  CHECK_THROWS_AS(rig.rig.ias.ReadDappPubKey(out), logged_error);
+  CHECK(rig.rig.card.Count(0xC0) < 200);
 }
 
 #endif  // _WIN32

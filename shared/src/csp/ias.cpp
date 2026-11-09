@@ -235,6 +235,27 @@ bool ctEqual(const ByteArray &a, const ByteArray &b) {
          CRYPTO_memcmp(a.data(), b.data(), a.size()) == 0;
 }
 
+// Big-endian encoding of a non-negative BIGNUM, left-padded to `len` bytes.
+ByteDynArray bnToBytes(const BIGNUM *bn, size_t len) {
+  ByteDynArray out(len);
+  if (BN_bn2binpad(bn, out.data(), static_cast<int>(len)) < 0)
+    throw logged_error("BN_bn2binpad failed");
+  return out;
+}
+
+// out = base^exp mod p with a fixed-window, constant-time exponentiation. The
+// exponent is the ephemeral DH private key: the generic BN_mod_exp takes the
+// variable-time sliding-window path unless the exponent carries
+// BN_FLG_CONSTTIME, so call the constant-time routine directly. p must be odd
+// and base reduced below p, both guaranteed by validateDh*().
+ByteDynArray dhModExp(const BIGNUM *base, const BIGNUM *exp, const BIGNUM *p,
+                      BN_CTX *ctx) {
+  Bn r = bnNew();
+  if (!BN_mod_exp_mont_consttime(r.get(), base, exp, p, ctx, nullptr))
+    throw logged_error("BN_mod_exp_mont_consttime failed");
+  return bnToBytes(r.get(), static_cast<size_t>(BN_num_bytes(p)));
+}
+
 ByteArray stripLeadingZeros(const ByteArray &v) {
   size_t skip = 0;
   while (skip < v.size() && v.data()[skip] == 0) ++skip;
@@ -880,21 +901,22 @@ void IAS::DHKeyExchange() {
   if (dh_g.isEmpty() || dh_p.isEmpty() || dh_q.isEmpty())
     throw logged_error("DHKeyExchange - DH parameters not initialised");
 
-  ByteDynArray dh_prKey, secret, resp, d1;
+  ByteDynArray secret, resp, d1;
+
+  BnCtx bnCtx = bnCtxNew();
+  Bn p = bnFromBytes(dh_p), q = bnFromBytes(dh_q), g = bnFromBytes(dh_g);
+
+  // Ephemeral private exponent: uniform in [2, q-1] from the private-key DRBG
+  // (the former code drew q.size() raw bytes and only compared the top byte,
+  // which is neither uniform nor bounded by q).
+  Bn x = bnNew();
   do {
-    dh_prKey.resize(dh_q.size());
-    dh_prKey.random();
-  } while (dh_q[0] < dh_prKey[0]);
+    if (!BN_priv_rand_range_ex(x.get(), q.get(), 0, bnCtx.get()))
+      throw logged_error("DH private exponent generation failed");
+  } while (BN_is_zero(x.get()) || BN_is_one(x.get()));
+  BN_set_flags(x.get(), BN_FLG_CONSTTIME);
 
-  // dh_prKey deve essere dispari
-  dh_prKey.right(1)[0] |= 1;
-
-  ByteDynArray dhg(dh_g.size());
-  dhg.fill(0);
-  dhg.rightcopy(dh_g);
-  CRSA rsa(dh_p, dh_prKey);
-
-  dh_pubKey = rsa.RSA_PURE(dhg);
+  dh_pubKey = dhModExp(g.get(), x.get(), p.get(), bnCtx.get());
 
   uint8_t algo = 0x9b;
   uint8_t keyId = CIE_KEY_DH_ID;
@@ -919,7 +941,8 @@ void IAS::DHKeyExchange() {
   dh_ICCpubKey = asnPath(asn1, {0, 0}).content;
   validateDhPublicKey(dh_ICCpubKey, dh_p, dh_q);
 
-  secret = rsa.RSA_PURE(dh_ICCpubKey);
+  Bn iccPub = bnFromBytes(dh_ICCpubKey);
+  secret = dhModExp(iccPub.get(), x.get(), p.get(), bnCtx.get());
 
   CSHA256 sha256;
 
