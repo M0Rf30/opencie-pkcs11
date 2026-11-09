@@ -19,6 +19,8 @@
 
 #include <jni.h>
 
+#include <atomic>
+#include <condition_variable>
 #include <mutex>
 #include <vector>
 
@@ -97,6 +99,11 @@ class AndroidNFCTransport final : public ISmartCardTransport {
   std::vector<uint8_t> cachedATR_;
   bool connected_ = false;
   std::mutex mutex_;
+  /* GetStatusChange() sleeps on waitCv_ (guarded by waitMutex_, never held
+   * with mutex_) so Cancel() can wake it. */
+  std::mutex waitMutex_;
+  std::condition_variable waitCv_;
+  std::atomic<bool> cancelled_ {false};
 
   /* Synthetic handle/context values (Android has only one NFC reader) */
   static constexpr SCARDCONTEXT kDummyContext = 0x4E464300; /* "NFC\0" */

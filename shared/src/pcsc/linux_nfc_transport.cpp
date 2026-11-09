@@ -33,7 +33,9 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
+#include <thread>
 
 #include "logger/logger.h"
 
@@ -332,25 +334,30 @@ int LinuxNFCTransport::awaitAck(uint32_t seq) {
   return -ETIMEDOUT;
 }
 
+int LinuxNFCTransport::sendDeviceCmd(uint8_t cmd, uint32_t deviceIndex,
+                                     bool withProtocols) {
+  NlRequest req {};
+  req.hdr.nlmsg_len = NLMSG_LENGTH(GENL_HDRLEN);
+  req.hdr.nlmsg_type = familyId_;
+  req.hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+  req.hdr.nlmsg_seq = ++sequence_;
+  req.genl.cmd = cmd;
+  req.genl.version = NFC_GENL_VERSION;
+  if (!putU32(&req, NFC_ATTR_DEVICE_INDEX, deviceIndex)) return -EINVAL;
+  /* CIE chips ship as both ISO 14443 type A and type B; poll for both. */
+  if (withProtocols &&
+      !putU32(&req, NFC_ATTR_PROTOCOLS,
+              NFC_PROTO_ISO14443_MASK | NFC_PROTO_ISO14443_B_MASK))
+    return -EINVAL;
+  if (send(netlinkFd_, &req, req.hdr.nlmsg_len, 0) <= 0) return -errno;
+  return awaitAck(req.hdr.nlmsg_seq);
+}
+
 bool LinuxNFCTransport::powerUpAndPoll(uint32_t deviceIndex) {
   if (!ensureNetlink()) return false;
 
   auto sendCmd = [&](uint8_t cmd, bool withProtocols) -> int {
-    NlRequest req {};
-    req.hdr.nlmsg_len = NLMSG_LENGTH(GENL_HDRLEN);
-    req.hdr.nlmsg_type = familyId_;
-    req.hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
-    req.hdr.nlmsg_seq = ++sequence_;
-    req.genl.cmd = cmd;
-    req.genl.version = NFC_GENL_VERSION;
-    if (!putU32(&req, NFC_ATTR_DEVICE_INDEX, deviceIndex)) return -EINVAL;
-    /* CIE chips ship as both ISO 14443 type A and type B; poll for both. */
-    if (withProtocols &&
-        !putU32(&req, NFC_ATTR_PROTOCOLS,
-                NFC_PROTO_ISO14443_MASK | NFC_PROTO_ISO14443_B_MASK))
-      return -EINVAL;
-    if (send(netlinkFd_, &req, req.hdr.nlmsg_len, 0) <= 0) return -errno;
-    return awaitAck(req.hdr.nlmsg_seq);
+    return sendDeviceCmd(cmd, deviceIndex, withProtocols);
   };
 
   /* An already-powered device answers DEV_UP with -EALREADY: fine. */
@@ -378,72 +385,84 @@ bool LinuxNFCTransport::powerUpAndPoll(uint32_t deviceIndex) {
   return true;
 }
 
-bool LinuxNFCTransport::waitForTarget(uint32_t deviceIndex, DWORD timeoutMs,
-                                      Target *target) {
+bool LinuxNFCTransport::queryTarget(uint32_t deviceIndex, Target *target) {
   if (!ensureNetlink()) return false;
 
-  const bool infinite = (timeoutMs == INFINITE);
-  DWORD waited = 0;
-  constexpr DWORD kSliceMs = 200;
+  /* Ask the kernel for the currently activated targets. */
+  NlRequest req {};
+  req.hdr.nlmsg_len = NLMSG_LENGTH(GENL_HDRLEN);
+  req.hdr.nlmsg_type = familyId_;
+  req.hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+  req.hdr.nlmsg_seq = ++sequence_;
+  req.genl.cmd = NFC_CMD_GET_TARGET;
+  req.genl.version = NFC_GENL_VERSION;
+  if (!putU32(&req, NFC_ATTR_DEVICE_INDEX, deviceIndex)) return false;
+  if (send(netlinkFd_, &req, req.hdr.nlmsg_len, 0) <= 0) return false;
 
-  while (!cancelled_.load(std::memory_order_relaxed)) {
-    /* Ask the kernel for the currently activated targets. */
-    NlRequest req {};
-    req.hdr.nlmsg_len = NLMSG_LENGTH(GENL_HDRLEN);
-    req.hdr.nlmsg_type = familyId_;
-    req.hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
-    req.hdr.nlmsg_seq = ++sequence_;
-    req.genl.cmd = NFC_CMD_GET_TARGET;
-    req.genl.version = NFC_GENL_VERSION;
-    if (!putU32(&req, NFC_ATTR_DEVICE_INDEX, deviceIndex)) return false;
+  /* Consume the whole dump (up to NLMSG_DONE), skipping multicast events and
+   * stale replies, so nothing is left queued for the next request. */
+  bool found = false;
+  for (int attempt = 0; attempt < 8; ++attempt) {
+    struct pollfd pfd {netlinkFd_, POLLIN, 0};
+    if (poll(&pfd, 1, 1000) <= 0) break;
 
-    if (send(netlinkFd_, &req, req.hdr.nlmsg_len, 0) > 0) {
-      struct pollfd pfd {netlinkFd_, POLLIN, 0};
-      if (poll(&pfd, 1, static_cast<int>(kSliceMs)) > 0) {
-        char buf[kNlBuf];
-        ssize_t received = recv(netlinkFd_, buf, sizeof(buf), 0);
-        for (struct nlmsghdr *nlh = reinterpret_cast<struct nlmsghdr *>(buf);
-             received > 0 && NLMSG_OK(nlh, static_cast<unsigned int>(received));
-             nlh = NLMSG_NEXT(nlh, received)) {
-          if (nlh->nlmsg_type == NLMSG_DONE || nlh->nlmsg_type == NLMSG_ERROR)
+    char buf[kNlBuf];
+    ssize_t received = recv(netlinkFd_, buf, sizeof(buf), 0);
+    if (received <= 0) break;
+
+    for (struct nlmsghdr *nlh = reinterpret_cast<struct nlmsghdr *>(buf);
+         NLMSG_OK(nlh, static_cast<unsigned int>(received));
+         nlh = NLMSG_NEXT(nlh, received)) {
+      if (nlh->nlmsg_seq != req.hdr.nlmsg_seq) continue;
+      if (nlh->nlmsg_type == NLMSG_DONE || nlh->nlmsg_type == NLMSG_ERROR)
+        return found;
+
+      bool haveIndex = false;
+      Target candidate;
+      candidate.deviceIndex = deviceIndex;
+      forEachAttr(nlh, [&](const struct nlattr *attr) {
+        switch (attr->nla_type) {
+          case NFC_ATTR_TARGET_INDEX:
+            candidate.targetIndex = attrU32(attr);
+            haveIndex = true;
             break;
-
-          bool haveIndex = false;
-          Target candidate;
-          candidate.deviceIndex = deviceIndex;
-          forEachAttr(nlh, [&](const struct nlattr *attr) {
-            switch (attr->nla_type) {
-              case NFC_ATTR_TARGET_INDEX:
-                candidate.targetIndex = attrU32(attr);
-                haveIndex = true;
-                break;
-              case kAttrTargetAts: {
-                const uint8_t *ats =
-                    static_cast<const uint8_t *>(attrData(attr));
-                candidate.ats.assign(ats, ats + attrLen(attr));
-                break;
-              }
-              case NFC_ATTR_TARGET_SENSB_RES:
-                /* Only type B targets carry SENSB_RES. */
-                candidate.protocol = NFC_PROTO_ISO14443_B;
-                break;
-              default:
-                break;
-            }
-          });
-
-          if (haveIndex) {
-            if (candidate.protocol == 0)
-              candidate.protocol = NFC_PROTO_ISO14443;
-            *target = candidate;
-            return true;
+          case kAttrTargetAts: {
+            const uint8_t *ats = static_cast<const uint8_t *>(attrData(attr));
+            candidate.ats.assign(ats, ats + attrLen(attr));
+            break;
           }
+          case NFC_ATTR_TARGET_SENSB_RES:
+            /* Only type B targets carry SENSB_RES. */
+            candidate.protocol = NFC_PROTO_ISO14443_B;
+            break;
+          default:
+            break;
         }
+      });
+
+      if (haveIndex && !found) {
+        if (candidate.protocol == 0) candidate.protocol = NFC_PROTO_ISO14443;
+        *target = candidate;
+        found = true;
       }
     }
+  }
+  return found;
+}
 
-    waited += kSliceMs;
-    if (!infinite && waited >= timeoutMs) return false;
+bool LinuxNFCTransport::waitForTarget(uint32_t deviceIndex, DWORD timeoutMs,
+                                      Target *target) {
+  /* Real elapsed time, not a count of iterations: queryTarget() can return
+   * at once, so counting slices would end the wait early. */
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+  constexpr auto kSlice = std::chrono::milliseconds(200);
+
+  while (!cancelled_.load(std::memory_order_relaxed)) {
+    if (queryTarget(deviceIndex, target)) return true;
+    if (timeoutMs != INFINITE && std::chrono::steady_clock::now() >= deadline)
+      return false;
+    std::this_thread::sleep_for(kSlice);
   }
   return false;
 }
@@ -554,41 +573,79 @@ LONG LinuxNFCTransport::GetStatusChange(SCARDCONTEXT /*hContext*/,
                                         DWORD cReaders) {
   if (!rgReaderStates || cReaders == 0) return SCARD_E_INVALID_PARAMETER;
 
-  std::lock_guard<std::mutex> lock(mutex_);
-  uint32_t deviceIndex = 0;
-  if (!findDevice(&deviceIndex)) return SCARD_E_NO_READERS_AVAILABLE;
-  if (!polling_ && !powerUpAndPoll(deviceIndex)) return SCARD_E_NO_SERVICE;
+  /* PC/SC semantics: return as soon as a reader's state differs from the
+   * caller's dwCurrentState; otherwise block up to dwTimeout and report
+   * SCARD_E_TIMEOUT with no CHANGED flag. mutex_ is held only for one probe
+   * at a time, never while waiting, so Connect/Transmit/Cancel from other
+   * threads are not stalled behind a long poll. */
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(dwTimeout);
+  constexpr auto kSlice = std::chrono::milliseconds(200);
 
-  Target target;
-  const bool present = waitForTarget(deviceIndex, dwTimeout, &target);
-  if (cancelled_.load(std::memory_order_relaxed)) return SCARD_E_CANCELLED;
-  if (present) {
-    target_ = target;
-    hasTarget_ = true;
-    buildATR(target_);
-  }
+  for (;;) {
+    if (cancelled_.load(std::memory_order_relaxed)) return SCARD_E_CANCELLED;
 
-  for (DWORD i = 0; i < cReaders; ++i) {
-    const DWORD state = present ? SCARD_STATE_PRESENT : SCARD_STATE_EMPTY;
-    rgReaderStates[i].dwEventState = state;
-    if ((rgReaderStates[i].dwCurrentState & state) == 0)
-      rgReaderStates[i].dwEventState |= SCARD_STATE_CHANGED;
+    bool present = false;
+    std::vector<uint8_t> atr;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      uint32_t deviceIndex = 0;
+      if (!findDevice(&deviceIndex)) return SCARD_E_NO_READERS_AVAILABLE;
+      if (!polling_ && !powerUpAndPoll(deviceIndex)) return SCARD_E_NO_SERVICE;
 
-    if (present) {
-      const DWORD atrLen =
-          std::min(static_cast<DWORD>(cachedATR_.size()),
-                   static_cast<DWORD>(sizeof(rgReaderStates[i].rgbAtr)));
-      memcpy(rgReaderStates[i].rgbAtr, cachedATR_.data(), atrLen);
-      rgReaderStates[i].cbAtr = atrLen;
-    } else {
-      rgReaderStates[i].cbAtr = 0;
+      Target target;
+      present = queryTarget(deviceIndex, &target);
+      if (present) {
+        target_ = target;
+        hasTarget_ = true;
+        buildATR(target_);
+        atr = cachedATR_;
+      } else {
+        hasTarget_ = false;
+      }
     }
+
+    const DWORD state = present ? SCARD_STATE_PRESENT : SCARD_STATE_EMPTY;
+    bool changed = false;
+    for (DWORD i = 0; i < cReaders; ++i) {
+      if (rgReaderStates[i].dwCurrentState & SCARD_STATE_IGNORE) continue;
+      if ((rgReaderStates[i].dwCurrentState & state) == 0) changed = true;
+    }
+
+    const bool timedOut =
+        dwTimeout != INFINITE && std::chrono::steady_clock::now() >= deadline;
+    if (changed || timedOut) {
+      for (DWORD i = 0; i < cReaders; ++i) {
+        rgReaderStates[i].dwEventState = state;
+        if ((rgReaderStates[i].dwCurrentState & state) == 0)
+          rgReaderStates[i].dwEventState |= SCARD_STATE_CHANGED;
+
+        const DWORD atrLen =
+            std::min(static_cast<DWORD>(atr.size()),
+                     static_cast<DWORD>(sizeof(rgReaderStates[i].rgbAtr)));
+        if (atrLen) memcpy(rgReaderStates[i].rgbAtr, atr.data(), atrLen);
+        rgReaderStates[i].cbAtr = atrLen;
+      }
+      return changed ? SCARD_S_SUCCESS : SCARD_E_TIMEOUT;
+    }
+
+    /* Nothing changed: sleep without holding mutex_, woken early by Cancel().
+     */
+    std::unique_lock<std::mutex> waitLock(waitMutex_);
+    waitCv_.wait_for(waitLock, kSlice, [this] {
+      return cancelled_.load(std::memory_order_relaxed);
+    });
   }
-  return present ? SCARD_S_SUCCESS : SCARD_E_TIMEOUT;
 }
 
 LONG LinuxNFCTransport::Cancel(SCARDCONTEXT /*hContext*/) {
-  cancelled_.store(true, std::memory_order_relaxed);
+  {
+    /* Taking waitMutex_ orders the store against a waiter's predicate check,
+     * so the wake-up cannot be lost. */
+    std::lock_guard<std::mutex> lock(waitMutex_);
+    cancelled_.store(true, std::memory_order_relaxed);
+  }
+  waitCv_.notify_all();
   return SCARD_S_SUCCESS;
 }
 
@@ -627,10 +684,43 @@ LONG LinuxNFCTransport::Disconnect(SCARDHANDLE /*hCard*/,
 
 LONG LinuxNFCTransport::Reconnect(SCARDHANDLE /*hCard*/, DWORD /*dwShareMode*/,
                                   DWORD /*dwPreferredProtocols*/,
-                                  DWORD /*dwInitialization*/,
+                                  DWORD dwInitialization,
                                   LPDWORD pdwActiveProtocol) {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (!hasTarget_ || !openDataSocket(target_)) return SCARD_W_REMOVED_CARD;
+  if (!hasTarget_) return SCARD_W_REMOVED_CARD;
+
+  closeDataSocket();
+
+  if (dwInitialization == SCARD_RESET_CARD ||
+      dwInitialization == SCARD_UNPOWER_CARD) {
+    /* A contactless target has no reset line and the kernel NFC API offers
+     * no RF field power-cycle. The closest equivalent is to stop the poll
+     * loop, which deactivates the target (ISO-DEP DESELECT), then poll again
+     * so the card is re-activated from its idle state, and to re-read the
+     * ATS so the synthetic ATR describes the new activation. Card-side
+     * session state (secure messaging, PIN verification) is thereby dropped
+     * like after a PC/SC reset. If another client (neard) owns the poll loop
+     * we cannot deactivate the target; the connection is then only reopened
+     * and the caller must not assume the card was reset. */
+    uint32_t deviceIndex = target_.deviceIndex;
+    const int stopRv = sendDeviceCmd(NFC_CMD_STOP_POLL, deviceIndex, false);
+    polling_ = false;
+    hasTarget_ = false;
+    if (stopRv != 0)
+      LOG_INFO(
+          "LinuxNFCTransport - STOP_POLL on nfc%u failed (%s): card was not "
+          "power-cycled",
+          deviceIndex, strerror(-stopRv));
+    if (!powerUpAndPoll(deviceIndex)) return SCARD_E_NO_SERVICE;
+
+    Target target;
+    if (!waitForTarget(deviceIndex, 2000, &target)) return SCARD_W_REMOVED_CARD;
+    target_ = target;
+    hasTarget_ = true;
+  }
+
+  if (!openDataSocket(target_)) return SCARD_W_REMOVED_CARD;
+  buildATR(target_);
   if (pdwActiveProtocol) *pdwActiveProtocol = SCARD_PROTOCOL_T1;
   return SCARD_S_SUCCESS;
 }
