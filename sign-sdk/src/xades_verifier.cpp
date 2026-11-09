@@ -47,16 +47,49 @@ std::string Trim(const std::string& s) {
   return s.substr(begin, end - begin + 1);
 }
 
-bool IsSafeXPathLiteral(const std::string& s) {
-  return !s.empty() && s.find('\'') == std::string::npos;
-}
-
 std::string GetAttr(xmlNodePtr node, const char* name) {
   xmlChar* value = xmlGetProp(node, BAD_CAST name);
   if (!value) return std::string();
   std::string result(reinterpret_cast<char*>(value));
   xmlFree(value);
   return result;
+}
+
+// Returns the one element of @p doc whose unqualified "Id" attribute equals
+// @p id, or nullptr when there is none or more than one. The Id comes from
+// an untrusted URI="#..." attribute, so it is compared against the tree
+// instead of being spliced into an XPath expression; duplicates are an
+// ambiguity an attacker can use to redirect a reference, hence rejected.
+xmlNodePtr FindUniqueElementById(xmlDocPtr doc, const std::string& id) {
+  xmlNodePtr root = xmlDocGetRootElement(doc);
+  xmlNodePtr found = nullptr;
+
+  xmlNodePtr node = root;
+  while (node) {
+    if (node->type == XML_ELEMENT_NODE) {
+      xmlChar* value = xmlGetNoNsProp(node, BAD_CAST "Id");
+      if (value) {
+        bool match = id == reinterpret_cast<const char*>(value);
+        xmlFree(value);
+        if (match) {
+          if (found) return nullptr;
+          found = node;
+        }
+      }
+    }
+
+    // Pre-order walk without recursion.
+    if (node->children && node->type == XML_ELEMENT_NODE) {
+      node = node->children;
+    } else {
+      while (node && !node->next) {
+        node = node->parent == reinterpret_cast<xmlNodePtr>(doc) ? nullptr
+                                                                 : node->parent;
+      }
+      if (node) node = node->next;
+    }
+  }
+  return found;
 }
 
 // Evaluates @p expr against @p ctx and returns the text content of the
@@ -266,26 +299,17 @@ bool VerifyReference(xmlXPathContextPtr ctx, xmlNodePtr referenceNode,
       return false;
     }
   } else if (uri.size() > 1 && uri[0] == '#') {
-    std::string id = uri.substr(1);
-    if (!IsSafeXPathLiteral(id)) return false;
+    xmlNodePtr target = FindUniqueElementById(ctx->doc, uri.substr(1));
+    if (!target) return false;
 
     if (transforms.size() != 1 ||
         GetAttr(transforms[0], "Algorithm") != kC14N10) {
       return false;
     }
 
-    std::string base = "//*[@Id='" + id + "']";
-
-    xmlXPathObjectPtr idObj =
-        xmlXPathEvalExpression(BAD_CAST base.c_str(), ctx);
-    bool uniqueTarget =
-        idObj && idObj->nodesetval && idObj->nodesetval->nodeNr == 1;
-    if (idObj) xmlXPathFreeObject(idObj);
-    if (!uniqueTarget) return false;
-
-    std::string expr = "(" + base + " | " + base + "//node() | " + base +
-                       "//@* | " + base + "//namespace::*)";
-    if (!CanonicalizeXPathNodeSet(ctx, expr.c_str(), canonical)) {
+    ctx->node = target;
+    if (!CanonicalizeXPathNodeSet(
+            ctx, "(. | .//node() | .//@* | .//namespace::*)", canonical)) {
       return false;
     }
   } else {
@@ -770,28 +794,24 @@ bool CXAdESVerifier::parseSignatureNode(xmlXPathContextPtr xpathCtx,
   pXAdESDoc->nSignatures = signatureNodes->nodeNr;
 
   bool allParsed = true;
-  char szPath[BUFFERSIZE];
 
   for (int i = 0; i < signatureNodes->nodeNr; i++) {
     SignatureInfo* pInfo = new SignatureInfo();
     pXAdESDoc->ppSignatures[i] = pInfo;
 
-    pInfo->pSignatureNode = signatureNodes->nodeTab[i];
+    xmlNodePtr signatureNode = signatureNodes->nodeTab[i];
+    pInfo->pSignatureNode = signatureNode;
 
-    // A signature without an Id cannot be addressed by the paths below.
-    std::string id = GetAttr(pInfo->pSignatureNode, "Id");
-    if (!IsSafeXPathLiteral(id)) {
-      allParsed = false;
-      continue;
-    }
+    // Every lookup is relative to this ds:Signature node. The document's
+    // Id attributes are attacker controlled (duplicates, quotes), so they
+    // are never used to locate a signature's children.
+    xpathCtx->node = signatureNode;
 
     // SignatureMethod
     std::string sigMethod;
-    snprintf(szPath, sizeof(szPath),
-             "//ds:Signature[@Id='%s']/ds:SignedInfo/ds:SignatureMethod/"
-             "@Algorithm",
-             id.c_str());
-    if (EvalSingleString(xpathCtx, szPath, sigMethod)) {
+    if (EvalSingleString(xpathCtx,
+                         "./ds:SignedInfo/ds:SignatureMethod/@Algorithm",
+                         sigMethod)) {
       if (sigMethod.find("sha256") != std::string::npos) {
         pInfo->nDigestAlgo = CIE_SIGN_ALGO_SHA256;
       } else if (sigMethod.find("sha512") != std::string::npos) {
@@ -803,20 +823,16 @@ bool CXAdESVerifier::parseSignatureNode(xmlXPathContextPtr xpathCtx,
 
     // SignatureValue
     std::string sigValue;
-    snprintf(szPath, sizeof(szPath),
-             "//ds:Signature[@Id='%s']/ds:SignatureValue", id.c_str());
-    if (EvalSingleString(xpathCtx, szPath, sigValue)) {
+    if (EvalSingleString(xpathCtx, "./ds:SignatureValue", sigValue)) {
       pInfo->sigValue.append(ByteArray(
           reinterpret_cast<const BYTE*>(sigValue.data()), sigValue.size()));
     }
 
     // X509Certificate
     std::string certB64;
-    snprintf(
-        szPath, sizeof(szPath),
-        "//ds:Signature[@Id='%s']/ds:KeyInfo/ds:X509Data/ds:X509Certificate",
-        id.c_str());
-    if (EvalFirstString(xpathCtx, szPath, certB64) && !certB64.empty()) {
+    if (EvalFirstString(xpathCtx, "./ds:KeyInfo/ds:X509Data/ds:X509Certificate",
+                        certB64) &&
+        !certB64.empty()) {
       try {
         ByteDynArray content(ByteArray(
             reinterpret_cast<const BYTE*>(certB64.data()), certB64.size()));
@@ -828,11 +844,8 @@ bool CXAdESVerifier::parseSignatureNode(xmlXPathContextPtr xpathCtx,
     if (!pInfo->pX509Cert) allParsed = false;
 
     // QualifyingProperties
-    snprintf(szPath, sizeof(szPath),
-             "//ds:Signature[@Id='%s']/ds:Object/xades:QualifyingProperties",
-             id.c_str());
-    xmlXPathObjectPtr xpathObj =
-        xmlXPathEvalExpression(BAD_CAST szPath, xpathCtx);
+    xmlXPathObjectPtr xpathObj = xmlXPathEvalExpression(
+        BAD_CAST "./ds:Object/xades:QualifyingProperties", xpathCtx);
     if (xpathObj) {
       pInfo->bCAdES = xpathObj->nodesetval && xpathObj->nodesetval->nodeNr > 0;
       xmlXPathFreeObject(xpathObj);
