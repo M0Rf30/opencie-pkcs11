@@ -37,7 +37,7 @@
 
 #ifndef min1
 /** @brief Safe minimum macro (avoids conflicts with std::min). */
-#define min1(a, b) ((a) < (b)) ? (a) : (b)
+#define min1(a, b) (((a) < (b)) ? (a) : (b))
 #endif
 
 class ByteArray;     ///< Forward declaration of non-owning byte view.
