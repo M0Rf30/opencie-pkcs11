@@ -29,6 +29,13 @@ static ByteArray baMD5DigestInfo(MD5_RSAcode, sizeof(MD5_RSAcode));
 
 namespace p11 {
 
+// Max PKCS#1 v1.5 payload for a k-byte modulus (k-11). A modulus shorter than
+// 11 bytes cannot carry any payload; refuse instead of wrapping around.
+static CK_ULONG pkcs1MaxData(CK_ULONG k) {
+  if (k < 11) throw p11_error(CKR_KEY_SIZE_RANGE);
+  return k - 11;
+}
+
 CMechanism::CMechanism(CK_MECHANISM_TYPE type,
                        std::shared_ptr<CSession> Session)
     : mtType(type), pSession(std::move(Session)) {}
@@ -161,7 +168,8 @@ CK_ULONG CVerifyRSA::VerifyLength() {
   auto pPublicKey = std::static_pointer_cast<CP11PublicKey>(pObject);
 
   ByteArray *baKeyModule = pPublicKey->getAttribute(CKA_MODULUS);
-  ER_ASSERT(!baKeyModule->isNull(), ERR_CANT_GET_PUBKEY_MODULUS)
+  ER_ASSERT(baKeyModule != nullptr && !baKeyModule->isNull(),
+            ERR_CANT_GET_PUBKEY_MODULUS)
   return static_cast<CK_ULONG>(baKeyModule->size());
 }
 
@@ -328,7 +336,7 @@ void CRSA_PKCS1::VerifyFinal(ByteArray &Signature) {
     throw p11_error(CKR_SIGNATURE_LEN_RANGE);
 
   // max k-11 (PKCS#11 specs)
-  if (baVerifyBuffer.size() > ulVerifyLength - 11)
+  if (baVerifyBuffer.size() > pkcs1MaxData(ulVerifyLength))
     throw p11_error(CKR_DATA_LEN_RANGE);
 
   baPlainSignature = VerifyDecryptSignature(Signature);
@@ -367,7 +375,7 @@ ByteDynArray CRSA_PKCS1::VerifyRecover(ByteArray &Signature) {
   // the returned data cannot be longer
   // than k-11!! (PKCS#11 specs)
   auto Data = baPlainSignature.mid(dwPadLen);
-  if (Data.size() > ulVerifyRecoverLength - 11)
+  if (Data.size() > pkcs1MaxData(ulVerifyRecoverLength))
     throw p11_error(CKR_DATA_LEN_RANGE);
   return ByteDynArray(Data);
 }
@@ -388,7 +396,7 @@ ByteDynArray CRSA_PKCS1::SignFinal() {
   CK_ULONG ulSignatureLength = SignLength();
 
   // at most k-11 bytes (PKCS#11 specs)
-  if (baSignBuffer.size() > ulSignatureLength - 11)
+  if (baSignBuffer.size() > pkcs1MaxData(ulSignatureLength))
     throw p11_error(CKR_DATA_LEN_RANGE);
 
   return baSignBuffer;
@@ -402,7 +410,8 @@ ByteDynArray CRSA_PKCS1::SignRecover(ByteArray &Data) {
   CK_ULONG ulSignatureLength = SignRecoverLength();
 
   // at most k-11 bytes (PKCS#11 specs)
-  if (Data.size() > ulSignatureLength - 11) throw p11_error(CKR_DATA_LEN_RANGE);
+  if (Data.size() > pkcs1MaxData(ulSignatureLength))
+    throw p11_error(CKR_DATA_LEN_RANGE);
 
   return ByteDynArray(Data);
 }
