@@ -234,23 +234,41 @@ bool IsSubtractSignatureFilter2(xmlNodePtr transformNode) {
   return Trim(expr) == "/descendant::ds:Signature";
 }
 
+// Returns true if @p node is @p ancestor or lies inside its subtree.
+bool IsSelfOrDescendant(xmlNodePtr node, xmlNodePtr ancestor) {
+  for (; node; node = node->parent) {
+    if (node == ancestor) return true;
+  }
+  return false;
+}
+
 // Verifies a single ds:Reference: resolves its target per its Transforms,
 // canonicalizes it, and compares the digest to ds:DigestValue.
 //
 // Supported:
 //  - URI="" (whole document) with Transforms exactly
 //    [enveloped-signature | filter2 "subtract /descendant::ds:Signature"],
-//    then C14N 1.0. Every ds:Signature element in the document is excluded
-//    (this codebase never co-signs an already-signed document, so that is
-//    equivalent to, and reproduces, the state the document was digested in
-//    at signing time).
-//  - URI="#id" (same-document fragment) with Transforms exactly [C14N 1.0].
+//    then C14N 1.0. enveloped-signature removes only @p signatureNode (the
+//    signature being verified), as XML-DSig defines it; the filter2
+//    expression removes every ds:Signature, as the expression says (that is
+//    the form this codebase's generator emits).
+//  - URI="#id" (same-document fragment) with Transforms exactly [C14N 1.0];
+//    the Id must identify exactly one element in the document.
 // Anything else (external/detached URIs, XSLT/Base64/XPath transforms,
 // unrecognized filter2 expressions, unsupported digest algorithms) is
 // unsupported and fails the reference closed.
+//
+// Reports, from where the reference actually resolves (never from its
+// Type attribute alone): *pCoversSignedProperties when the target is the
+// signature's own @p signedPropertiesNode, *pIsDataReference when it covers
+// anything other than that node. A reference that claims
+// Type=SignedProperties but resolves elsewhere fails.
 bool VerifyReference(xmlXPathContextPtr ctx, xmlNodePtr referenceNode,
-                     bool* pIsSignedPropertiesReference) {
-  *pIsSignedPropertiesReference =
+                     xmlNodePtr signatureNode, xmlNodePtr signedPropertiesNode,
+                     bool* pCoversSignedProperties, bool* pIsDataReference) {
+  *pCoversSignedProperties = false;
+  *pIsDataReference = false;
+  const bool claimsSignedProperties =
       GetAttr(referenceNode, "Type") == kTypeSignedProperties;
 
   std::string uri = GetAttr(referenceNode, "URI");
@@ -292,15 +310,41 @@ bool VerifyReference(xmlXPathContextPtr ctx, xmlNodePtr referenceNode,
       return false;
     }
 
-    if (!CanonicalizeXPathNodeSet(ctx,
-                                  "(//. | //@* | //namespace::*)"
-                                  "[not(ancestor-or-self::ds:Signature)]",
-                                  canonical)) {
-      return false;
+    // The whole document is never the signed properties element.
+    if (claimsSignedProperties) return false;
+
+    const char* expr = nullptr;
+    if (algo0 == kEnvelopedSignatureTransform) {
+      xmlXPathObjectPtr self = xmlXPathNewNodeSet(signatureNode);
+      if (!self ||
+          xmlXPathRegisterVariable(ctx, BAD_CAST "signature", self) != 0) {
+        if (self) xmlXPathFreeObject(self);
+        return false;
+      }
+      // count(. | $signature) = 1 is the XPath node-identity test.
+      expr =
+          "(//. | //@* | //namespace::*)"
+          "[not(ancestor-or-self::node()[count(. | $signature) = 1])]";
+    } else {
+      expr =
+          "(//. | //@* | //namespace::*)"
+          "[not(ancestor-or-self::ds:Signature)]";
     }
+
+    ctx->node = referenceNode;
+    if (!CanonicalizeXPathNodeSet(ctx, expr, canonical)) return false;
+    *pIsDataReference = true;
   } else if (uri.size() > 1 && uri[0] == '#') {
     xmlNodePtr target = FindUniqueElementById(ctx->doc, uri.substr(1));
     if (!target) return false;
+
+    if (signedPropertiesNode && target == signedPropertiesNode) {
+      *pCoversSignedProperties = true;
+    } else if (claimsSignedProperties) {
+      return false;
+    }
+    *pIsDataReference = !signedPropertiesNode ||
+                        !IsSelfOrDescendant(target, signedPropertiesNode);
 
     if (transforms.size() != 1 ||
         GetAttr(transforms[0], "Algorithm") != kC14N10) {
@@ -338,7 +382,15 @@ bool VerifyReference(xmlXPathContextPtr ctx, xmlNodePtr referenceNode,
 // Supported ds:CanonicalizationMethod: Canonical XML 1.0 (no comments) — the
 // only method this codebase's generator ever emits. Anything else is
 // unsupported and returns false without setting VERIFIED_SIGNATURE.
+//
+// Besides each digest matching, at least one ds:Reference must cover signed
+// data other than the XAdES SignedProperties (otherwise the signature only
+// protects its own metadata). @p signedPropertiesNode is this signature's
+// own xades:SignedProperties (or null); outSignedPropertiesVerified is set
+// only when a reference resolves to exactly that node and the whole
+// signature verifies.
 bool VerifyXmlDSigSignature(xmlXPathContextPtr ctx, xmlNodePtr signatureNode,
+                            xmlNodePtr signedPropertiesNode,
                             CCertificate* pCert, const ByteArray& sigValueB64,
                             bool& outSignedPropertiesVerified) {
   outSignedPropertiesVerified = false;
@@ -394,13 +446,20 @@ bool VerifyXmlDSigSignature(xmlXPathContextPtr ctx, xmlNodePtr signatureNode,
       refsObj->nodesetval->nodeTab + refsObj->nodesetval->nodeNr);
   xmlXPathFreeObject(refsObj);
 
+  bool coversSignedProperties = false;
+  bool coversData = false;
   for (xmlNodePtr referenceNode : references) {
-    bool isSignedProperties = false;
-    if (!VerifyReference(ctx, referenceNode, &isSignedProperties)) {
+    bool refCoversSignedProperties = false;
+    bool refIsData = false;
+    if (!VerifyReference(ctx, referenceNode, signatureNode,
+                         signedPropertiesNode, &refCoversSignedProperties,
+                         &refIsData)) {
       return false;
     }
-    if (isSignedProperties) outSignedPropertiesVerified = true;
+    coversSignedProperties |= refCoversSignedProperties;
+    coversData |= refIsData;
   }
+  if (!coversData) return false;
 
   std::string sigB64(reinterpret_cast<const char*>(sigValueB64.data()),
                      sigValueB64.size());
@@ -432,22 +491,42 @@ bool VerifyXmlDSigSignature(xmlXPathContextPtr ctx, xmlNodePtr signatureNode,
   }
   EVP_PKEY_free(pkey);
 
+  outSignedPropertiesVerified = signatureOk && coversSignedProperties;
   return signatureOk;
 }
 
-// Verifies xades:SigningCertificate/xades:Cert[1]/xades:CertDigest against
-// the actual signer certificate, as ETSI TS 101 903 requires. Supported
-// digest algorithms: sha1, sha256 (same set as ds:Reference digests).
-bool VerifySigningCertificateDigest(xmlXPathContextPtr ctx,
-                                    xmlNodePtr signatureNode,
-                                    CCertificate* pCert) {
-  if (!pCert) return false;
-
+// Locates this signature's own xades:SignedProperties: the only one under
+// ds:Signature/ds:Object/xades:QualifyingProperties. Null unless there is
+// exactly one, so a second, attacker-added copy can never be picked up.
+xmlNodePtr FindSignedProperties(xmlXPathContextPtr ctx,
+                                xmlNodePtr signatureNode) {
   ctx->node = signatureNode;
   xmlXPathObjectPtr obj = xmlXPathEvalExpression(
+      BAD_CAST "./ds:Object/xades:QualifyingProperties/xades:SignedProperties",
+      ctx);
+  xmlNodePtr found = nullptr;
+  if (obj && obj->type == XPATH_NODESET && obj->nodesetval &&
+      obj->nodesetval->nodeNr == 1) {
+    found = obj->nodesetval->nodeTab[0];
+  }
+  if (obj) xmlXPathFreeObject(obj);
+  return found;
+}
+
+// Verifies xades:SigningCertificate/xades:Cert[1]/xades:CertDigest inside
+// @p signedPropertiesNode against the actual signer certificate, as ETSI TS
+// 101 903 requires. Supported digest algorithms: sha1, sha256 (same set as
+// ds:Reference digests). Only meaningful once a signed ds:Reference covers
+// @p signedPropertiesNode.
+bool VerifySigningCertificateDigest(xmlXPathContextPtr ctx,
+                                    xmlNodePtr signedPropertiesNode,
+                                    CCertificate* pCert) {
+  if (!pCert || !signedPropertiesNode) return false;
+
+  ctx->node = signedPropertiesNode;
+  xmlXPathObjectPtr obj = xmlXPathEvalExpression(
       BAD_CAST
-      "./ds:Object/xades:QualifyingProperties/xades:SignedProperties/"
-      "xades:SignedSignatureProperties/xades:SigningCertificate/"
+      "./xades:SignedSignatureProperties/xades:SigningCertificate/"
       "xades:Cert[1]/xades:CertDigest",
       ctx);
   if (!obj || !obj->nodesetval || obj->nodesetval->nodeNr != 1) {
@@ -661,10 +740,12 @@ int CXAdESVerifier::verifySignature(int index, const char* szDateTime,
     xmlXPathContextPtr xpathCtx = NewXAdESXPathContext(m_pXAdESDoc->pXmlDoc);
     if (xpathCtx) {
       bool bSignedPropertiesVerified = false;
-      if (VerifyXmlDSigSignature(xpathCtx, pSignatureInfo->pSignatureNode,
-                                 pSignatureInfo->pX509Cert,
-                                 pSignatureInfo->sigValue,
-                                 bSignedPropertiesVerified)) {
+      xmlNodePtr signedPropertiesNode =
+          FindSignedProperties(xpathCtx, pSignatureInfo->pSignatureNode);
+      if (VerifyXmlDSigSignature(
+              xpathCtx, pSignatureInfo->pSignatureNode, signedPropertiesNode,
+              pSignatureInfo->pX509Cert, pSignatureInfo->sigValue,
+              bSignedPropertiesVerified)) {
         bitmask |= VERIFIED_SIGNATURE;
       }
 
@@ -672,9 +753,10 @@ int CXAdESVerifier::verifySignature(int index, const char* szDateTime,
         bitmask |= VERIFIED_SIGNED_ATTRIBUTE_MD;
       }
 
-      if (pSignatureInfo->bCAdES &&
-          VerifySigningCertificateDigest(xpathCtx,
-                                         pSignatureInfo->pSignatureNode,
+      // The certificate digest is only trustworthy if a verified reference
+      // covers the SignedProperties element it was read from.
+      if (pSignatureInfo->bCAdES && bSignedPropertiesVerified &&
+          VerifySigningCertificateDigest(xpathCtx, signedPropertiesNode,
                                          pSignatureInfo->pX509Cert)) {
         bitmask |= VERIFIED_SIGNED_ATTRIBUTE_SC;
       }
