@@ -135,8 +135,10 @@ CSignerInfo CSignedDocument::getSignerInfo(int index) {
 }
 
 void CSignedDocument::getContent(ByteDynArray& content) {
-  CASN1OctetString octetString(reinterpret_cast<const char*>(
-      m_pSignedData->getContentInfo().getValue()->data()));
+  // Detached: no encapsulated content.
+  if (m_pSignedData->getContentInfo().size() < 2) return;
+
+  CASN1OctetString octetString(m_pSignedData->getContentInfo().getContent());
 
   // content
   if (octetString.getTag() == 0x24) {  // contructed octet string
