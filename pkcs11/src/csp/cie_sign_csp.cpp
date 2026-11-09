@@ -198,9 +198,9 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
       char fullPinCStr[9];
       // Wipe the PIN copies on every exit path, including exceptions.
       struct PinWipe {
-        char *c;
+        char* c;
         size_t cLen;
-        ByteDynArray &full;
+        ByteDynArray& full;
         ~PinWipe() {
           OPENSSL_cleanse(c, cLen);
           OPENSSL_cleanse(full.data(), full.size());
@@ -213,7 +213,9 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
 
       uint16_t ret = cieSign->sign(inFilePath, type, fullPinCStr, page, x, y, w,
                                    h, imageData, imageDataLen, outFilePath);
-      if ((ret & (0x63C0)) == 0x63C0) {
+      // 63Cx: wrong PIN, x retries left (a bit-mask test also matched
+      // unrelated words such as 0x6FFF).
+      if ((ret & 0xFFF0) == 0x63C0) {
         return CKR_PIN_INCORRECT;
       } else if (ret == 0x6983) {
         return CKR_PIN_LOCKED;
