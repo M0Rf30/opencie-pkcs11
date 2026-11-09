@@ -635,7 +635,13 @@ int cipherRank(Cipher c) {
 uint16_t sendPlain(const Transmit& tx, Bytes apdu, Bytes& resp) {
   resp.clear();
   uint16_t sw = tx(apdu, resp);
-  if ((sw >> 8) == 0x6C && apdu.size() >= 5 && apdu.size() <= 261) {
+  // 6Cxx means "wrong Le": only retry when the command actually carries an
+  // Le byte (case 2: header + Le; case 4: header + Lc + data + Le). A case 3
+  // command has no Le, so its last byte is data and must not be rewritten
+  // (the status word is unauthenticated).
+  const bool hasLe =
+      apdu.size() == 5 || (apdu.size() > 5 && apdu.size() == 6u + apdu[4]);
+  if ((sw >> 8) == 0x6C && hasLe && apdu.size() <= 261) {
     apdu.back() = static_cast<uint8_t>(sw & 0xFF);
     resp.clear();
     sw = tx(apdu, resp);
