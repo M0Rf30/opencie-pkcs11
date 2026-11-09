@@ -4,7 +4,7 @@ project(
     'libopencie-pkcs11',
     'cpp',
     'c',
-    version: '1.3.4',
+    version: '1.4.0',
     license: 'LGPL-3.0-or-later',
     meson_version: '>=0.56',
     default_options: [
