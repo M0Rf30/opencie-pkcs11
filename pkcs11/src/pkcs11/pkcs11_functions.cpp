@@ -314,6 +314,7 @@ CK_RV CK_ENTRY C_GetSlotList(CK_BBOOL tokenPresent, CK_SLOT_ID_PTR pSlotList,
     logParam(tokenPresent) logParam(pSlotList) logParam(pulCount)
 
         if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulCount == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     bool bOver = false;
     unsigned int iCnt;
@@ -719,6 +720,7 @@ CK_RV CK_ENTRY C_CreateObject(CK_SESSION_HANDLE hSession,
     WriteAttributes(pTemplate, ulCount);
 
     if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (phObject == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -746,6 +748,7 @@ CK_RV CK_ENTRY C_GenerateKey(CK_SESSION_HANDLE hSession,
     WriteAttributes(pTemplate, ulCount);
 
     if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (phKey == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -839,6 +842,7 @@ CK_RV CK_ENTRY C_Digest(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
         logParamBuf(pDigest, pulDigestLen)
 
             if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulDigestLen == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -861,6 +865,7 @@ CK_RV CK_ENTRY C_DigestFinal(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pDigest,
     logParam(hSession) logParamBuf(pDigest, pulDigestLen)
 
         if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulDigestLen == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -903,6 +908,8 @@ CK_RV CK_ENTRY C_FindObjects(CK_SESSION_HANDLE hSession,
         logParam(pulObjectCount)
 
             if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (phObject == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
+    if (pulObjectCount == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
@@ -999,6 +1006,7 @@ CK_RV CK_ENTRY C_GetMechanismList(CK_SLOT_ID slotID,
             sizeof(p11_mechanisms) / sizeof(CK_MECHANISM_TYPE);
 
     if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulCount == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSlot> pSlot = CSlot::GetSlotFromID(slotID);
     if (pSlot == nullptr) throw p11_error(CKR_SLOT_ID_INVALID);
@@ -1025,6 +1033,7 @@ CK_RV CK_ENTRY C_GetMechanismInfo(CK_SLOT_ID slotID, CK_MECHANISM_TYPE type,
     logParam(slotID) logParam(type) logParam(pInfo)
 
         if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pInfo == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSlot> pSlot = CSlot::GetSlotFromID(slotID);
 
@@ -1078,6 +1087,7 @@ CK_RV CK_ENTRY C_GetSessionInfo(CK_SESSION_HANDLE hSession,
     logParam(hSession) logParam(pInfo)
 
         if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pInfo == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
@@ -1185,6 +1195,7 @@ CK_RV CK_ENTRY C_Sign(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
         logParamBuf(pSignature, pulSignatureLen)
 
             if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulSignatureLen == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -1206,6 +1217,7 @@ CK_RV CK_ENTRY C_SignFinal(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pSignature,
     logParam(hSession) logParamBuf(pSignature, pulSignatureLen)
 
         if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulSignatureLen == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -1309,6 +1321,7 @@ CK_RV CK_ENTRY C_SignRecover(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
         logParamBuf(pSignature, pulSignatureLen)
 
             if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulSignatureLen == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -1358,6 +1371,7 @@ CK_RV CK_ENTRY C_VerifyRecover(CK_SESSION_HANDLE hSession,
         logParamBuf(pData, pulDataLen)
 
             if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulDataLen == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -1543,6 +1557,7 @@ CK_RV CK_ENTRY C_WaitForSlotEvent(CK_FLAGS flags, CK_SLOT_ID_PTR pSlot,
       throw p11_error(CKR_ARGUMENTS_BAD);
 
     if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pSlot == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     if (flags & CKF_DONT_BLOCK) {
       std::unique_lock<std::mutex> lock(p11Mutex);
@@ -1660,6 +1675,7 @@ CK_RV CK_ENTRY C_GetObjectSize(CK_SESSION_HANDLE hSession,
     logParam(hSession) logParam(hObject) logParam(pulSize)
 
         if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulSize == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -1680,6 +1696,7 @@ CK_RV CK_ENTRY C_GetOperationState(CK_SESSION_HANDLE hSession,
     logParam(hSession) logParamBuf(pOperationState, pulOperationStateLen)
 
         if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulOperationStateLen == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
