@@ -29,6 +29,7 @@
 #include "csp/ias.h"
 #include "m7m_parser.h"
 #include "pdf_signature_generator.h"
+#include "pdf_byte_range.h"
 #include "pdf_verifier.h"
 #include "properties.h"
 #include "signature_generator.h"
@@ -1095,7 +1096,8 @@ long verify_xml(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
 
     if (pContext->bVerifyCRL) pSI->pRevocationInfo = new REVOCATION_INFO;
 
-    pSI->bitmask = verifier.verifySignature(i, nullptr, pSI->pRevocationInfo);
+    pSI->bitmask = VerifyResultToBitmask(
+        verifier.verifySignature(i, nullptr, pSI->pRevocationInfo));
 
     std::string giveName = pCert->getSubject().getField(OID_GIVEN_NAME);
     std::string surname = pCert->getSubject().getField(OID_SURNAME);
@@ -1277,8 +1279,8 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
       pSI->pRevocationInfo = nullptr;
       if (pContext->bVerifyCRL) pSI->pRevocationInfo = new REVOCATION_INFO;
 
-      pSI->bitmask = si.verifyCountersignature(i, certificates, nullptr,
-                                               pSI->pRevocationInfo);
+      pSI->bitmask = VerifyResultToBitmask(si.verifyCountersignature(
+          i, certificates, nullptr, pSI->pRevocationInfo));
 
       LOG_DBG(
           (0, "verify_countersignature", "verify result: %lx", pSI->bitmask));
@@ -1414,8 +1416,8 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
         if (pContext->bVerifyCRL)
           pTSInfo->signerInfo.pRevocationInfo = new REVOCATION_INFO;
 
-        pTSInfo->signerInfo.bitmask =
-            tst.verify(pTSInfo->signerInfo.pRevocationInfo);
+        pTSInfo->signerInfo.bitmask = VerifyResultToBitmask(
+            tst.verify(pTSInfo->signerInfo.pRevocationInfo));
 
         // MessageImprint
         CASN1Sequence messageImprint = tstInfo.getMessageImprint();
@@ -1493,7 +1495,7 @@ long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
     if (pContext->bVerifyCRL) pSI->pRevocationInfo = new REVOCATION_INFO;
 
     pSI->bitmask =
-        sd.verify(i, pSI->pRevocationInfo);  // pContext->bVerifyCRL);
+        VerifyResultToBitmask(sd.verify(i, pSI->pRevocationInfo));
 
     LOG_DBG(
         (0, "verify_signed_document 2", "verify result: %lx", pSI->bitmask));
@@ -1634,8 +1636,8 @@ long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
       if (pContext->bVerifyCRL)
         pTSInfo->signerInfo.pRevocationInfo = new REVOCATION_INFO;
 
-      pTSInfo->signerInfo.bitmask =
-          tst.verify(pTSInfo->signerInfo.pRevocationInfo);
+      pTSInfo->signerInfo.bitmask = VerifyResultToBitmask(
+          tst.verify(pTSInfo->signerInfo.pRevocationInfo));
 
       // MessageImprint
       CASN1Sequence messageImprint = tstInfo.getMessageImprint();
@@ -1898,8 +1900,8 @@ long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& /*data*/,
     if (pContext->bVerifyCRL) pSI->pRevocationInfo = new REVOCATION_INFO;
 
     char sigType[256];
-    pSI->bitmask =
-        pdfVerifier.VerifySignature(i, nullptr, sigType, pSI->pRevocationInfo);
+    pSI->bitmask = VerifyResultToBitmask(pdfVerifier.VerifySignature(
+        i, nullptr, sigType, pSI->pRevocationInfo));
 
     ByteDynArray subject;
     ByteDynArray issuer;
@@ -2026,8 +2028,8 @@ long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& /*data*/,
       if (pContext->bVerifyCRL)
         pTSInfo->signerInfo.pRevocationInfo = new REVOCATION_INFO;
 
-      pTSInfo->signerInfo.bitmask =
-          tst.verify(pTSInfo->signerInfo.pRevocationInfo);
+      pTSInfo->signerInfo.bitmask = VerifyResultToBitmask(
+          tst.verify(pTSInfo->signerInfo.pRevocationInfo));
 
       pSI->pTimeStamp = pTSInfo;
     } else {
@@ -2252,7 +2254,8 @@ long verifyTST(CTimeStampToken& tst, TS_INFO* pTSInfo, BOOL bVerifyCRL) {
 
   if (bVerifyCRL) pTSInfo->signerInfo.pRevocationInfo = new REVOCATION_INFO;
 
-  pTSInfo->signerInfo.bitmask = tst.verify(pTSInfo->signerInfo.pRevocationInfo);
+  pTSInfo->signerInfo.bitmask =
+      VerifyResultToBitmask(tst.verify(pTSInfo->signerInfo.pRevocationInfo));
 
   // MessageImprint
   CASN1Sequence messageImprint = tstInfo.getMessageImprint();
