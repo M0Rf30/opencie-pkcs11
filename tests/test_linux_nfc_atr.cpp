@@ -68,3 +68,18 @@ TEST_CASE("Absent ATS (type B targets) falls back to the minimal ATR",
   CHECK(linuxNfcAtrFromAts(truncated, sizeof(truncated)) ==
         std::vector<uint8_t> {0x3B, 0x80, 0x80, 0x01, 0x01});
 }
+
+TEST_CASE("Historical bytes beyond 15 are capped consistently with T0",
+          "[linux_nfc][atr]") {
+  // TL, T0=00, then 20 historical bytes: T0 only holds 4 bits of length.
+  std::vector<uint8_t> ats {0x16, 0x00};
+  for (uint8_t i = 0; i < 20; ++i)
+    ats.push_back(static_cast<uint8_t>(0x40 + i));
+  const auto atr = linuxNfcAtrFromAts(ats.data(), ats.size());
+
+  CHECK(atr[1] == 0x8F);              // 0x80 | 15 historical bytes
+  REQUIRE(atr.size() == 4 + 15 + 1);  // header + historical + TCK
+  CHECK(atr[4] == 0x40);
+  CHECK(atr[18] == 0x4E);
+  CHECK(atr.back() == checksum(atr));
+}

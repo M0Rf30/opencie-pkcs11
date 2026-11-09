@@ -150,10 +150,13 @@ std::vector<uint8_t> linuxNfcAtrFromAts(const uint8_t *ats, size_t len) {
     return {0x3B, 0x80, 0x80, 0x01, 0x01};
   }
 
-  const size_t histLen = len - offset;
+  /* ISO 7816-3 T0 carries the historical byte count in 4 bits: cap at 15 so
+   * T0 always agrees with the bytes that follow (an ATS can carry more, and
+   * an inconsistent ATR would be mis-parsed by the template matcher). */
+  const size_t histLen = std::min<size_t>(len - offset, 15);
   std::vector<uint8_t> atr {0x3B, static_cast<uint8_t>(0x80 | (histLen & 0x0F)),
                             0x80, 0x01};
-  atr.insert(atr.end(), ats + offset, ats + len);
+  atr.insert(atr.end(), ats + offset, ats + offset + histLen);
 
   uint8_t tck = 0;
   for (size_t i = 1; i < atr.size(); ++i) tck ^= atr[i];
