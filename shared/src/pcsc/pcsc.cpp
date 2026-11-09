@@ -12,7 +12,10 @@
 
 #include <thread>
 
+#include "util/log.h"
 #include "util/util_exception.h"
+
+extern CLog Log;
 
 struct transData {
   SCARDCONTEXT context;
@@ -157,12 +160,15 @@ readerMonitor::readerMonitor(ISmartCardTransport &transport,
         auto loadReaderList = [&](bool initial = false) -> void {
           DWORD len = 0;
           readerList.clear();
+          // Start from zeroed slots: a plain resize() would leave a stale
+          // PnP marker (pvUserData) on a slot that is now a reader.
+          states.clear();
 
           LONG lret = rm->transport.ListReaders(rm->hContext, nullptr, &len);
           if (lret != SCARD_S_SUCCESS) {
             if (lret != static_cast<LONG>(SCARD_E_NO_READERS_AVAILABLE))
               throw logged_error("Nessun lettore installato");
-          } else {
+          } else if (len >= 2) {
             char *readers = static_cast<char *>(calloc(len, sizeof(char)));
             if (readers == nullptr)
               throw logged_error("Allocazione lettori fallita");
@@ -171,13 +177,16 @@ readerMonitor::readerMonitor(ISmartCardTransport &transport,
               free(readers);
               throw logged_error("Nessun lettore installato");
             }
+            readers[len - 1] = 0;  // never trust the transport's terminator
             const char *curReader = readers;
-            for (; curReader[0] != 0; curReader += strnlen(curReader, len) + 1)
+            const char *const readersEnd = readers + len;
+            for (; curReader < readersEnd && curReader[0] != 0;
+                 curReader += strlen(curReader) + 1)
               readerList.push_back(std::string(curReader));
             free(readers);
           }
 
-          states.resize(static_cast<DWORD>(readerList.size()) + 1);
+          states.assign(readerList.size() + 1, SCARD_READERSTATE {});
           for (DWORD i = 0; i < readerList.size(); i++) {
             states[i].szReader = readerList[i].c_str();
           }
@@ -200,11 +209,23 @@ readerMonitor::readerMonitor(ISmartCardTransport &transport,
         try {
           loadReaderList(true);
 
+          // A bounded wait, not INFINITE: a Cancel() that lands before the
+          // transport starts waiting is lost on some backends (pcsc-lite),
+          // and the destructor's join() would then hang forever. Re-checking
+          // stopMonitor every kPollMs bounds the shutdown latency.
+          constexpr DWORD kPollMs = 1000;
           while (!rm->stopMonitor) {
-            if (rm->transport.GetStatusChange(rm->hContext, INFINITE,
-                                              states.data(), states.size()) ==
-                static_cast<LONG>(SCARD_E_CANCELLED))
-              break;
+            const LONG rv = rm->transport.GetStatusChange(
+                rm->hContext, kPollMs, states.data(), states.size());
+            if (rv == static_cast<LONG>(SCARD_E_CANCELLED)) break;
+            if (rv == static_cast<LONG>(SCARD_E_TIMEOUT)) continue;
+            if (rv != SCARD_S_SUCCESS) {
+              // Transient failure (e.g. the PC/SC service restarted): do not
+              // spin, back off and rebuild the reader list.
+              std::this_thread::sleep_for(std::chrono::milliseconds(500));
+              if (!rm->stopMonitor) loadReaderList();
+              continue;
+            }
             for (DWORD i = 0; i < states.size(); i++) {
               auto &state = states[i];
               if (state.pvUserData != nullptr &&
@@ -226,7 +247,8 @@ readerMonitor::readerMonitor(ISmartCardTransport &transport,
               state.dwCurrentState = state.dwEventState;
             }
           }
-        } catch (const std::exception &) {
+        } catch (const std::exception &e) {
+          Log.writePure("readerMonitor stopped: %s", e.what());
         }
         return 0;
       },
