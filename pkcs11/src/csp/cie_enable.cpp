@@ -732,11 +732,17 @@ HRESULT TokenTransmitCallback(void* data, BYTE* apdu, DWORD apduSize,
 
   if (apduSize == 2) {
     WORD code = *reinterpret_cast<WORD*>(apdu);
+    // Every pseudo-APDU below writes into resp: *respSize is its capacity.
+    const DWORD needed =
+        code == 0xfffd ? static_cast<DWORD>(sizeof(conn->hCard) + 2) : 2;
+    if ((code == 0xfffd || code == 0xfffe || code == 0xffff) &&
+        *respSize < needed)
+      return SCARD_E_INSUFFICIENT_BUFFER;
     if (code == 0xfffd) {
       *respSize = sizeof(conn->hCard) + 2;
       std::memcpy(resp, &conn->hCard, sizeof(conn->hCard));
-      resp[sizeof(&conn->hCard)] = 0;
-      resp[sizeof(&conn->hCard) + 1] = 0;
+      resp[sizeof(conn->hCard)] = 0;
+      resp[sizeof(conn->hCard) + 1] = 0;
 
       return SCARD_S_SUCCESS;
     } else if (code == 0xfffe) {
