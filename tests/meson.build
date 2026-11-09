@@ -35,6 +35,7 @@ test_sources = [
     'test_mac.cpp',
     'test_rsa.cpp',
     'test_pace.cpp',
+    'test_sign_byte_range.cpp',
 ]
 
 # Sign SDK ASN.1/certificate tests (AKI/SKI extraction, embedded CIE CA
@@ -43,6 +44,11 @@ test_sources = [
 # libcie_sign_sdk pulls in.
 sign_sdk_test_sources = [
     'test_certificate_key_ids.cpp',
+    'test_certificate_validity.cpp',
+    'test_sign_xades_verifier.cpp',
+    'test_sign_m7m.cpp',
+    'test_sign_name.cpp',
+    'test_sign_xades_roundtrip.cpp',
     'sign_sdk_test_stubs.cpp',
     '../pkcs11/src/logger/logger.cpp',
 ]
@@ -119,7 +125,8 @@ endif
 # comment) — avoids dragging in cie_p11_template.cpp/cie_enable.cpp.
 ias_pin_test_exe = executable(
     'opencie-ias-pin-tests',
-    ['test_ias_pin.cpp', 'sign_sdk_test_stubs.cpp', '../pkcs11/src/logger/logger.cpp'],
+    ['test_ias_pin.cpp', 'test_ias_card_protocol.cpp',
+     'sign_sdk_test_stubs.cpp', '../pkcs11/src/logger/logger.cpp'],
     include_directories: test_inc,
     link_with: [libcie_shared],
     dependencies: [
