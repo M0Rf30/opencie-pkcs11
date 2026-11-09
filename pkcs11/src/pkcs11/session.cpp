@@ -715,10 +715,9 @@ void CSession::SignRecover(ByteArray &Data, ByteArray &Signature) {
 }
 
 void CSession::GenerateRandom(ByteArray &RandomData) {
-  ByteDynArray baRandom(RandomData.size());
+  // Fill the caller's buffer directly: no allocation sized by the caller.
   pSlot->pTemplate->FunctionList.templateGenerateRandom(pSlot->pTemplateData,
-                                                        baRandom);
-  RandomData.copy(baRandom);
+                                                        RandomData);
 }
 
 void CSession::InitPIN(ByteArray &Pin) {

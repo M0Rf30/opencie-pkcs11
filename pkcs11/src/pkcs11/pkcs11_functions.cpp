@@ -1613,6 +1613,9 @@ CK_RV CK_ENTRY C_GenerateRandom(CK_SESSION_HANDLE hSession,
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
+    if (RandomData == nullptr && ulRandomLen > 0)
+      throw p11_error(CKR_ARGUMENTS_BAD);
+
     ByteArray input(RandomData, ulRandomLen);
     pSession->GenerateRandom(input);
 
