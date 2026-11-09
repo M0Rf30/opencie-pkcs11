@@ -400,7 +400,7 @@ void CSlot::GetInfo(CK_SLOT_INFO_PTR pInfo) {
   if (IsTokenPresent()) pInfo->flags |= CKF_TOKEN_PRESENT;
 
   memset(pInfo->slotDescription, 0, 64);
-  size_t SDLen = min1(64, szName.size() - 1);
+  size_t SDLen = min1(64, szName.size());
   std::memcpy(pInfo->slotDescription, szName.c_str(), SDLen);
 
   memset(pInfo->manufacturerID, 0, 32);
