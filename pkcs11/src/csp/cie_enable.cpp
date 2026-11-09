@@ -402,8 +402,10 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
       }
 
       if (ias.IsEnrolled()) {
-        LOG_INFO("cie_enable - CIE already enabled. Serial number: %s\n",
-                 IdServizi2.data());
+        // EF.IdServizi is card data and not NUL-terminated: bound the read.
+        LOG_INFO("cie_enable - CIE already enabled. Serial number: %.*s\n",
+                 static_cast<int>(IdServizi2.size()),
+                 reinterpret_cast<const char*>(IdServizi2.data()));
 
         // Use PAN.mid(5,6) — same key as IAS::IsEnrolled() / GetCertificate()
         std::string sidServizi_already = hexEncode(ias.PAN.data() + 5, 6);
