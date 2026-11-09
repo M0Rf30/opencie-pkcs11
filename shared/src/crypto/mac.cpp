@@ -17,6 +17,16 @@
 namespace {
 using EvpCipherCtxPtr =
     std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)>;
+
+/// Cleanses a fixed-size key buffer on every scope exit, including throws.
+template <size_t N>
+struct ScopedCleanse {
+  explicit ScopedCleanse(uint8_t (&buf)[N]) : buf_(buf) {}
+  ~ScopedCleanse() { OPENSSL_cleanse(buf_, N); }
+  ScopedCleanse(const ScopedCleanse &) = delete;
+  ScopedCleanse &operator=(const ScopedCleanse &) = delete;
+  uint8_t (&buf_)[N];
+};
 }
 
 extern CLog Log;
@@ -83,6 +93,7 @@ ByteDynArray CMAC::Mac(const ByteArray &data) {
   if (data.size() > 8) {
     // Build single-DES-equivalent key: K1|K1|K1 (24 bytes)
     uint8_t singleDesKey[24];
+    ScopedCleanse<sizeof(singleDesKey)> singleDesKeyWipe(singleDesKey);
     memcpy(singleDesKey, key.data(), 8);
     memcpy(singleDesKey + 8, key.data(), 8);
     memcpy(singleDesKey + 16, key.data(), 8);
@@ -107,7 +118,6 @@ ByteDynArray CMAC::Mac(const ByteArray &data) {
 
     // The chained IV for step 2 is the last 8 bytes of ciphertext output
     memcpy(ivBuf, baOutTmp.data() + outLen - 8, 8);
-    OPENSSL_cleanse(singleDesKey, sizeof(singleDesKey));
   }
 
   // Step 2: 3DES-CBC encrypt the final block using full key
