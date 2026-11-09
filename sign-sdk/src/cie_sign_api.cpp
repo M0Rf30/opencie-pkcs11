@@ -210,7 +210,7 @@ void cie_sign_cleanup() { CCertStore::CleanUp(); }
 CIE_SIGN_CTX cie_sign_sign_init(void) {
   LOG_MSG((0, "--> cie_sign_sign_init", "Called"));
 
-  CIE_SIGN_CONTEXT* pContext = new CIE_SIGN_CONTEXT;
+  CIE_SIGN_CONTEXT* pContext = new CIE_SIGN_CONTEXT();
 
   pContext->bDetached = 0;
   pContext->bVerifyCert = DEFAULT_VERIFY_USER_CERT;
@@ -241,6 +241,7 @@ CIE_SIGN_CTX cie_sign_sign_init(void) {
   pContext->szTSAUsername[0] = 0;
   pContext->szTSAPassword[0] = 0;
   pContext->bCades = false;
+  pContext->pSigner = nullptr;
   pContext->pSignatureGenerator = nullptr;
   pContext->pIAS = nullptr;
 
@@ -504,7 +505,21 @@ long cie_sign_sign_sign(CIE_SIGN_CTX ctx) {
 
   long nRes = 0;
 
-  if (pContext->pIAS) {
+  if (!pContext->pIAS) {
+    LOG_ERR((0, "<-- cie_sign_sign_sign", "Context: %p, no IAS instance set",
+             pContext));
+    return CIE_SIGN_ERROR_INVALID_P11;
+  }
+
+  {
+    // A previous call on this context may have left a signer behind.
+    try {
+      if (pContext->pSigner) pContext->pSigner->Close();
+    } catch (...) {
+    }
+    SAFEDELETE(pContext->pSignatureGenerator);
+    SAFEDELETE(pContext->pSigner);
+
     CCIESigner* pCIESigner = new CCIESigner(pContext->pIAS);
     long ret = pCIESigner->Init(pContext->szPIN);
     // The PIN is only needed for Init(); do not keep it in the context.
