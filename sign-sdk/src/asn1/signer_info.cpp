@@ -477,15 +477,52 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
             CASN1Sequence attr(authAttr.elementAt(i));
 
             if (oid.equals(CASN1ObjectIdentifier(attr.elementAt(0)))) {
-              bitmask |= VERIFIED_SIGNED_ATTRIBUTE_MD;
+              // VERIFIED_SIGNED_ATTRIBUTE_MD is set below, only once the
+              // value matches the digest of the content.
               CASN1SetOf values(attr.elementAt(1));
               CASN1OctetString val(values.elementAt(0));
               const ByteDynArray* pval = val.getValue();
               messageDigest.append(*pval);
             } else if (oid1.equals(CASN1ObjectIdentifier(attr.elementAt(0)))) {
-              bitmask |= VERIFIED_SIGNED_ATTRIBUTE_CT;
+              // The content-type attribute must carry id-data.
+              try {
+                CASN1SetOf values(attr.elementAt(1));
+                CASN1ObjectIdentifier ct(values.elementAt(0));
+                if (ct.equals(CASN1ObjectIdentifier(szDataOID)))
+                  bitmask |= VERIFIED_SIGNED_ATTRIBUTE_CT;
+              } catch (...) {
+              }
             } else if (oid2.equals(CASN1ObjectIdentifier(attr.elementAt(0)))) {
-              bitmask |= VERIFIED_SIGNED_ATTRIBUTE_SC;
+              // signing-certificate-v2: the first ESSCertIDv2 hash must match
+              // the SHA-256 of the signer certificate (the default hash).
+              try {
+                CASN1SetOf values(attr.elementAt(1));
+                CASN1Sequence signingCert(values.elementAt(0));
+                CASN1Sequence certIds(signingCert.elementAt(0));
+                CASN1Sequence essCertId(certIds.elementAt(0));
+                CASN1Object first(essCertId.elementAt(0));
+                bool sha256 = true;
+                CASN1Object hashObj(first);
+                if (first.getTag() == 0x30) {  // explicit hashAlgorithm
+                  CAlgorithmIdentifier alg(first);
+                  CAlgorithmIdentifier sha256Alg(szSHA256OID);
+                  sha256 = alg.elementAt(0) == sha256Alg.elementAt(0);
+                  hashObj = essCertId.elementAt(1);
+                }
+                if (sha256) {
+                  CASN1OctetString certHash(hashObj);
+                  ByteDynArray certDer;
+                  cert.toByteArray(certDer);
+                  ByteDynArray expected = CSHA256::Digest(
+                      ByteArray(certDer.data(), certDer.size()));
+                  const ByteDynArray* pHash = certHash.getValue();
+                  if (pHash->size() == expected.size() &&
+                      CRYPTO_memcmp(pHash->data(), expected.data(),
+                                    expected.size()) == 0)
+                    bitmask |= VERIFIED_SIGNED_ATTRIBUTE_SC;
+                }
+              } catch (...) {
+              }
             }
           }
 
@@ -525,7 +562,7 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
                   bahash2.size() == SHA256_DIGEST_LENGTH &&
                   CRYPTO_memcmp(bahash2.data(), messageDigest.data(),
                                 SHA256_DIGEST_LENGTH) == 0) {
-                bitmask |= VERIFIED_SIGNATURE;
+                bitmask |= VERIFIED_SIGNATURE | VERIFIED_SIGNED_ATTRIBUTE_MD;
                 LOG_DBG((0, "CSignerInfo::verifySignature", "VERIFIED: %x",
                          bitmask));
               } else {
@@ -567,7 +604,7 @@ int CSignerInfo::verifySignature(CASN1OctetString& source,
                   contentHash.size() == SHA_DIGEST_LENGTH &&
                   CRYPTO_memcmp(contentHash.data(), messageDigest.data(),
                                 SHA_DIGEST_LENGTH) == 0) {
-                bitmask |= VERIFIED_SIGNATURE;
+                bitmask |= VERIFIED_SIGNATURE | VERIFIED_SIGNED_ATTRIBUTE_MD;
               } else {
                 LOG_DBG((0, "CSignerInfo::verifySignature", "Not verified 2"));
               }
