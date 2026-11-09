@@ -412,7 +412,8 @@ void CSession::VerifyInit(CK_MECHANISM_PTR pMechanism, CK_OBJECT_HANDLE hKey) {
   if (baAttrVal == nullptr)
     throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
   else {
-    if (ByteArrayToVar(*baAttrVal, CK_BBOOL) == FALSE)
+    if (baAttrVal->size() < sizeof(CK_BBOOL) ||
+        ByteArrayToVar(*baAttrVal, CK_BBOOL) == FALSE)
       throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
   }
 
@@ -487,7 +488,8 @@ void CSession::VerifyRecoverInit(CK_MECHANISM_PTR pMechanism,
   if (baAttrVal == nullptr)
     throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
   else {
-    if (ByteArrayToVar(*baAttrVal, CK_BBOOL) == FALSE)
+    if (baAttrVal->size() < sizeof(CK_BBOOL) ||
+        ByteArrayToVar(*baAttrVal, CK_BBOOL) == FALSE)
       throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
   }
 
@@ -543,7 +545,8 @@ void CSession::SignInit(CK_MECHANISM_PTR pMechanism, CK_OBJECT_HANDLE hKey) {
   if (baAttrVal == nullptr) {
     throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
   } else {
-    if (ByteArrayToVar(*baAttrVal, CK_BBOOL) == FALSE)
+    if (baAttrVal->size() < sizeof(CK_BBOOL) ||
+        ByteArrayToVar(*baAttrVal, CK_BBOOL) == FALSE)
       throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
   }
 
@@ -650,7 +653,8 @@ void CSession::SignRecoverInit(CK_MECHANISM_PTR pMechanism,
   if (baAttrVal == nullptr)
     throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
   else {
-    if (ByteArrayToVar(*baAttrVal, CK_BBOOL) == FALSE)
+    if (baAttrVal->size() < sizeof(CK_BBOOL) ||
+        ByteArrayToVar(*baAttrVal, CK_BBOOL) == FALSE)
       throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
   }
 
@@ -765,7 +769,8 @@ void CSession::SetOperationState(ByteArray &OperationState) {
     pSignMechanism.reset();
     CTLV SignTlv(SignOperationState);
     ByteArray Algo = SignTlv.getValue(OS_Algo);
-    if (Algo.isNull()) throw p11_error(CKR_SAVED_STATE_INVALID);
+    if (Algo.isNull() || Algo.size() < sizeof(CK_MECHANISM_TYPE))
+      throw p11_error(CKR_SAVED_STATE_INVALID);
     CK_MECHANISM mech = {ByteArrayToVar(Algo, CK_MECHANISM_TYPE), nullptr, 0};
 
     ByteArray Key = SignTlv.getValue(OS_Key);
@@ -788,7 +793,8 @@ void CSession::SetOperationState(ByteArray &OperationState) {
     pVerifyMechanism.reset();
     CTLV VerifyTlv(VerifyOperationState);
     ByteArray Algo = VerifyTlv.getValue(OS_Algo);
-    if (Algo.isNull()) throw p11_error(CKR_SAVED_STATE_INVALID);
+    if (Algo.isNull() || Algo.size() < sizeof(CK_MECHANISM_TYPE))
+      throw p11_error(CKR_SAVED_STATE_INVALID);
     CK_MECHANISM mech = {ByteArrayToVar(Algo, CK_MECHANISM_TYPE), nullptr, 0};
 
     ByteArray Key = VerifyTlv.getValue(OS_Key);
@@ -813,7 +819,8 @@ void CSession::SetOperationState(ByteArray &OperationState) {
     pDigestMechanism.reset();
     CTLV DigestTlv(DigestOperationState);
     ByteArray Algo = DigestTlv.getValue(OS_Algo);
-    if (Algo.isNull()) throw p11_error(CKR_SAVED_STATE_INVALID);
+    if (Algo.isNull() || Algo.size() < sizeof(CK_MECHANISM_TYPE))
+      throw p11_error(CKR_SAVED_STATE_INVALID);
     CK_MECHANISM mech = {ByteArrayToVar(Algo, CK_MECHANISM_TYPE), nullptr, 0};
 
     ByteArray Data = DigestTlv.getValue(OS_Data);

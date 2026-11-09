@@ -130,6 +130,8 @@ bool CP11Object::IsPrivate() {
 
   if (baVal == nullptr)
     return false;
+  else if (baVal->size() < sizeof(CK_BBOOL))
+    return true;  // malformed attribute: fail closed, treat as private
   else
     return (ByteArrayToVar(*baVal, CK_BBOOL) == TRUE);
 }
