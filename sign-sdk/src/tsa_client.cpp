@@ -68,13 +68,16 @@ CTSAClient::CTSAClient(void) : m_szTSAUrl(""), m_szTSAPassword("") {
   m_szTSAUsername[0] = '\0';
 }
 
-CTSAClient::~CTSAClient(void) {}
+CTSAClient::~CTSAClient(void) {
+  OPENSSL_cleanse(m_szTSAPassword, sizeof(m_szTSAPassword));
+}
 
 void CTSAClient::SetTSAUrl(const char* szUrl) {
   snprintf(m_szTSAUrl, sizeof(m_szTSAUrl), "%s", szUrl);
 }
 
 void CTSAClient::SetCredential(const char* szUsername, const char* szPassword) {
+  OPENSSL_cleanse(m_szTSAPassword, sizeof(m_szTSAPassword));
   snprintf(m_szTSAUsername, sizeof(m_szTSAUsername), "%s", szUsername);
   snprintf(m_szTSAPassword, sizeof(m_szTSAPassword), "%s", szPassword);
 }
@@ -84,6 +87,7 @@ void CTSAClient::SetUsername(const char* szUsername) {
 }
 
 void CTSAClient::SetPassword(const char* szPassword) {
+  OPENSSL_cleanse(m_szTSAPassword, sizeof(m_szTSAPassword));
   snprintf(m_szTSAPassword, sizeof(m_szTSAPassword), "%s", szPassword);
 }
 
