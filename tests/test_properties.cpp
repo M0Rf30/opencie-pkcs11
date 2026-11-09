@@ -182,3 +182,18 @@ TEST_CASE("load from nonexistent file returns -1", "[properties]") {
   Properties p;
   CHECK(p.load("/tmp/opencode_no_such_file_xyz.properties") == -1);
 }
+
+TEST_CASE("getProperty pointers stay valid across other lookups",
+          "[properties]") {
+  Properties p;
+  p.putProperty("a", "alpha");
+  p.putProperty("b", "beta");
+  const char* a = p.getProperty("a");
+  const char* b = p.getProperty("b");
+  REQUIRE(a != nullptr);
+  REQUIRE(b != nullptr);
+  // No shared scratch buffer: the earlier result is not clobbered.
+  CHECK(std::string(a) == "alpha");
+  CHECK(std::string(b) == "beta");
+  CHECK(a != b);
+}

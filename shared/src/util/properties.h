@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 
@@ -98,6 +100,5 @@ class Properties {
 
  private:
   std::unordered_map<std::string, std::string> m_properties;
-  mutable std::string m_tempResult; /**< Temporary buffer for returning const
-                                       char* from getProperty. */
+  mutable std::shared_mutex m_mutex; /**< Guards m_properties. */
 };
