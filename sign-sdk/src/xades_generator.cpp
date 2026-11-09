@@ -71,8 +71,12 @@ static void extractNs(xmlDocPtr pDoc, xmlNode* a_node,
     if (cur_node->type == XML_ELEMENT_NODE) {
       xmlNsPtr* nsPtr = xmlGetNsList(pDoc, cur_node);
       if (nsPtr) {
-        pNsPtrMap->insert(
-            std::pair<const xmlChar*, xmlNsPtr*>(nsPtr[0]->href, nsPtr));
+        // A duplicate href is not stored, so its list must be released here.
+        if (!pNsPtrMap
+                 ->insert(std::pair<const xmlChar*, xmlNsPtr*>(nsPtr[0]->href,
+                                                               nsPtr))
+                 .second)
+          xmlFree(nsPtr);
       }
     }
 
@@ -141,6 +145,13 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
   }
 
   std::map<const xmlChar*, xmlNsPtr*> nsPtrMap;
+  // xmlGetNsList() results are heap arrays owned by the caller.
+  struct NsMapFree {
+    std::map<const xmlChar*, xmlNsPtr*>& m;
+    ~NsMapFree() {
+      for (auto& kv : m) xmlFree(kv.second);
+    }
+  } nsMapFree {nsPtrMap};
 
   extractNs(pDoc, root, &nsPtrMap);
 
@@ -155,18 +166,27 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
   // CanonicalizeAndHashBase64(pDoc, strDocHashB64, strDocCanonicalForm);
 
   // QualifyingProperties
+  // Every libxml2 document below is owned by a guard so that neither the
+  // success path nor an exception leaks it.
+  using XmlDocGuard = std::unique_ptr<xmlDoc, decltype(&xmlFreeDoc)>;
+  XmlDocGuard qualifyingGuard(nullptr, xmlFreeDoc);
   xmlDocPtr docQualifyingProperties = nullptr;
   std::string strQualifPropsHashB64;
 
   if (m_bXAdES) {
     docQualifyingProperties =
         CreateQualifyingProperties(pDoc, pSignerCertificate);
+    qualifyingGuard.reset(docQualifyingProperties);
 
-    xmlDocPtr doc0 = xmlCopyDoc(docQualifyingProperties, TRUE);
-    xmlDocPtr doc1 = xmlNewDoc(reinterpret_cast<const xmlChar*>("1.0"));
-    xmlNodePtr rootNode = &(doc0->children[0].children[0]);
+    // Canonicalise a deep copy of SignedProperties as the root of its own
+    // document (nodes are copied, never moved between documents).
+    XmlDocGuard doc1(xmlNewDoc(reinterpret_cast<const xmlChar*>("1.0")),
+                     xmlFreeDoc);
+    xmlNodePtr rootNode = xmlDocCopyNode(
+        xmlDocGetRootElement(docQualifyingProperties)->children, doc1.get(), 1);
+    if (!rootNode) throw logged_error("cannot copy SignedProperties");
 
-    xmlDocSetRootElement(doc1, rootNode);
+    xmlDocSetRootElement(doc1.get(), rootNode);
     // SignedProperties is canonicalised in the scope it will have inside
     // ds:Signature / xades:QualifyingProperties.
     DeclareNs(rootNode, NAMESPACE_XML_DSIG, "ds");
@@ -180,15 +200,14 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
     }
 
     std::string strCanonicalForm;
-    CanonicalizeAndHashBase64(doc1, strQualifPropsHashB64, strCanonicalForm);
-
-    xmlFreeDoc(doc0);
-    xmlFreeDoc(doc1);
+    CanonicalizeAndHashBase64(doc1.get(), strQualifPropsHashB64,
+                              strCanonicalForm);
   }
 
   // SignedInfo
   xmlDocPtr docSignedInfo =
       CreateSignedInfo(pDoc, strQualifPropsHashB64, bDetached, m_szFileName);
+  XmlDocGuard signedInfoGuard(docSignedInfo, xmlFreeDoc);
 
   for (const auto& [key, val] : nsPtrMap) {
     xmlNsPtr* nsPtr = val;
@@ -199,12 +218,13 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
 
   std::string strSignedInfoHashB64;
   std::string strSigInfoCanonicalForm;
-  xmlDocPtr doc0 = xmlCopyDoc(docSignedInfo, TRUE);
+  XmlDocGuard doc1(xmlNewDoc(reinterpret_cast<const xmlChar*>("1.0")),
+                   xmlFreeDoc);
+  xmlNodePtr rootNode = xmlDocCopyNode(
+      xmlDocGetRootElement(docSignedInfo)->children, doc1.get(), 1);
+  if (!rootNode) throw logged_error("cannot copy SignedInfo");
 
-  xmlDocPtr doc1 = xmlNewDoc(reinterpret_cast<const xmlChar*>("1.0"));
-  xmlNodePtr rootNode = &(doc0->children[0].children[0]);
-
-  xmlDocSetRootElement(doc1, rootNode);
+  xmlDocSetRootElement(doc1.get(), rootNode);
   DeclareNs(rootNode, NAMESPACE_XML_DSIG, "ds");
 
   for (const auto& [key, val] : nsPtrMap) {
@@ -214,7 +234,7 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
     }
   }
 
-  CanonicalizeAndHashBase64(doc1, strSignedInfoHashB64,
+  CanonicalizeAndHashBase64(doc1.get(), strSignedInfoHashB64,
                             strSigInfoCanonicalForm);
 
   // compute signature
@@ -282,20 +302,29 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
     // QualifyingProperties
     xmlNodePtr rootQualifyingProperties =
         xmlDocGetRootElement(docQualifyingProperties);
-    xmlAddChild(pObject, rootQualifyingProperties);
+    xmlNodePtr copyQP =
+        xmlDocCopyNode(rootQualifyingProperties, docSignedInfo, 1);
+    if (!copyQP) throw logged_error("cannot copy QualifyingProperties");
+    xmlAddChild(pObject, copyQP);
   }
 
   xmlChar* membuf;
   int nSize;
 
   if (bDetached) {
-    xmlDocPtr newdoc = xmlNewDoc(reinterpret_cast<const xmlChar*>("1.0"));
-    xmlDocSetRootElement(newdoc, pSignatureRoot);
+    // newdoc owns the signature tree from here on.
+    XmlDocGuard newdoc(xmlNewDoc(reinterpret_cast<const xmlChar*>("1.0")),
+                       xmlFreeDoc);
+    xmlNodePtr copySig = xmlDocCopyNode(pSignatureRoot, newdoc.get(), 1);
+    if (!copySig) throw logged_error("cannot copy Signature");
+    xmlDocSetRootElement(newdoc.get(), copySig);
     xmlKeepBlanksDefault(0);
-    xmlDocDumpFormatMemory(newdoc, &membuf, &nSize, 1);
+    xmlDocDumpFormatMemory(newdoc.get(), &membuf, &nSize, 1);
   } else {
     // signature
-    xmlAddChild(root, pSignatureRoot);
+    xmlNodePtr copySig = xmlDocCopyNode(pSignatureRoot, pDoc, 1);
+    if (!copySig) throw logged_error("cannot copy Signature");
+    xmlAddChild(root, copySig);
     xmlKeepBlanksDefault(0);
     xmlDocDumpFormatMemory(pDoc, &membuf, &nSize, 1);
   }
