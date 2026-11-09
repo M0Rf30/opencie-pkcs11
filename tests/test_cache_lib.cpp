@@ -334,6 +334,24 @@ TEST_CASE("Cache tightens a loosely-permissioned own cache directory",
   CHECK((st.st_mode & 0777) == 0700);
 }
 
+TEST_CASE("CacheSetData leaves no temporary files behind", "[cache]") {
+  std::string dir = MakeTempDir();
+  ScopedHomeOverride homeGuard(dir);
+  std::string cert = "cert";
+  std::string pin = "1234";
+  for (int i = 0; i < 3; ++i)
+    CacheSetData("AABBCCDD", reinterpret_cast<uint8_t *>(cert.data()),
+                 static_cast<int>(cert.size()),
+                 reinterpret_cast<uint8_t *>(pin.data()),
+                 static_cast<int>(pin.size()));
+  size_t n = 0;
+  for (auto &e : std::filesystem::directory_iterator(dir + "/.CIEPKI")) {
+    CHECK(e.path().filename() == "AABBCCDD.cache");
+    ++n;
+  }
+  CHECK(n == 1);
+}
+
 TEST_CASE("CacheSetData rejects a path-traversal PAN", "[cache]") {
   std::string dir = MakeTempDir();
   ScopedHomeOverride homeGuard(dir);

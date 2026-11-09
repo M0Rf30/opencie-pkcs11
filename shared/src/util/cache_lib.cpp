@@ -91,25 +91,21 @@ void RequireValidPAN(const char *PAN) {
  * @brief Write @p data atomically and with owner-only permissions to
  * @p path.
  *
- * Writes to `path + ".tmp"` first (O_CREAT|O_EXCL|O_NOFOLLOW, mode 0600),
- * fsyncs it, then renames it over the destination. This avoids leaving a
- * corrupt cache behind on crash or on two concurrent writers, and avoids
- * following a pre-existing symlink at the target path (see finding
- * CIE-CACHE-003).
+ * Writes to a uniquely named temporary file in the same directory
+ * (mkostemp: O_CREAT|O_EXCL, mode 0600), fsyncs it, then renames it over
+ * the destination. A unique name means two processes writing the same
+ * cache file can never rename each other's partial file (finding SU-02),
+ * and rename() replaces, rather than follows, a pre-existing symlink at
+ * the target path (see finding CIE-CACHE-003).
  */
 void WriteFileAtomic(const std::string &path, const char *data, size_t len) {
-  std::string tmpPath = path + ".tmp";
-  // Remove any stale temp file (e.g. left over from a crashed previous
-  // write) so O_EXCL does not spuriously fail.
-  unlink(tmpPath.c_str());
-
-  int fd = open(tmpPath.c_str(),
-                O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+  std::string tmpPath = path + ".XXXXXX";
+  int fd = mkostemp(tmpPath.data(), O_CLOEXEC);
   if (fd == -1) throw logged_error("Cannot create temporary cache file");
 
   size_t written = 0;
-  bool ok = true;
-  while (written < len) {
+  bool ok = (fchmod(fd, 0600) == 0);
+  while (ok && written < len) {
     ssize_t n = write(fd, data + written, len - written);
     if (n <= 0) {
       ok = false;
