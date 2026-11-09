@@ -297,6 +297,9 @@ CK_RV CK_ENTRY C_UpdateSlotList() {
   return pkcs11_guard(__FUNCTION__, [&]() -> CK_RV {
     std::unique_lock<std::mutex> lock(p11Mutex);
 
+    if (!bP11Initialized || g_transport == nullptr)
+      throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+
     CSlot::InitSlotList(*g_transport);
 
     return CKR_OK;
