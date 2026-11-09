@@ -15,6 +15,7 @@
 #include <openssl/rand.h>
 
 #include <cerrno>
+#include <climits>
 #include <cstring>
 #include <fstream>
 #ifndef _WIN32
@@ -135,6 +136,8 @@ class init_rnd {
 } _initRand;
 
 ByteArray &ByteArray::random() {
+  if (_size > static_cast<size_t>(INT_MAX))
+    throw logged_error("random: size too large");
   if (RAND_bytes(_data, static_cast<int>(_size)) != 1)
     throw logged_error("RAND_bytes failed");
   return *this;
