@@ -315,10 +315,10 @@ TEST_CASE("Cache refuses a symlinked cache directory", "[cache]") {
   std::string cert = "cert";
   std::string pin = "1234";
   const char *PAN = "AABBCCDD";
-  CHECK_THROWS(CacheSetData(
-      PAN, reinterpret_cast<uint8_t *>(cert.data()),
-      static_cast<int>(cert.size()), reinterpret_cast<uint8_t *>(pin.data()),
-      static_cast<int>(pin.size())));
+  CHECK_THROWS(CacheSetData(PAN, reinterpret_cast<uint8_t *>(cert.data()),
+                            static_cast<int>(cert.size()),
+                            reinterpret_cast<uint8_t *>(pin.data()),
+                            static_cast<int>(pin.size())));
   CHECK_THROWS(CacheSetDer(PAN, reinterpret_cast<const uint8_t *>(cert.data()),
                            cert.size()));
   // Nothing may have been written through the symlink.
@@ -448,3 +448,15 @@ TEST_CASE(
   CHECK(!std::filesystem::exists(cachePath + ".tmp"));
 }
 #endif  // !_WIN32
+
+#ifndef _WIN32
+TEST_CASE("CacheSetData rejects negative sizes and null buffers", "[cache]") {
+  std::string dir = MakeTempDir();
+  ScopedHomeOverride homeGuard(dir);
+  uint8_t buf[4] = {1, 2, 3, 4};
+  CHECK_THROWS(CacheSetData("AABBCCDD", buf, -1, buf, 4));
+  CHECK_THROWS(CacheSetData("AABBCCDD", buf, 4, buf, -5));
+  CHECK_THROWS(CacheSetData("AABBCCDD", nullptr, 4, buf, 4));
+  CHECK_FALSE(CacheExists("AABBCCDD"));
+}
+#endif

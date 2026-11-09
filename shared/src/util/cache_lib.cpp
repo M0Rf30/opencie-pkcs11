@@ -37,6 +37,7 @@ extern "C" __attribute__((visibility("default"))) void cie_set_data_dir(
 #endif
 
 #include <cerrno>
+#include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <regex>
@@ -301,7 +302,8 @@ static void GetDerPath(const char *PAN, std::string &sPath) {
 }
 
 void CacheSetDer(const char *PAN, const uint8_t *der, size_t len) {
-  if (PAN == nullptr || der == nullptr || len == 0)
+  if (PAN == nullptr || der == nullptr || len == 0 ||
+      len > UINT32_MAX)
     throw logged_error("CacheSetDer: invalid arguments");
 
   auto szDir = GetCardDir();
@@ -513,6 +515,10 @@ void CacheGetPIN(const char *PAN, std::vector<uint8_t> &PIN) {
 void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize,
                   uint8_t *FirstPIN, int FirstPINSize) {
   if (PAN == nullptr) throw logged_error("PAN is required");
+  if (certificateSize < 0 || FirstPINSize < 0 ||
+      (certificateSize > 0 && certificate == nullptr) ||
+      (FirstPINSize > 0 && FirstPIN == nullptr))
+    throw logged_error("CacheSetData: invalid size or null buffer");
 
   auto szDir = GetCardDir();
 
