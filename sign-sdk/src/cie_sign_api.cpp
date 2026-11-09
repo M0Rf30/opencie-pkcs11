@@ -14,6 +14,7 @@
 
 #include <libxml/tree.h>
 #include <libxml/xmlmemory.h>
+#include <openssl/crypto.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -502,6 +503,8 @@ long cie_sign_sign_sign(CIE_SIGN_CTX ctx) {
   if (pContext->pIAS) {
     CCIESigner* pCIESigner = new CCIESigner(pContext->pIAS);
     long ret = pCIESigner->Init(pContext->szPIN);
+    // The PIN is only needed for Init(); do not keep it in the context.
+    OPENSSL_cleanse(pContext->szPIN, sizeof(pContext->szPIN));
     LOG_DBG((0, "CIESigner::Init", "ret %lx", ret));
 
     if (ret != 0) {
@@ -595,6 +598,7 @@ long cie_sign_sign_cleanup(CIE_SIGN_CTX ctx) {
   } catch (...) {
   }
 
+  OPENSSL_cleanse(pContext->szPIN, sizeof(pContext->szPIN));
   SAFEDELETE(pContext->pSigner);
   SAFEDELETE(pContext->pSignatureGenerator);
 

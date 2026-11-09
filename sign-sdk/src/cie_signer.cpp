@@ -10,13 +10,11 @@
 #include "../../include/opencie/cie_ext.h"
 #include "pkcs11/cryptoki.h"
 
-CCIESigner::CCIESigner(IAS* pIAS) : m_pIAS(pIAS), m_szPIN("") {}
+CCIESigner::CCIESigner(IAS* pIAS) : m_pIAS(pIAS) {}
 
 CCIESigner::~CCIESigner(void) = default;
 
 long CCIESigner::Init(const char* szPIN) {
-  snprintf(m_szPIN, sizeof(m_szPIN), "%s", szPIN);
-
   LOG_DBG((0, "CCIESigner::Init", "Init CIESigner"));
 
   try {
