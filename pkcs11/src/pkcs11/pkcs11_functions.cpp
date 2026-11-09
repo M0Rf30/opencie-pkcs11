@@ -1662,8 +1662,8 @@ CK_RV CK_ENTRY C_SetPIN(CK_SESSION_HANDLE hSession, CK_CHAR_PTR pOldPin,
     if (pOldPin == nullptr || pNewPin == nullptr)
       throw p11_error(CKR_ARGUMENTS_BAD);
     std::vector<CK_BYTE> oldCopy(pOldPin, pOldPin + ulOldLen);
-    std::vector<CK_BYTE> newCopy(pNewPin, pNewPin + ulNewLen);
     PinCleanser oldCleanser(oldCopy);
+    std::vector<CK_BYTE> newCopy(pNewPin, pNewPin + ulNewLen);
     PinCleanser newCleanser(newCopy);
     ByteArray inputOld(oldCopy.data(), oldCopy.size());
     ByteArray inputNew(newCopy.data(), newCopy.size());
