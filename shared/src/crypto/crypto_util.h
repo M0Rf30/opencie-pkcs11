@@ -56,6 +56,7 @@
 #include <openssl/sha.h>
 
 #include <cstring>
+#include <memory>
 #include <string>
 
 #include "keys.h"
@@ -73,6 +74,36 @@ inline constexpr size_t kAesBlockSize = 16;
 inline constexpr size_t kHmacKeyLength = SHA256_DIGEST_LENGTH;
 /// HMAC-SHA256 tag size in bytes.
 inline constexpr size_t kHmacTagLength = SHA256_DIGEST_LENGTH;
+
+namespace cache_crypto_detail {
+
+struct CipherCtxDeleter {
+  void operator()(EVP_CIPHER_CTX* c) const { EVP_CIPHER_CTX_free(c); }
+};
+using CipherCtxPtr = std::unique_ptr<EVP_CIPHER_CTX, CipherCtxDeleter>;
+
+/// Cleanses a fixed-size stack buffer on every scope exit.
+template <size_t N>
+struct ScopedCleanse {
+  explicit ScopedCleanse(unsigned char (&buf)[N]) : buf_(buf) {}
+  ~ScopedCleanse() { OPENSSL_cleanse(buf_, N); }
+  ScopedCleanse(const ScopedCleanse&) = delete;
+  ScopedCleanse& operator=(const ScopedCleanse&) = delete;
+  unsigned char (&buf_)[N];
+};
+
+/// Cleanses the full contents of a string on every scope exit.
+struct ScopedStringCleanse {
+  explicit ScopedStringCleanse(std::string& s) : s_(s) {}
+  ~ScopedStringCleanse() {
+    if (!s_.empty()) OPENSSL_cleanse(s_.data(), s_.size());
+  }
+  ScopedStringCleanse(const ScopedStringCleanse&) = delete;
+  ScopedStringCleanse& operator=(const ScopedStringCleanse&) = delete;
+  std::string& s_;
+};
+
+}  // namespace cache_crypto_detail
 
 /**
  * @brief Derives the AES encryption key and the HMAC integrity key from
@@ -113,9 +144,13 @@ inline void deriveCacheKeys(unsigned char* aesKey, unsigned char* macKey) {
  *         encryption, or HMAC) fails.
  */
 inline int encrypt(const std::string& message, std::string& ciphertext) {
+  using namespace cache_crypto_detail;
   unsigned char key[kAesKeyLength];
   unsigned char macKey[kHmacKeyLength];
   unsigned char iv[kAesBlockSize];
+  ScopedCleanse<sizeof(key)> keyWipe(key);
+  ScopedCleanse<sizeof(macKey)> macKeyWipe(macKey);
+  ScopedCleanse<sizeof(iv)> ivWipe(iv);
 
   // Random IV, fresh on every call.
   if (RAND_bytes(iv, sizeof(iv)) != 1) {
@@ -127,20 +162,10 @@ inline int encrypt(const std::string& message, std::string& ciphertext) {
   //
   // Create Cipher Text
   //
-  EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-  if (!ctx) {
-    OPENSSL_cleanse(key, sizeof(key));
-    OPENSSL_cleanse(macKey, sizeof(macKey));
-    OPENSSL_cleanse(iv, sizeof(iv));
+  CipherCtxPtr ctx(EVP_CIPHER_CTX_new());
+  if (!ctx) return -1;
+  if (EVP_EncryptInit_ex(ctx.get(), EVP_aes_128_cbc(), nullptr, key, iv) != 1)
     return -1;
-  }
-  if (EVP_EncryptInit_ex(ctx, EVP_aes_128_cbc(), nullptr, key, iv) != 1) {
-    EVP_CIPHER_CTX_free(ctx);
-    OPENSSL_cleanse(key, sizeof(key));
-    OPENSSL_cleanse(macKey, sizeof(macKey));
-    OPENSSL_cleanse(iv, sizeof(iv));
-    return -1;
-  }
 
   // message.length() + 1 to include the trailing NUL (matches the
   // pre-migration Crypto++ behavior).
@@ -148,26 +173,14 @@ inline int encrypt(const std::string& message, std::string& ciphertext) {
   int blockSize = EVP_CIPHER_block_size(EVP_aes_128_cbc());
   std::string encBuf(inLen + blockSize, '\0');
   int outLen = 0, finalLen = 0;
-  if (EVP_EncryptUpdate(ctx, reinterpret_cast<unsigned char*>(encBuf.data()),
-                        &outLen,
-                        reinterpret_cast<const unsigned char*>(message.c_str()),
-                        inLen) != 1) {
-    EVP_CIPHER_CTX_free(ctx);
-    OPENSSL_cleanse(key, sizeof(key));
-    OPENSSL_cleanse(macKey, sizeof(macKey));
-    OPENSSL_cleanse(iv, sizeof(iv));
+  if (EVP_EncryptUpdate(
+          ctx.get(), reinterpret_cast<unsigned char*>(encBuf.data()), &outLen,
+          reinterpret_cast<const unsigned char*>(message.c_str()), inLen) != 1)
     return -1;
-  }
   if (EVP_EncryptFinal_ex(
-          ctx, reinterpret_cast<unsigned char*>(encBuf.data()) + outLen,
-          &finalLen) != 1) {
-    EVP_CIPHER_CTX_free(ctx);
-    OPENSSL_cleanse(key, sizeof(key));
-    OPENSSL_cleanse(macKey, sizeof(macKey));
-    OPENSSL_cleanse(iv, sizeof(iv));
+          ctx.get(), reinterpret_cast<unsigned char*>(encBuf.data()) + outLen,
+          &finalLen) != 1)
     return -1;
-  }
-  EVP_CIPHER_CTX_free(ctx);
   encBuf.resize(outLen + finalLen);
 
   // magic || iv || AES-CBC ciphertext: everything the HMAC tag below
@@ -177,23 +190,15 @@ inline int encrypt(const std::string& message, std::string& ciphertext) {
                      encBuf;
 
   unsigned char tag[kHmacTagLength];
+  ScopedCleanse<sizeof(tag)> tagWipe(tag);
   unsigned int tagLen = 0;
   if (HMAC(EVP_sha256(), macKey, static_cast<int>(kHmacKeyLength),
            reinterpret_cast<const unsigned char*>(body.data()), body.size(),
            tag, &tagLen) == nullptr ||
-      tagLen != kHmacTagLength) {
-    OPENSSL_cleanse(key, sizeof(key));
-    OPENSSL_cleanse(macKey, sizeof(macKey));
-    OPENSSL_cleanse(iv, sizeof(iv));
+      tagLen != kHmacTagLength)
     return -1;
-  }
 
   ciphertext = body + std::string(reinterpret_cast<char*>(tag), tagLen);
-
-  OPENSSL_cleanse(key, sizeof(key));
-  OPENSSL_cleanse(macKey, sizeof(macKey));
-  OPENSSL_cleanse(iv, sizeof(iv));
-  OPENSSL_cleanse(tag, sizeof(tag));
   return 0;
 };
 
@@ -223,53 +228,41 @@ inline int encrypt(const std::string& message, std::string& ciphertext) {
  */
 inline int decryptLegacyZeroIv(const std::string& ciphertext,
                                std::string& message) {
+  using namespace cache_crypto_detail;
   if (ciphertext.empty() || ciphertext.size() % kAesBlockSize != 0) return 1;
 
   unsigned char key[kAesKeyLength];
   unsigned char digest[SHA_DIGEST_LENGTH];
+  ScopedCleanse<sizeof(key)> keyWipe(key);
+  ScopedCleanse<sizeof(digest)> digestWipe(digest);
   std::string enckey = ENCRYPTION_KEY;
   SHA1(reinterpret_cast<const unsigned char*>(enckey.c_str()), enckey.length(),
        digest);
   memcpy(key, digest, kAesKeyLength);
-  OPENSSL_cleanse(digest, sizeof(digest));
 
   unsigned char iv[kAesBlockSize];
   memset(iv, 0, sizeof(iv));
 
-  EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-  if (!ctx) {
-    OPENSSL_cleanse(key, sizeof(key));
+  CipherCtxPtr ctx(EVP_CIPHER_CTX_new());
+  if (!ctx) return 1;
+  if (EVP_DecryptInit_ex(ctx.get(), EVP_aes_128_cbc(), nullptr, key, iv) != 1)
     return 1;
-  }
-  if (EVP_DecryptInit_ex(ctx, EVP_aes_128_cbc(), nullptr, key, iv) != 1) {
-    EVP_CIPHER_CTX_free(ctx);
-    OPENSSL_cleanse(key, sizeof(key));
-    return 1;
-  }
 
   std::string decBuf(ciphertext.size(), '\0');
+  ScopedStringCleanse decBufWipe(decBuf);
   int outLen = 0, finalLen = 0;
   if (EVP_DecryptUpdate(
-          ctx, reinterpret_cast<unsigned char*>(decBuf.data()), &outLen,
+          ctx.get(), reinterpret_cast<unsigned char*>(decBuf.data()), &outLen,
           reinterpret_cast<const unsigned char*>(ciphertext.data()),
-          static_cast<int>(ciphertext.size())) != 1) {
-    EVP_CIPHER_CTX_free(ctx);
-    OPENSSL_cleanse(key, sizeof(key));
+          static_cast<int>(ciphertext.size())) != 1)
     return 1;
-  }
   if (EVP_DecryptFinal_ex(
-          ctx, reinterpret_cast<unsigned char*>(decBuf.data()) + outLen,
+          ctx.get(), reinterpret_cast<unsigned char*>(decBuf.data()) + outLen,
           &finalLen) != 1) {
     // Invalid PKCS#7 padding: either corrupted or simply not a legacy blob.
-    EVP_CIPHER_CTX_free(ctx);
-    OPENSSL_cleanse(key, sizeof(key));
     return 1;
   }
-  EVP_CIPHER_CTX_free(ctx);
-  decBuf.resize(outLen + finalLen);
-  message = decBuf;
-
-  OPENSSL_cleanse(key, sizeof(key));
+  message.assign(decBuf.data(), static_cast<size_t>(outLen + finalLen));
   return 0;
 }
 
@@ -289,6 +282,7 @@ inline int decryptLegacyZeroIv(const std::string& ciphertext,
  *         cipher.
  */
 inline int decrypt(const std::string& ciphertext, std::string& message) {
+  using namespace cache_crypto_detail;
   const size_t headerLen = sizeof(kCacheCryptoMagic) + kAesBlockSize;
   const size_t overhead = headerLen + kHmacTagLength;
 
@@ -316,61 +310,40 @@ inline int decrypt(const std::string& ciphertext, std::string& message) {
 
   unsigned char key[kAesKeyLength];
   unsigned char macKey[kHmacKeyLength];
+  ScopedCleanse<sizeof(key)> keyWipe(key);
+  ScopedCleanse<sizeof(macKey)> macKeyWipe(macKey);
   deriveCacheKeys(key, macKey);
 
   unsigned char expectedTag[kHmacTagLength];
+  ScopedCleanse<sizeof(expectedTag)> expectedTagWipe(expectedTag);
   unsigned int expectedTagLen = 0;
   if (HMAC(EVP_sha256(), macKey, static_cast<int>(kHmacKeyLength),
            reinterpret_cast<const unsigned char*>(body.data()), body.size(),
            expectedTag, &expectedTagLen) == nullptr ||
-      expectedTagLen != kHmacTagLength) {
-    OPENSSL_cleanse(key, sizeof(key));
-    OPENSSL_cleanse(macKey, sizeof(macKey));
+      expectedTagLen != kHmacTagLength)
     return 1;
-  }
 
-  bool tagOk = CRYPTO_memcmp(expectedTag, tag.data(), kHmacTagLength) == 0;
-  OPENSSL_cleanse(macKey, sizeof(macKey));
-  OPENSSL_cleanse(expectedTag, sizeof(expectedTag));
-  if (!tagOk) {
-    OPENSSL_cleanse(key, sizeof(key));
-    return 1;
-  }
+  if (CRYPTO_memcmp(expectedTag, tag.data(), kHmacTagLength) != 0) return 1;
 
   // Decrypt
-  EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-  if (!ctx) {
-    OPENSSL_cleanse(key, sizeof(key));
+  CipherCtxPtr ctx(EVP_CIPHER_CTX_new());
+  if (!ctx) return 1;
+  if (EVP_DecryptInit_ex(ctx.get(), EVP_aes_128_cbc(), nullptr, key, iv) != 1)
     return 1;
-  }
-  if (EVP_DecryptInit_ex(ctx, EVP_aes_128_cbc(), nullptr, key, iv) != 1) {
-    EVP_CIPHER_CTX_free(ctx);
-    OPENSSL_cleanse(key, sizeof(key));
-    return 1;
-  }
 
   int blockSize = EVP_CIPHER_block_size(EVP_aes_128_cbc());
   std::string decBuf(encBody.size() + blockSize, '\0');
+  ScopedStringCleanse decBufWipe(decBuf);
   int outLen = 0, finalLen = 0;
-  if (EVP_DecryptUpdate(ctx, reinterpret_cast<unsigned char*>(decBuf.data()),
-                        &outLen,
-                        reinterpret_cast<const unsigned char*>(encBody.c_str()),
-                        static_cast<int>(encBody.size())) != 1) {
-    EVP_CIPHER_CTX_free(ctx);
-    OPENSSL_cleanse(key, sizeof(key));
+  if (EVP_DecryptUpdate(
+          ctx.get(), reinterpret_cast<unsigned char*>(decBuf.data()), &outLen,
+          reinterpret_cast<const unsigned char*>(encBody.c_str()),
+          static_cast<int>(encBody.size())) != 1)
     return 1;
-  }
   if (EVP_DecryptFinal_ex(
-          ctx, reinterpret_cast<unsigned char*>(decBuf.data()) + outLen,
-          &finalLen) != 1) {
-    EVP_CIPHER_CTX_free(ctx);
-    OPENSSL_cleanse(key, sizeof(key));
+          ctx.get(), reinterpret_cast<unsigned char*>(decBuf.data()) + outLen,
+          &finalLen) != 1)
     return 1;
-  }
-  EVP_CIPHER_CTX_free(ctx);
-  decBuf.resize(outLen + finalLen);
-  message = decBuf;
-
-  OPENSSL_cleanse(key, sizeof(key));
+  message.assign(decBuf.data(), static_cast<size_t>(outLen + finalLen));
   return 0;
 };
