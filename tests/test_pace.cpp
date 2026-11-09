@@ -11,6 +11,9 @@
 // implementation of ICAO 9303-11 section 9.8 (python "cryptography").
 // No card and no real CAN/PIN is involved.
 
+#include <openssl/ec.h>
+#include <openssl/objects.h>
+
 #include <catch2/catch_test_macros.hpp>
 #include <map>
 #include <string>
@@ -914,10 +917,30 @@ TEST_CASE("readCardAccess reports a missing file", "[pace][cardaccess]") {
 // All standardized curves: two mapping engines must agree
 // ---------------------------------------------------------------------------
 
+namespace {
+
+bool curveAvailable(const std::string& name) {
+  // X9.62 short names for the two SEC curves OpenSSL does not alias.
+  const std::string sn = name == "secp192r1"   ? "prime192v1"
+                         : name == "secp256r1" ? "prime256v1"
+                                               : name;
+  EC_GROUP* g = EC_GROUP_new_by_curve_name(OBJ_sn2nid(sn.c_str()));
+  EC_GROUP_free(g);
+  return g != nullptr;
+}
+
+}  // namespace
+
 TEST_CASE("PACE ECDH-GM agrees on every standardized curve", "[pace][ec]") {
   const Bytes nonce = H("0102030405060708090A0B0C0D0E0F10");
   for (int id = 8; id <= 18; ++id) {
     INFO("parameter id " << id << " " << curveName(id));
+    // Distributions may strip legacy curves from OpenSSL (openSUSE drops
+    // secp192r1); makeMapping correctly fails there, so skip that curve.
+    if (!curveAvailable(curveName(id))) {
+      WARN("OpenSSL lacks " << curveName(id) << ", skipped");
+      continue;
+    }
     Params p = ecParams();
     p.parameterId = id;
     auto a = makeMapping(p);
