@@ -1135,6 +1135,8 @@ CK_RV CK_ENTRY C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType,
     if (userType != CKU_SO && userType != CKU_USER)
       throw p11_error(CKR_USER_TYPE_INVALID);
 
+    // No protected authentication path: a NULL PIN is never valid.
+    if (pPin == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
     std::vector<CK_BYTE> pinCopy(pPin, pPin + ulPinLen);
     PinCleanser pinCleanser(pinCopy);
     pSession->Login(userType, pinCopy.data(), pinCopy.size());
@@ -1631,6 +1633,8 @@ CK_RV CK_ENTRY C_InitPIN(CK_SESSION_HANDLE hSession, CK_CHAR_PTR pPin,
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
+    // No protected authentication path: a NULL PIN is never valid.
+    if (pPin == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
     std::vector<CK_BYTE> pinCopy(pPin, pPin + ulPinLen);
     PinCleanser pinCleanser(pinCopy);
     ByteArray input(pinCopy.data(), pinCopy.size());
@@ -1655,6 +1659,8 @@ CK_RV CK_ENTRY C_SetPIN(CK_SESSION_HANDLE hSession, CK_CHAR_PTR pOldPin,
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
+    if (pOldPin == nullptr || pNewPin == nullptr)
+      throw p11_error(CKR_ARGUMENTS_BAD);
     std::vector<CK_BYTE> oldCopy(pOldPin, pOldPin + ulOldLen);
     std::vector<CK_BYTE> newCopy(pNewPin, pNewPin + ulNewLen);
     PinCleanser oldCleanser(oldCopy);
