@@ -172,6 +172,17 @@ void CheckCacheDir(const std::string &dir, bool create) {
 void EnsureCacheDirSecure(const std::string &dir) { CheckCacheDir(dir, true); }
 #endif
 
+/** Cleanses a string's contents on every scope exit, including throws. */
+struct ScopedStringWipe {
+  explicit ScopedStringWipe(std::string &s) : s_(s) {}
+  ~ScopedStringWipe() {
+    if (!s_.empty()) OPENSSL_cleanse(s_.data(), s_.size());
+  }
+  ScopedStringWipe(const ScopedStringWipe &) = delete;
+  ScopedStringWipe &operator=(const ScopedStringWipe &) = delete;
+  std::string &s_;
+};
+
 }  // namespace
 
 #ifdef _WIN32
@@ -346,6 +357,7 @@ bool CacheGetDer(const char *PAN, std::vector<uint8_t> &certificate) {
     std::string ciphertext(reinterpret_cast<const char *>(data.data()),
                            data.size());
     std::string plaintext;
+    ScopedStringWipe plaintextWipe(plaintext);
     if (decrypt(ciphertext, plaintext) != 0) {
       // .der caches written before the authenticated format (and by
       // third-party CIE software) use the legacy zero-IV container. Without
@@ -384,6 +396,7 @@ void CacheGetCertificate(const char *PAN, std::vector<uint8_t> &certificate) {
     std::string ciphertext(reinterpret_cast<const char *>(data.data()),
                            data.size());
     std::string plaintext;
+    ScopedStringWipe plaintextWipe(plaintext);
     if (decrypt(ciphertext, plaintext) != 0) {
       // Our own authenticated format didn't match. This is also exactly
       // what a cache written by third-party CIE software looks like: the
@@ -447,6 +460,7 @@ void CacheGetPIN(const char *PAN, std::vector<uint8_t> &PIN) {
     std::string ciphertext(reinterpret_cast<const char *>(data.data()),
                            data.size());
     std::string plaintext;
+    ScopedStringWipe plaintextWipe(plaintext);
     // The PIN half is only read from the authenticated container. The
     // legacy zero-IV format carries no integrity tag, so a forged file
     // could make the module send a wrong PIN and burn retries (findings
