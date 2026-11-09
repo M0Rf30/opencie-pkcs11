@@ -864,7 +864,7 @@ void CSession::GetOperationState(ByteArray &OperationState) {
   CTLVCreate Tlv;
   ByteArray ba1(reinterpret_cast<BYTE *>(&flags), sizeof(flags));
   Tlv.setValue(OS_Flags, ba1);
-  ByteArray ba2(reinterpret_cast<BYTE *>(&flags), sizeof(flags));
+  ByteArray ba2(reinterpret_cast<BYTE *>(&pSlot->User), sizeof(pSlot->User));
   Tlv.setValue(OS_User, ba2);
   if (pSignMechanism) {
     CTLVCreate SignTlv;
