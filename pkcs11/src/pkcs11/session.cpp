@@ -163,6 +163,10 @@ void CSession::Logout() {
 // Find Objects
 void CSession::FindObjectsInit(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
   if (bFindInit) throw p11_error(CKR_OPERATION_ACTIVE);
+  for (CK_ULONG j = 0; j < ulCount; j++) {
+    if (pTemplate[j].pValue == nullptr && pTemplate[j].ulValueLen != 0)
+      throw p11_error(CKR_ARGUMENTS_BAD);
+  }
   findResult.clear();
   if (ulCount == 0) {
     for (const auto &obj : pSlot->P11Objects) {
