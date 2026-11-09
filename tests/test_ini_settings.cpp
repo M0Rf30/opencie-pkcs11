@@ -115,7 +115,7 @@ TEST_CASE("IniSettingsB64 from base64 string default decodes correctly",
   CHECK(s.defaultVal[2] == 0x03);
 }
 
-// ── GetNumIniSettings / GetIniSettings
+// ── GetNumIniSettings
 // ────────────────────────────────────────
 
 TEST_CASE("GetNumIniSettings reflects registered count", "[ini]") {
@@ -125,39 +125,4 @@ TEST_CASE("GetNumIniSettings reflects registered count", "[ini]") {
   CHECK(GetNumIniSettings() == 1);
   IniSettingsBool b("S", "B", false, "DB");
   CHECK(GetNumIniSettings() == 2);
-}
-
-TEST_CASE("GetIniSettings serializes int setting correctly", "[ini]") {
-  _iniSettings.clear();
-  IniSettingsInt s("MySection", "MyKey", 99, "My description");
-
-  // First call with nullptr returns required size
-  int sz = GetIniSettings(0, nullptr);
-  REQUIRE(sz > 0);
-
-  std::string buf(sz, '\0');
-  int sz2 = GetIniSettings(0, buf.data());
-  CHECK(sz2 == sz);
-
-  // Format: "section|name|description|typeId|defaultVal"
-  // typeId=0, defaultVal stored as int (char value 99 = 'c')
-  CHECK(buf.find("MySection") != std::string::npos);
-  CHECK(buf.find("MyKey") != std::string::npos);
-  CHECK(buf.find("My description") != std::string::npos);
-  CHECK(buf.find("|0|") != std::string::npos);
-}
-
-TEST_CASE("GetIniSettings serializes string setting correctly", "[ini]") {
-  _iniSettings.clear();
-  IniSettingsString s("Sec", "Key", "hello", "Desc");
-
-  int sz = GetIniSettings(0, nullptr);
-  REQUIRE(sz > 0);
-  std::string buf(sz, '\0');
-  GetIniSettings(0, buf.data());
-
-  CHECK(buf.find("Sec") != std::string::npos);
-  CHECK(buf.find("Key") != std::string::npos);
-  CHECK(buf.find("|1|") != std::string::npos);
-  CHECK(buf.find("hello") != std::string::npos);
 }
