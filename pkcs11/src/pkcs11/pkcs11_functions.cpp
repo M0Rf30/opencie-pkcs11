@@ -75,6 +75,20 @@ struct PinCleanser {
   std::vector<CK_BYTE> &buf_;
 };
 
+// Runs a session operation that writes into `out`. On CKR_BUFFER_TOO_SMALL the
+// session leaves the required size in `out`; report it to the caller as
+// PKCS#11 requires before propagating the error.
+template <typename F>
+static void sizedOutput(ByteArray &out, CK_ULONG_PTR pulLen, F &&op) {
+  try {
+    op();
+  } catch (p11_error &e) {
+    if (e.getP11ErrorCode() == CKR_BUFFER_TOO_SMALL)
+      *pulLen = static_cast<CK_ULONG>(out.size());
+    throw;
+  }
+}
+
 std::mutex p11Mutex;
 auto_reset_event p11slotEvent /*("CardOS_P11_Event")*/;
 
@@ -850,7 +864,7 @@ CK_RV CK_ENTRY C_Digest(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
 
     ByteArray Digest(pDigest, *pulDigestLen);
     ByteArray input(pData, ulDataLen);
-    pSession->Digest(input, Digest);
+    sizedOutput(Digest, pulDigestLen, [&] { pSession->Digest(input, Digest); });
     *pulDigestLen = static_cast<CK_ULONG>(Digest.size());
 
     return CKR_OK;
@@ -872,7 +886,7 @@ CK_RV CK_ENTRY C_DigestFinal(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pDigest,
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
     ByteArray Digest(pDigest, *pulDigestLen);
-    pSession->DigestFinal(Digest);
+    sizedOutput(Digest, pulDigestLen, [&] { pSession->DigestFinal(Digest); });
     *pulDigestLen = static_cast<CK_ULONG>(Digest.size());
 
     return CKR_OK;
@@ -1019,9 +1033,11 @@ CK_RV CK_ENTRY C_GetMechanismList(CK_SLOT_ID slotID,
     if (*pulCount >= dwNumMechansms) {
       std::memcpy(pMechanismList, p11_mechanisms,
                   dwNumMechansms * sizeof(CK_MECHANISM_TYPE));
+      *pulCount = dwNumMechansms;
       return CKR_OK;
-    } else
-      throw p11_error(CKR_BUFFER_TOO_SMALL);
+    }
+    *pulCount = dwNumMechansms;
+    throw p11_error(CKR_BUFFER_TOO_SMALL);
   });
 }
 
@@ -1205,7 +1221,8 @@ CK_RV CK_ENTRY C_Sign(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
 
     ByteArray Signature(pSignature, *pulSignatureLen);
     ByteArray input(pData, ulDataLen);
-    pSession->Sign(input, Signature);
+    sizedOutput(Signature, pulSignatureLen,
+                [&] { pSession->Sign(input, Signature); });
     *pulSignatureLen = static_cast<CK_ULONG>(Signature.size());
     return CKR_OK;
   });
@@ -1232,7 +1249,8 @@ CK_RV CK_ENTRY C_SignFinal(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pSignature,
       throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
 
     ByteArray Signature(pSignature, *pulSignatureLen);
-    pSession->SignFinal(Signature);
+    sizedOutput(Signature, pulSignatureLen,
+                [&] { pSession->SignFinal(Signature); });
     *pulSignatureLen = static_cast<CK_ULONG>(Signature.size());
 
     return CKR_OK;
@@ -1331,7 +1349,8 @@ CK_RV CK_ENTRY C_SignRecover(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
 
     ByteArray Signature(pSignature, *pulSignatureLen);
     ByteArray input(pData, ulDataLen);
-    pSession->SignRecover(input, Signature);
+    sizedOutput(Signature, pulSignatureLen,
+                [&] { pSession->SignRecover(input, Signature); });
     *pulSignatureLen = static_cast<CK_ULONG>(Signature.size());
 
     return CKR_OK;
@@ -1381,7 +1400,8 @@ CK_RV CK_ENTRY C_VerifyRecover(CK_SESSION_HANDLE hSession,
 
     ByteArray Data(pData, *pulDataLen);
     ByteArray input(pSignature, ulSignatureLen);
-    pSession->VerifyRecover(input, Data);
+    sizedOutput(Data, pulDataLen,
+                [&] { pSession->VerifyRecover(input, Data); });
     *pulDataLen = static_cast<CK_ULONG>(Data.size());
 
     return CKR_OK;
@@ -1712,7 +1732,8 @@ CK_RV CK_ENTRY C_GetOperationState(CK_SESSION_HANDLE hSession,
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
     ByteArray OperationState(pOperationState, *pulOperationStateLen);
-    pSession->GetOperationState(OperationState);
+    sizedOutput(OperationState, pulOperationStateLen,
+                [&] { pSession->GetOperationState(OperationState); });
     *pulOperationStateLen = static_cast<CK_ULONG>(OperationState.size());
 
     return CKR_OK;

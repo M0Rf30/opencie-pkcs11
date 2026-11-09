@@ -362,8 +362,10 @@ void CSession::Digest(ByteArray &Data, ByteArray &Digest) {
 
   CK_ULONG ulReqLen = pDigestMechanism->DigestLength();
 
-  if (!Digest.isNull() && Digest.size() < ulReqLen)
+  if (!Digest.isNull() && Digest.size() < ulReqLen) {
+    Digest = ByteArray(static_cast<uint8_t *>(nullptr), ulReqLen);
     throw p11_error(CKR_BUFFER_TOO_SMALL);
+  }
 
   Digest = Digest.left(ulReqLen);
   if (Digest.isNull()) return;
@@ -388,6 +390,7 @@ void CSession::DigestFinal(ByteArray &Digest) {
 
   if (!Digest.isNull() && Digest.size() < ulReqLen) {
     pDigestMechanism = std::move(mech);
+    Digest = ByteArray(static_cast<uint8_t *>(nullptr), ulReqLen);
     throw p11_error(CKR_BUFFER_TOO_SMALL);
   }
 
@@ -520,6 +523,7 @@ void CSession::VerifyRecover(ByteArray &Signature, ByteArray &Data) {
 
   if (!Data.isNull() && Data.size() < baData.size()) {
     pVerifyRecoverMechanism = std::move(mech);
+    Data = ByteArray(static_cast<uint8_t *>(nullptr), baData.size());
     throw p11_error(CKR_BUFFER_TOO_SMALL);
   }
 
@@ -621,6 +625,17 @@ void CSession::SignFinal(ByteArray &Signature) {
     return;
   }
 
+  // Check the output size before any card operation (PIN re-verify,
+  // signature) so a too-small retry does not repeat it.
+  {
+    CK_ULONG ulSignLength = pSignMechanism->SignLength();
+    if (Signature.size() < ulSignLength) {
+      Signature = ByteArray(static_cast<uint8_t *>(nullptr), ulSignLength);
+      mech.release();
+      throw p11_error(CKR_BUFFER_TOO_SMALL);
+    }
+  }
+
   ByteDynArray baSignBuffer = pSignMechanism->SignFinal();
 
   bool bSilent = false;
@@ -630,7 +645,7 @@ void CSession::SignFinal(ByteArray &Signature) {
       pSignMechanism->mtType, bSilent);
 
   if (Signature.size() < baSignature.size()) {
-    Signature = Signature.left(baSignature.size());
+    Signature = ByteArray(static_cast<uint8_t *>(nullptr), baSignature.size());
     mech.release();
     throw p11_error(CKR_BUFFER_TOO_SMALL);
   } else {
@@ -697,6 +712,16 @@ void CSession::SignRecover(ByteArray &Data, ByteArray &Signature) {
     return;
   }
 
+  {
+    CK_ULONG ulSignRecoverLength = pSignRecoverMechanism->SignRecoverLength();
+    if (Signature.size() < ulSignRecoverLength) {
+      Signature =
+          ByteArray(static_cast<uint8_t *>(nullptr), ulSignRecoverLength);
+      mech.release();
+      throw p11_error(CKR_BUFFER_TOO_SMALL);
+    }
+  }
+
   ByteDynArray baSignRecoverBuffer;
   pSignRecoverMechanism->SignRecover(Data);
 
@@ -708,7 +733,7 @@ void CSession::SignRecover(ByteArray &Data, ByteArray &Signature) {
       baSignature, pSignRecoverMechanism->mtType, bSilent);
 
   if (Signature.size() < baSignature.size()) {
-    Signature = Signature.left(baSignature.size());
+    Signature = ByteArray(static_cast<uint8_t *>(nullptr), baSignature.size());
     mech.release();
     throw p11_error(CKR_BUFFER_TOO_SMALL);
   }
@@ -899,9 +924,13 @@ void CSession::GetOperationState(ByteArray &OperationState) {
         ByteArray(static_cast<uint8_t *>(nullptr), newOperationState.size());
     return;
   }
-  if (OperationState.size() < newOperationState.size())
+  if (OperationState.size() < newOperationState.size()) {
+    OperationState =
+        ByteArray(static_cast<uint8_t *>(nullptr), newOperationState.size());
     throw p11_error(CKR_BUFFER_TOO_SMALL);
+  }
 
+  OperationState = OperationState.left(newOperationState.size());
   OperationState.copy(newOperationState);
 }
 };  // namespace p11
