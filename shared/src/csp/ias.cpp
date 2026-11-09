@@ -106,6 +106,25 @@ uint8_t asnDgNumber(const ByteArray &content) {
   return content.data()[0];
 }
 
+// READ BINARY carries the file offset in P1-P2, so nothing beyond 16 bits can
+// be addressed; a longer "file" can only be a card that never signals EOF.
+constexpr size_t kMaxFileSize = 0x10000;
+
+// A GET RESPONSE chain longer than this (each round trip returns at most 256
+// bytes) is a card that keeps announcing more data without ever finishing.
+constexpr size_t kMaxGetResponseRounds = 64;
+
+// Guards the read loops below against a card that answers 9000 without
+// advancing the file (empty chunk) or without ever reaching EOF.
+void checkReadProgress(const char *who, size_t offset, size_t chunkSize) {
+  if (chunkSize == 0)
+    throw logged_error(stdPrintf(
+        "%s - card returned no data with 9000 at offset %zu", who, offset));
+  if (offset + chunkSize > kMaxFileSize)
+    throw logged_error(
+        stdPrintf("%s - file exceeds the %zu byte limit", who, kMaxFileSize));
+}
+
 }  // namespace
 
 IAS::IAS(CToken::TokenTransmitCallback transmit, ByteArray ATR)
@@ -275,6 +294,10 @@ void IAS::readDGbySFI(uint8_t sfi, ByteDynArray &content) {
     }
   }
   size_t fileSize = headerLen + totalLen;
+  if (fileSize > kMaxFileSize)
+    throw logged_error(
+        stdPrintf("readDGbySFI - DG %u declares %zu bytes, above the %zu limit",
+                  static_cast<unsigned>(sfi), fileSize, kMaxFileSize));
 
   // Read remaining bytes in chunks using absolute offset (P1=0, P2=offset).
   // 224 bytes fits within the SM APDU overhead budget for all CIE variants;
@@ -298,22 +321,23 @@ void IAS::readDGbySFI(uint8_t sfi, ByteDynArray &content) {
   // hardware pass across the card-type matrix above and both PC/SC and
   // Android NFC (IsoDep.transceive() has its own vendor-dependent max
   // transceive size) transports before it can be safely changed here.
-  WORD cnt = static_cast<WORD>(content.size());
+  size_t cnt = content.size();
   chunk = 224;
   while (cnt < fileSize) {
     ByteDynArray chn;
     uint8_t remaining =
         static_cast<uint8_t>(std::min<size_t>(chunk, fileSize - cnt));
-    uint8_t readFile[] = {0x00, 0xb0, static_cast<uint8_t>(HIBYTE(cnt)),
-                          static_cast<uint8_t>(LOBYTE(cnt))};
+    uint8_t readFile[] = {0x00, 0xb0, static_cast<uint8_t>((cnt >> 8) & 0xff),
+                          static_cast<uint8_t>(cnt & 0xff)};
     sw = SendAPDU_SM(VarToByteArray(readFile), ByteArray(), chn, &remaining);
     if ((sw >> 8) == 0x6c) {
       uint8_t le = sw & 0xff;
       sw = SendAPDU_SM(VarToByteArray(readFile), ByteArray(), chn, &le);
     }
     if (sw == 0x9000) {
+      checkReadProgress("readDGbySFI", cnt, chn.size());
       content.append(chn);
-      cnt = static_cast<WORD>(content.size());
+      cnt = content.size();
     } else {
       if (sw == 0x6282)
         content.append(chn);
@@ -406,18 +430,19 @@ void IAS::readfile(uint16_t id, ByteDynArray &content) {
                      resp)) != 0x9000)
     throw scard_error(sw);
 
-  WORD cnt = 0;
+  size_t cnt = 0;
   uint8_t chunk = 224;
   while (true) {
     ByteDynArray chn;
-    uint8_t readFile[] = {0x00, 0xb0, static_cast<uint8_t>(HIBYTE(cnt)),
-                          static_cast<uint8_t>(LOBYTE(cnt))};
+    uint8_t readFile[] = {0x00, 0xb0, static_cast<uint8_t>((cnt >> 8) & 0xff),
+                          static_cast<uint8_t>(cnt & 0xff)};
     sw = SendAPDU(VarToByteArray(readFile), ByteArray(), chn, &chunk);
     if ((sw >> 8) == 0x6c) {
       uint8_t le = sw & 0xff;
       sw = SendAPDU(VarToByteArray(readFile), ByteArray(), chn, &le);
     }
     if (sw == 0x9000) {
+      checkReadProgress("readfile", cnt, chn.size());
       content.append(chn);
       cnt = content.size();
       chunk = 224;
@@ -441,18 +466,19 @@ void IAS::readfile_SM(uint16_t id, ByteDynArray &content) {
                         resp)) != 0x9000)
     throw scard_error(sw);
 
-  WORD cnt = 0;
+  size_t cnt = 0;
   uint8_t chunk = 224;
   while (true) {
     ByteDynArray chn;
-    uint8_t readFile[] = {0x00, 0xb0, static_cast<uint8_t>(HIBYTE(cnt)),
-                          static_cast<uint8_t>(LOBYTE(cnt))};
+    uint8_t readFile[] = {0x00, 0xb0, static_cast<uint8_t>((cnt >> 8) & 0xff),
+                          static_cast<uint8_t>(cnt & 0xff)};
     sw = SendAPDU_SM(VarToByteArray(readFile), ByteArray(), chn, &chunk);
     if ((sw >> 8) == 0x6c) {
       uint8_t le = sw & 0xff;
       sw = SendAPDU_SM(VarToByteArray(readFile), ByteArray(), chn, &le);
     }
     if (sw == 0x9000) {
+      checkReadProgress("readfile", cnt, chn.size());
       content.append(chn);
       cnt = content.size();
       chunk = 224;
@@ -945,8 +971,10 @@ StatusWord IAS::getResp(const ByteDynArray &resp, StatusWord sw,
   if (resp.size() != 0) elabresp.append(resp);
 
   ByteDynArray curresp;
-  while (true) {
+  for (size_t round = 0;; ++round) {
     if ((sw >> 8) == 0x61) {
+      if (round >= kMaxGetResponseRounds)
+        throw logged_error("getResp - too many GET RESPONSE rounds");
       uint8_t ln = sw & 0xff;
       if (ln != 0) {
         uint8_t apdu[] = {0x00, 0xc0, 0x00, 0x00, ln};
@@ -956,6 +984,8 @@ StatusWord IAS::getResp(const ByteDynArray &resp, StatusWord sw,
       } else {
         uint8_t apdu[] = {0x00, 0xc0, 0x00, 0x00, 0x00};
         sw = token.Transmit(VarToByteArray(apdu), &curresp);
+        if (curresp.isEmpty() && (sw >> 8) == 0x61)
+          throw logged_error("getResp - GET RESPONSE made no progress");
         elabresp.append(curresp);
       }
     } else {
@@ -972,18 +1002,24 @@ StatusWord IAS::getResp_SM(const ByteArray &resp, StatusWord sw,
   if (resp.size() != 0) elabresp.append(resp);
 
   ByteDynArray curresp;
-  while (true) {
+  for (size_t round = 0;; ++round) {
     if ((sw >> 8) == 0x61) {
+      if (round >= kMaxGetResponseRounds)
+        throw logged_error("getResp_SM - too many GET RESPONSE rounds");
       uint8_t ln = sw & 0xff;
       if (ln != 0) {
         uint8_t apdu[] = {0x00, 0xc0, 0x00, 0x00, ln};
         sw = token.Transmit(VarToByteArray(apdu), &curresp);
+        if (curresp.isEmpty() && (sw >> 8) == 0x61)
+          throw logged_error("getResp_SM - GET RESPONSE made no progress");
         elabresp.append(curresp);
         if (sw == 0x9000) break;
         if ((sw >> 8) != 0x61) throw scard_error(sw);
       } else {
         uint8_t apdu[] = {0x0c, 0xc0, 0x00, 0x00, 0x00};
         sw = token.Transmit(VarToByteArray(apdu), &curresp);
+        if (curresp.isEmpty() && (sw >> 8) == 0x61)
+          throw logged_error("getResp_SM - GET RESPONSE made no progress");
         elabresp.append(curresp);
       }
     } else if (sw == 0x9000 || sw == 0x6b00 || sw == 0x6282)

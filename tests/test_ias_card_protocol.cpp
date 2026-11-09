@@ -176,4 +176,83 @@ TEST_CASE("SOD parsing rejects structurally empty input", "[ias][cp01]") {
                   logged_error);
 }
 
+// CP-02: read and GET RESPONSE loops must terminate on a hostile card.
+
+TEST_CASE("readfile reads a multi-chunk file and stops at EOF", "[ias][cp02]") {
+  Bytes file(700);
+  for (size_t i = 0; i < file.size(); ++i) file[i] = static_cast<uint8_t>(i);
+  Rig rig(FileCard(file));
+  ByteDynArray out;
+  REQUIRE_NOTHROW(rig.ias.ReadSerialeCIE(out));
+  REQUIRE(out.size() == file.size());
+  CHECK(std::memcmp(out.data(), file.data(), file.size()) == 0);
+}
+
+TEST_CASE("readfile aborts when the card answers 9000 with no data",
+          "[ias][cp02]") {
+  Rig rig([](const Bytes &apdu) -> Bytes {
+    if (apdu[1] == 0xB0) return Sw(0x9000);  // success, zero bytes, forever
+    return Sw(0x9000);
+  });
+  ByteDynArray out;
+  CHECK_THROWS_AS(rig.ias.ReadSerialeCIE(out), logged_error);
+  CHECK(rig.card.Count(0xB0) == 1);
+}
+
+TEST_CASE("readfile aborts on a file that never ends", "[ias][cp02]") {
+  Rig rig([](const Bytes &apdu) -> Bytes {
+    if (apdu[1] == 0xB0) return WithSw(Bytes(224, 0xAA), 0x9000);
+    return Sw(0x9000);
+  });
+  ByteDynArray out;
+  CHECK_THROWS_AS(rig.ias.ReadSerialeCIE(out), logged_error);
+  // 64 KiB of 224-byte chunks, never a 16-bit offset wraparound.
+  CHECK(rig.card.Count(0xB0) <= 0x10000 / 224 + 2);
+}
+
+TEST_CASE("GET RESPONSE loop aborts when the card keeps saying 6100",
+          "[ias][cp02]") {
+  SECTION("empty chunks") {
+    Rig rig([](const Bytes &apdu) -> Bytes {
+      if (apdu[1] == 0xC0) return Sw(0x6100);
+      return Sw(0x6100);
+    });
+    ByteDynArray out;
+    CHECK_THROWS_AS(rig.ias.ReadSerialeCIE(out), logged_error);
+    CHECK(rig.card.Count(0xC0) <= 1);
+  }
+  SECTION("non-empty chunks without end") {
+    Rig rig([](const Bytes &apdu) -> Bytes {
+      if (apdu[1] == 0xC0) return WithSw(Bytes(16, 0x55), 0x6100);
+      return Sw(0x6100);
+    });
+    ByteDynArray out;
+    CHECK_THROWS_AS(rig.ias.ReadSerialeCIE(out), logged_error);
+    CHECK(rig.card.Count(0xC0) <= 64);
+  }
+}
+
+TEST_CASE("GET RESPONSE still chains a finite 6100 sequence", "[ias][cp02]") {
+  bool selected = false;
+  int chunks = 0;
+  Rig rig([&](const Bytes &apdu) -> Bytes {
+    if (apdu[1] == 0xA4) {
+      // SELECT: the card announces 6100 once, the data comes via GET RESPONSE.
+      if (!selected) {
+        selected = true;
+        return Sw(0x6100);
+      }
+      return Sw(0x9000);
+    }
+    if (apdu[1] == 0xC0) {
+      return ++chunks < 3 ? WithSw(Bytes(4, 0x11), 0x6100)
+                          : WithSw(Bytes(4, 0x22), 0x9000);
+    }
+    return Sw(0x6B00);  // READ BINARY: empty file
+  });
+  ByteDynArray out;
+  REQUIRE_NOTHROW(rig.ias.ReadSerialeCIE(out));
+  CHECK(rig.card.Count(0xC0) == 3);
+}
+
 #endif  // _WIN32
