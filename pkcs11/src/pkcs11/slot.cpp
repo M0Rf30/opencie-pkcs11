@@ -504,12 +504,17 @@ void CSlot::Final() {
   if (bUpdated) {
     // delete template data
     pTemplate->FunctionList.templateFinalCard(pTemplateData);
+    pTemplateData = nullptr;
     pTemplate = nullptr;
 
     baATR.clear();
     baSerial.clear();
 
-    P11Objects.clear();
+    // Invalidate every object handle: the objects belong to the card that is
+    // gone, and handle ids are never reused (dwP11ObjCnt only grows), so a
+    // stale handle resolves to CKR_*_HANDLE_INVALID rather than to an object
+    // of a different card.
+    ClearP11Objects();
 
     // delete all sessions
     auto it = CSession::g_mSessions.begin();
