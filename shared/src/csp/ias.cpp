@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #include "csp/ias.h"
 
+#include <openssl/bn.h>
 #include <openssl/crypto.h>
 
 #include <algorithm>
 #include <initializer_list>
+#include <memory>
 
 #include "crypto/aes.h"
 #include "crypto/asn_parser.h"
@@ -123,6 +125,122 @@ void checkReadProgress(const char *who, size_t offset, size_t chunkSize) {
   if (offset + chunkSize > kMaxFileSize)
     throw logged_error(
         stdPrintf("%s - file exceeds the %zu byte limit", who, kMaxFileSize));
+}
+
+struct BnDeleter {
+  void operator()(BIGNUM *b) const { BN_clear_free(b); }
+};
+using Bn = std::unique_ptr<BIGNUM, BnDeleter>;
+
+struct BnCtxDeleter {
+  void operator()(BN_CTX *c) const { BN_CTX_free(c); }
+};
+using BnCtx = std::unique_ptr<BN_CTX, BnCtxDeleter>;
+
+Bn bnNew() {
+  Bn b(BN_new());
+  if (!b) throw logged_error("BN_new failed");
+  return b;
+}
+
+BnCtx bnCtxNew() {
+  BnCtx c(BN_CTX_new());
+  if (!c) throw logged_error("BN_CTX_new failed");
+  return c;
+}
+
+Bn bnFromBytes(const ByteArray &in) {
+  Bn b(BN_bin2bn(in.data(), static_cast<int>(in.size()), nullptr));
+  if (!b) throw logged_error("BN_bin2bn failed");
+  return b;
+}
+
+// Size window for the card-supplied Diffie-Hellman group. The widest group
+// the supported cards are expected to use is a 2048-bit prime; the floor is
+// the smallest standardised MODP group (1024-bit prime, 160-bit order). The
+// bounds also cap the cost of the modular exponentiations a hostile card can
+// make the host perform.
+constexpr int kMinDhPrimeBits = 1024;
+constexpr int kMaxDhPrimeBits = 4096;
+constexpr int kMinDhOrderBits = 160;
+constexpr size_t kMaxDhFieldBytes = kMaxDhPrimeBits / 8 + 1;
+
+// Same idea for the card's RSA key used by DAPP: a modulus in the usual RSA
+// range and a short public exponent.
+constexpr int kMinDappModulusBits = 1024;
+constexpr int kMaxDappModulusBits = 4096;
+constexpr size_t kMaxDappExponentBytes = 8;
+
+// Validates the DH domain parameters the card announced. The parameters are
+// not authenticated (there is no trust anchor for them on the card), so this
+// only rejects values that are malformed or cannot form a prime-order-subgroup
+// group: bounded sizes, odd p and q, 1 < g < p-1, q | p-1 and g^q == 1 mod p.
+void validateDhParams(const ByteArray &gBa, const ByteArray &pBa,
+                      const ByteArray &qBa) {
+  if (gBa.isEmpty() || pBa.isEmpty() || qBa.isEmpty())
+    throw logged_error("DH parameters missing");
+  if (gBa.size() > kMaxDhFieldBytes || pBa.size() > kMaxDhFieldBytes ||
+      qBa.size() > kMaxDhFieldBytes)
+    throw logged_error("DH parameters too large");
+
+  Bn g = bnFromBytes(gBa), p = bnFromBytes(pBa), q = bnFromBytes(qBa);
+  int pBits = BN_num_bits(p.get());
+  if (pBits < kMinDhPrimeBits || pBits > kMaxDhPrimeBits)
+    throw logged_error(stdPrintf("DH prime size %d bits not supported", pBits));
+  if (BN_num_bits(q.get()) < kMinDhOrderBits || BN_num_bits(q.get()) >= pBits)
+    throw logged_error("DH subgroup order size not supported");
+  if (!BN_is_odd(p.get()) || !BN_is_odd(q.get()))
+    throw logged_error("DH prime or order is even");
+
+  BnCtx ctx = bnCtxNew();
+  Bn pm1 = bnNew(), rem = bnNew(), gq = bnNew();
+  if (!BN_sub(pm1.get(), p.get(), BN_value_one()))
+    throw logged_error("BN_sub failed");
+  if (BN_cmp(g.get(), BN_value_one()) <= 0 || BN_cmp(g.get(), pm1.get()) >= 0)
+    throw logged_error("DH generator out of range");
+  if (!BN_nnmod(rem.get(), pm1.get(), q.get(), ctx.get()))
+    throw logged_error("BN_nnmod failed");
+  if (!BN_is_zero(rem.get()))
+    throw logged_error("DH subgroup order does not divide p-1");
+  if (!BN_mod_exp(gq.get(), g.get(), q.get(), p.get(), ctx.get()))
+    throw logged_error("BN_mod_exp failed");
+  if (!BN_is_one(gq.get()))
+    throw logged_error("DH generator is not in the order-q subgroup");
+}
+
+// Validates the ICC's DH public value: 1 < y < p-1 and, since the order q of
+// the subgroup is known, y^q == 1 mod p. Rejects the trivial and small-order
+// values an attacker could use to force the shared secret into a tiny set.
+void validateDhPublicKey(const ByteArray &yBa, const ByteArray &pBa,
+                         const ByteArray &qBa) {
+  if (yBa.isEmpty() || yBa.size() > pBa.size() + 1)
+    throw logged_error("DH public key has an invalid size");
+  Bn y = bnFromBytes(yBa), p = bnFromBytes(pBa), q = bnFromBytes(qBa);
+  Bn pm1 = bnNew(), yq = bnNew();
+  BnCtx ctx = bnCtxNew();
+  if (!BN_sub(pm1.get(), p.get(), BN_value_one()))
+    throw logged_error("BN_sub failed");
+  if (BN_cmp(y.get(), BN_value_one()) <= 0 || BN_cmp(y.get(), pm1.get()) >= 0)
+    throw logged_error("DH public key out of range");
+  if (!BN_mod_exp(yq.get(), y.get(), q.get(), p.get(), ctx.get()))
+    throw logged_error("BN_mod_exp failed");
+  if (!BN_is_one(yq.get()))
+    throw logged_error("DH public key is not in the order-q subgroup");
+}
+
+// Bounds the DAPP RSA public key read from the card.
+void validateDappKey(const ByteArray &module, const ByteArray &exponent) {
+  Bn n = bnFromBytes(module);
+  int bits = BN_num_bits(n.get());
+  if (bits < kMinDappModulusBits || bits > kMaxDappModulusBits ||
+      !BN_is_odd(n.get()))
+    throw logged_error("DAPP public key modulus not acceptable");
+  if (exponent.size() > kMaxDappExponentBytes)
+    throw logged_error("DAPP public key exponent too large");
+  Bn e = bnFromBytes(exponent);
+  if (!BN_is_odd(e.get()) || BN_cmp(e.get(), BN_value_one()) <= 0 ||
+      BN_cmp(e.get(), n.get()) >= 0)
+    throw logged_error("DAPP public key exponent not acceptable");
 }
 
 }  // namespace
@@ -563,6 +681,7 @@ void IAS::ReadDappPubKey(ByteDynArray &DappKey) {
   parser.Parse(DappKey);
   ByteDynArray module(asnUnsignedInt(asnPath(parser, {0, 0}).content));
   ByteDynArray pubKey(asnUnsignedInt(asnPath(parser, {0, 1}).content));
+  validateDappKey(module, pubKey);
   DappModule = std::move(module);
   DappPubKey = std::move(pubKey);
 }
@@ -725,6 +844,11 @@ void IAS::DAPP() {
 void IAS::DHKeyExchange() {
   CASNParser asn1;
 
+  // The group must have been validated by InitDHParam(); never run the key
+  // exchange on missing parameters.
+  if (dh_g.isEmpty() || dh_p.isEmpty() || dh_q.isEmpty())
+    throw logged_error("DHKeyExchange - DH parameters not initialised");
+
   ByteDynArray dh_prKey, secret, resp, d1;
   do {
     dh_prKey.resize(dh_q.size());
@@ -762,6 +886,7 @@ void IAS::DHKeyExchange() {
 
   asn1.Parse(resp);
   dh_ICCpubKey = asnPath(asn1, {0, 0}).content;
+  validateDhPublicKey(dh_ICCpubKey, dh_p, dh_q);
 
   secret = rsa.RSA_PURE(dh_ICCpubKey);
 
@@ -1175,6 +1300,8 @@ void IAS::InitDHParam() {
     dh_q = asnPath(parser, {0, 0, 0, 0}).content;
   } else
     throw logged_error("InitDHParam - CIE type not recognized");
+
+  validateDhParams(dh_g, dh_p, dh_q);
 }
 
 void IAS::InitExtAuthKeyParam() {
