@@ -26,6 +26,14 @@
 #define NAMESPACE_XADES_132 "http://uri.etsi.org/01903/v1.3.2#"
 #define NAMESPACE_XADES_1410 "http://uri.etsi.org/01903/v1.4.1"
 #define NAMESPACE_XADES "http://uri.etsi.org/01903#"
+#define NAMESPACE_XMLDSIG_FILTER2 "http://www.w3.org/2002/06/xmldsig-filter2"
+
+// Element names are built with literal "prefix:" names, so the prefixes must
+// be bound explicitly or the serialised document is not namespace-well-formed
+// (and the canonical form differs from what a verifier computes).
+static void DeclareNs(xmlNodePtr node, const char* href, const char* prefix) {
+  xmlNewNs(node, BAD_CAST href, BAD_CAST prefix);
+}
 
 #define REFTYPE_CONTENT 1
 #define REFTYPE_URI 2
@@ -159,6 +167,10 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
     xmlNodePtr rootNode = &(doc0->children[0].children[0]);
 
     xmlDocSetRootElement(doc1, rootNode);
+    // SignedProperties is canonicalised in the scope it will have inside
+    // ds:Signature / xades:QualifyingProperties.
+    DeclareNs(rootNode, NAMESPACE_XML_DSIG, "ds");
+    DeclareNs(rootNode, NAMESPACE_XADES_132, "xades");
 
     for (const auto& [key, val] : nsPtrMap) {
       xmlNsPtr* nsPtr = val;
@@ -193,6 +205,7 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
   xmlNodePtr rootNode = &(doc0->children[0].children[0]);
 
   xmlDocSetRootElement(doc1, rootNode);
+  DeclareNs(rootNode, NAMESPACE_XML_DSIG, "ds");
 
   for (const auto& [key, val] : nsPtrMap) {
     xmlNsPtr* nsPtr = val;
@@ -333,6 +346,7 @@ xmlDocPtr CXAdESGenerator::CreateSignedInfo(
   doc->children = xmlNewDocNode(doc, nullptr, BAD_CAST "ds:Signature", nullptr);
 
   xmlNodePtr pSignatureNode = doc->children;
+  DeclareNs(pSignatureNode, NAMESPACE_XML_DSIG, "ds");
   xmlNewProp(pSignatureNode, BAD_CAST "Id", BAD_CAST m_szID);
 
   // <SignedInfo>
@@ -393,6 +407,7 @@ xmlDocPtr CXAdESGenerator::CreateSignedInfo(
     xmlNodePtr pN31 = xmlNewChild(
         pN3, nullptr, reinterpret_cast<const xmlChar*>("dsig-xpath:XPath"),
         reinterpret_cast<const xmlChar*>("/descendant::ds:Signature"));
+    DeclareNs(pN31, NAMESPACE_XMLDSIG_FILTER2, "dsig-xpath");
     xmlSetProp(pN31, reinterpret_cast<const xmlChar*>("Filter"),
                reinterpret_cast<const xmlChar*>("subtract"));
 
@@ -476,6 +491,7 @@ xmlDocPtr CXAdESGenerator::CreateQualifyingProperties(
 
   // QualifyingProperties
   xmlNodePtr pQualifyingProperties = doc->children;
+  DeclareNs(pQualifyingProperties, NAMESPACE_XADES_132, "xades");
   xmlNewProp(pQualifyingProperties, BAD_CAST "Target", BAD_CAST m_szID);
 
   // <SignedProperties>
