@@ -290,7 +290,10 @@ jobs:
           path: builddir/meson-logs/meson-log.txt
 
   linux-arm64:
-    runs-on: ubuntu-latest
+    # Pinned: multiarch needs amd64 and arm64 package versions in lockstep,
+    # and fresh runner images ship amd64 packages newer than the
+    # ports.ubuntu.com mirror (ubuntu-26.04 forced 80 host downgrades).
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
