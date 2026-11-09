@@ -115,7 +115,7 @@ class CIEData {
   CToken token;
   bool init;
   CIEData(CSlot *slot, ByteArray atr)
-      : slot(*slot), ias(TokenTransmitCallback, atr) {
+      : slot(*slot), ias(TokenTransmitCallback, atr), atrCopy(atr) {
     ByteDynArray key(32);
     ByteDynArray iv(16);
     aesKey.Init(key.random(), iv.random());
@@ -125,6 +125,13 @@ class CIEData {
   }
   CSlot &slot;
   IAS ias;
+  ByteDynArray atrCopy;  ///< to rebuild `ias` after logout
+
+  /// Drop the host-side IAS secrets (Secure Messaging session keys and the
+  /// card-derived cache key) by replacing the instance; the old members wipe
+  /// themselves (ByteDynArray cleanses on assignment/destruction). Every card
+  /// operation re-runs SelectAID/DH/DAPP, so nothing relies on the old state.
+  void resetIas() { ias = IAS(TokenTransmitCallback, atrCopy); }
   std::shared_ptr<CP11PublicKey> pubKey;
   std::shared_ptr<CP11PrivateKey> privKey;
   std::shared_ptr<CP11Certificate> cert;
@@ -427,6 +434,7 @@ void CIEtemplateLogout(void *pTemplateData, CK_USER_TYPE /*userType*/) {
   CIEData *cie = static_cast<CIEData *>(pTemplateData);
   cie->userType = -1;
   cie->SessionPIN.clear();
+  cie->resetIas();
 }
 void CIEtemplateReadObjectAttributes(void * /*pCardTemplateData*/,
                                      CP11Object * /*pObject*/) {}
