@@ -33,8 +33,8 @@
 #include "crypto/sha256.h"
 #include "csp/ias.h"
 #include "m7m_parser.h"
-#include "pdf_signature_generator.h"
 #include "pdf_byte_range.h"
+#include "pdf_signature_generator.h"
 #include "pdf_verifier.h"
 #include "properties.h"
 #include "signature_generator.h"
@@ -252,7 +252,9 @@ CIE_SIGN_CTX cie_sign_sign_init(void) {
   pContext->pSignatureGenerator = nullptr;
   pContext->pIAS = nullptr;
 
-  if (g_mapOIDProps.size() == 0) g_mapOIDProps.load("OID.txt");
+  // The OID -> name map is only loaded on request (CIE_SIGN_OPT_OID_MAP_FILE):
+  // never from a CWD-relative path an attacker could plant. Without it OIDs
+  // are shown in dotted form.
 
   LOG_MSG((0, "<-- cie_sign_sign_init", "Context: %p", pContext));
 
@@ -1368,9 +1370,9 @@ static void bindTimestampToSignature(CTimeStampToken& tst, CSignerInfo& signer,
       expected = CSHA1().Digest(baSig);
 
     const ByteDynArray* pImprint = imprint.getValue();
-    bound = expected.size() > 0 && pImprint->size() == expected.size() &&
-            CRYPTO_memcmp(pImprint->data(), expected.data(),
-                          expected.size()) == 0;
+    bound =
+        expected.size() > 0 && pImprint->size() == expected.size() &&
+        CRYPTO_memcmp(pImprint->data(), expected.data(), expected.size()) == 0;
   } catch (...) {
     bound = false;
   }
@@ -1555,8 +1557,7 @@ long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
     pSI->pRevocationInfo = nullptr;
     if (pContext->bVerifyCRL) pSI->pRevocationInfo = new REVOCATION_INFO();
 
-    pSI->bitmask =
-        VerifyResultToBitmask(sd.verify(i, pSI->pRevocationInfo));
+    pSI->bitmask = VerifyResultToBitmask(sd.verify(i, pSI->pRevocationInfo));
 
     LOG_DBG(
         (0, "verify_signed_document 2", "verify result: %lx", pSI->bitmask));
@@ -1897,8 +1898,8 @@ long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& /*data*/,
     if (pContext->bVerifyCRL) pSI->pRevocationInfo = new REVOCATION_INFO();
 
     char sigType[256];
-    pSI->bitmask = VerifyResultToBitmask(pdfVerifier.VerifySignature(
-        i, nullptr, sigType, pSI->pRevocationInfo));
+    pSI->bitmask = VerifyResultToBitmask(
+        pdfVerifier.VerifySignature(i, nullptr, sigType, pSI->pRevocationInfo));
 
     ByteDynArray subject;
     ByteDynArray issuer;
