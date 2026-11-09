@@ -456,6 +456,9 @@ void CIEtemplateSign(void *pCardTemplateData, CP11PrivateKey * /*pPrivKey*/,
         throw p11_error(CKR_PIN_INCORRECT);
       cie->ias.Sign(baSignBuffer, baSignature);
     }
+  } else {
+    // Never report success with an empty signature.
+    throw p11_error(CKR_USER_NOT_LOGGED_IN);
   }
 }
 
