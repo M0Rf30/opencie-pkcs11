@@ -93,3 +93,31 @@ TEST_CASE("GetASN1DataLenght long form 1 byte", "[asn1]") {
   ByteArray ba(raw, 3);
   CHECK(GetASN1DataLenght(ba) == 203);
 }
+
+TEST_CASE("CASNParser rejects BER indefinite length", "[asn]") {
+  const uint8_t der[] = {0x30, 0x80, 0x04, 0x01, 0x41, 0x00, 0x00};
+  CASNParser parser;
+  CHECK_THROWS(parser.Parse(ByteArray(der, sizeof(der))));
+}
+
+TEST_CASE("CASNParser caps the number of nodes", "[asn]") {
+  auto flat = [](size_t n) {
+    std::vector<uint8_t> v;
+    for (size_t i = 0; i < n; ++i) {
+      v.push_back(0x30);
+      v.push_back(0x00);
+    }
+    return v;
+  };
+  {
+    auto v = flat(1000);
+    CASNParser parser;
+    CHECK_NOTHROW(parser.Parse(ByteArray(v.data(), v.size())));
+    CHECK(parser.tags.size() == 1000);
+  }
+  {
+    auto v = flat(100001);
+    CASNParser parser;
+    CHECK_THROWS(parser.Parse(ByteArray(v.data(), v.size())));
+  }
+}
