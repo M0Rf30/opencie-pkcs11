@@ -24,6 +24,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace pace {
@@ -242,11 +243,14 @@ Result readCardAccess(const Transmit& tx, Bytes& out);
 /**
  * @brief Run PACE with the CAN.
  *
+ * @p can is a non-owning view so no unwiped std::string copy of the secret is
+ * made; the caller owns (and wipes) the backing buffer.
+ *
  * On Status::Ok @p channel is the established Secure Messaging channel
  * (SSC = 0 as required by ICAO 9303-11). A wrong CAN is reported as
  * Status::WrongCan and is never retried by this function.
  */
-Result performPace(const Transmit& tx, const std::string& can, const Params& p,
+Result performPace(const Transmit& tx, std::string_view can, const Params& p,
                    std::unique_ptr<SecureChannel>& channel,
                    const Options& opt = {});
 

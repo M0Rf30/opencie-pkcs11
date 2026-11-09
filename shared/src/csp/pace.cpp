@@ -1330,7 +1330,7 @@ Result readCardAccess(const Transmit& tx, Bytes& out) {
   return readTransparent(read, kPlainChunk, out);
 }
 
-Result performPace(const Transmit& tx, const std::string& can, const Params& p,
+Result performPace(const Transmit& tx, std::string_view can, const Params& p,
                    std::unique_ptr<SecureChannel>& channel,
                    const Options& opt) {
   channel.reset();
