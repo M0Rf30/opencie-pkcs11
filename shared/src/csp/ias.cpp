@@ -5,6 +5,7 @@
 #include <openssl/crypto.h>
 
 #include <algorithm>
+#include <initializer_list>
 
 #include "crypto/aes.h"
 #include "crypto/asn_parser.h"
@@ -41,6 +42,71 @@ void GetPublicKeyFromCert(const uint8_t *certDer, size_t certLen,
 
 void showUI(const char *szPAN);
 void notifyCardNotRegistered(const char *szPAN);
+
+namespace {
+
+// Everything parsed out of a card response is attacker-controlled: the parser
+// may return an empty or shallower tree than the protocol promises. These
+// accessors turn a missing node into a logged_error instead of UB.
+CASNTag &asnChild(CASNTag &tag, size_t idx) {
+  if (idx >= tag.tags.size())
+    throw logged_error("ASN.1 structure verification error");
+  return *tag.tags[idx];
+}
+
+CASNTag &asnRoot(CASNParser &parser) {
+  if (parser.tags.empty())
+    throw logged_error("ASN.1 structure verification error: empty response");
+  return *parser.tags[0];
+}
+
+// Equivalent of parser.tags[p0]->tags[p1]->...: the first index selects the
+// top-level node, every following one descends into its children.
+CASNTag &asnPath(CASNParser &parser, std::initializer_list<size_t> path) {
+  auto it = path.begin();
+  if (it == path.end() || *it >= parser.tags.size())
+    throw logged_error("ASN.1 structure verification error: empty response");
+  CASNTag *cur = parser.tags[*it].get();
+  for (++it; it != path.end(); ++it) cur = &asnChild(*cur, *it);
+  return *cur;
+}
+
+CASNTag &asnRequireTag(CASNTagArray &tags, DWORD id) {
+  auto it = std::find_if(tags.begin(), tags.end(),
+                         [id](const auto &tag) { return tag->tagInt() == id; });
+  if (it == tags.end())
+    throw logged_error(
+        stdPrintf("ASN.1 structure verification error: tag %lX missing",
+                  static_cast<unsigned long>(id)));
+  return **it;
+}
+
+// Strips leading zero bytes (DER sign padding) from an unsigned big-endian
+// integer; an empty or all-zero value is rejected.
+ByteArray asnUnsignedInt(const ByteArray &content) {
+  size_t skip = 0;
+  while (skip < content.size() && content.data()[skip] == 0) ++skip;
+  if (skip == content.size())
+    throw logged_error("ASN.1 structure verification error: empty integer");
+  return content.mid(skip);
+}
+
+// Content of a BIT STRING holding a DER structure: drop the unused-bits byte.
+ByteArray asnBitStringContent(const ByteArray &content) {
+  if (content.isEmpty())
+    throw logged_error("ASN.1 structure verification error: empty bit string");
+  return content[0] == 0 ? content.mid(1) : content;
+}
+
+// Single-byte DG number out of a SOD DataGroupHash INTEGER.
+uint8_t asnDgNumber(const ByteArray &content) {
+  if (content.size() == 2 && content.data()[0] == 0) return content.data()[1];
+  if (content.size() != 1)
+    throw logged_error("ASN.1 structure verification error: bad DG number");
+  return content.data()[0];
+}
+
+}  // namespace
 
 IAS::IAS(CToken::TokenTransmitCallback transmit, ByteArray ATR)
     : attemptsRemaining(0) {
@@ -469,12 +535,10 @@ void IAS::ReadDappPubKey(ByteDynArray &DappKey) {
 
   CASNParser parser;
   parser.Parse(DappKey);
-  ByteArray module = parser.tags[0]->tags[0]->content;
-  while (module[0] == 0) module = module.mid(1);
-  DappModule = ByteDynArray(module);
-  ByteArray pubKey = parser.tags[0]->tags[1]->content;
-  while (pubKey[0] == 0) pubKey = pubKey.mid(1);
-  DappPubKey = ByteDynArray(pubKey);
+  ByteDynArray module(asnUnsignedInt(asnPath(parser, {0, 0}).content));
+  ByteDynArray pubKey(asnUnsignedInt(asnPath(parser, {0, 1}).content));
+  DappModule = std::move(module);
+  DappPubKey = std::move(pubKey);
 }
 
 void IAS::ReadPAN() { readfile(0xd003, PAN); }
@@ -671,7 +735,7 @@ void IAS::DHKeyExchange() {
     throw scard_error(sw);
 
   asn1.Parse(resp);
-  dh_ICCpubKey = asn1.tags[0]->tags[0]->content;
+  dh_ICCpubKey = asnPath(asn1, {0, 0}).content;
 
   secret = rsa.RSA_PURE(dh_ICCpubKey);
 
@@ -1042,9 +1106,9 @@ void IAS::InitDHParam() {
 
     parser.Parse(resp);
 
-    dh_g = parser.tags[0]->tags[0]->tags[0]->tags[0]->content;
-    dh_p = parser.tags[0]->tags[0]->tags[0]->tags[1]->content;
-    dh_q = parser.tags[0]->tags[0]->tags[0]->tags[2]->content;
+    dh_g = asnPath(parser, {0, 0, 0, 0}).content;
+    dh_p = asnPath(parser, {0, 0, 0, 1}).content;
+    dh_q = asnPath(parser, {0, 0, 0, 2}).content;
   } else if (type == CIE_Type::CIE_NXP || type == CIE_Type::CIE_STM ||
              type == CIE_Type::CIE_STM2 || type == CIE_Type::CIE_STM3 ||
              type == CIE_Type::CIE_ACTALIS || type == CIE_Type::CIE_BIT4ID) {
@@ -1056,7 +1120,7 @@ void IAS::InitDHParam() {
                        VarToByteArray(getDHDuopData_g), resp)) != 0x9000)
       throw scard_error(sw);
     parser.Parse(resp);
-    dh_g = parser.tags[0]->tags[0]->tags[0]->tags[0]->content;
+    dh_g = asnPath(parser, {0, 0, 0, 0}).content;
 
     uint8_t getDHDuopData_p[] = {0x4D, 0x0A, 0x70, 0x08, 0xBF, 0xA1,
                                  0x01, 0x04, 0xA3, 0x02, 0x98, 0x00};
@@ -1064,7 +1128,7 @@ void IAS::InitDHParam() {
                        VarToByteArray(getDHDuopData_p), resp)) != 0x9000)
       throw scard_error(sw);
     parser.Parse(resp);
-    dh_p = parser.tags[0]->tags[0]->tags[0]->tags[0]->content;
+    dh_p = asnPath(parser, {0, 0, 0, 0}).content;
 
     uint8_t getDHDuopData_q[] = {0x4D, 0x0A, 0x70, 0x08, 0xBF, 0xA1,
                                  0x01, 0x04, 0xA3, 0x02, 0x99, 0x00};
@@ -1072,15 +1136,9 @@ void IAS::InitDHParam() {
                        VarToByteArray(getDHDuopData_q), resp)) != 0x9000)
       throw scard_error(sw);
     parser.Parse(resp);
-    dh_q = parser.tags[0]->tags[0]->tags[0]->tags[0]->content;
+    dh_q = asnPath(parser, {0, 0, 0, 0}).content;
   } else
     throw logged_error("InitDHParam - CIE type not recognized");
-}
-
-CASNTag *GetTag(CASNTagArray &tags, DWORD id) {
-  auto it = std::find_if(tags.begin(), tags.end(),
-                         [id](const auto &tag) { return tag->tagInt() == id; });
-  return it != tags.end() ? it->get() : nullptr;
 }
 
 void IAS::InitExtAuthKeyParam() {
@@ -1098,15 +1156,12 @@ void IAS::InitExtAuthKeyParam() {
   CASNParser parser;
   parser.Parse(resp);
 
-  CA_module = ByteDynArray(
-      GetTag(parser.tags[0]->tags[0]->tags[0]->tags, 0x81)->content);
-  CA_pubexp = ByteDynArray(
-      GetTag(parser.tags[0]->tags[0]->tags[0]->tags, 0x82)->content);
+  CASNTagArray &keyTags = asnPath(parser, {0, 0, 0}).tags;
+  CA_module = ByteDynArray(asnRequireTag(keyTags, 0x81).content);
+  CA_pubexp = ByteDynArray(asnRequireTag(keyTags, 0x82).content);
   CA_privexp = ByteDynArray(baExtAuth_PrivExp);
-  CA_CHR = ByteDynArray(
-      GetTag(parser.tags[0]->tags[0]->tags[0]->tags, 0x5F20)->content);
-  CA_CHA = ByteDynArray(
-      GetTag(parser.tags[0]->tags[0]->tags[0]->tags, 0x5F4C)->content);
+  CA_CHR = ByteDynArray(asnRequireTag(keyTags, 0x5F20).content);
+  CA_CHA = ByteDynArray(asnRequireTag(keyTags, 0x5F4C).content);
   CA_CAR = ByteDynArray(CA_CHR.mid(4));
   CA_AID = ByteDynArray(CA_CHA.left(6));
 }
@@ -1268,7 +1323,7 @@ uint8_t IAS::GetSODDigestAlg(const ByteArray &SOD) {
   std::string dump;
   dumpHexData(SOD, dump);
 
-  CASNTag &SODTag = *parser.tags[0];
+  CASNTag &SODTag = asnRoot(parser);
 
   CASNTag &temp = SODTag.Child(0, 0x30);
 
@@ -1293,7 +1348,7 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
   std::string dump;
   dumpHexData(SOD, dump);
 
-  CASNTag &SODTag = *parser.tags[0];
+  CASNTag &SODTag = asnRoot(parser);
 
   CASNTag &temp = SODTag.Child(0, 0x30);
 
@@ -1317,7 +1372,7 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
 
   CASNParser ttParser;
   ttParser.Parse(ttData);
-  CASNTag &signedData = *ttParser.tags[0];
+  CASNTag &signedData = asnRoot(ttParser);
   signedData.CheckTag(0x30);
 
   /* Prendo il certificato del signer */
@@ -1386,23 +1441,16 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
 
   CASNParser pubKeyParser;
   pubKeyParser.Parse(pubKeyData);
-  CASNTag &pubKey = *pubKeyParser.tags[0]->tags[1];
+  CASNTag &pubKey = asnPath(pubKeyParser, {0, 1});
 
-  ByteArray content = pubKey.content;
-
-  if (content.data()[0] == 0)  // unsigned bits
-    content = content.mid(1);
+  ByteArray content = asnBitStringContent(pubKey.content);
 
   CASNParser pubKeyParser2;
   pubKeyParser2.Parse(content);
-  CASNTag &pubKey2 = *pubKeyParser2.tags[0];
+  CASNTag &pubKey2 = asnRoot(pubKeyParser2);
 
-  CASNTag &modTag = pubKey2.Child(0, 02);
-  ByteArray mod = modTag.content;
-  while (mod[0] == 0) mod = mod.mid(1);
-  CASNTag &expTag = pubKey2.Child(1, 02);
-  ByteArray exp = expTag.content;
-  while (exp[0] == 0) exp = exp.mid(1);
+  ByteArray mod = asnUnsignedInt(pubKey2.Child(0, 02).content);
+  ByteArray exp = asnUnsignedInt(pubKey2.Child(1, 02).content);
 
   ByteArray signatureData = signature.content;
 
@@ -1427,7 +1475,7 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
 
   issuerParser.Parse(issuerBa);
 
-  CASNTag &CertIssuer = *issuerParser.tags[0];
+  CASNTag &CertIssuer = asnRoot(issuerParser);
   if (issuerName.tags.size() != CertIssuer.tags.size())
     Log.writePure("Issuer name mismatch");
 
@@ -1440,7 +1488,7 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
     CASNTag &hashDG = *tagPtr;
     CASNTag &dgNum = hashDG.CheckTag(0x30).Child(0, 02);
     const CASNTag &dgHash = hashDG.Child(1, 04);
-    uint8_t num = static_cast<uint8_t>(ByteArrayToVar(dgNum.content, BYTE));
+    uint8_t num = asnDgNumber(dgNum.content);
 
     if (hashSet.find(num) == hashSet.end() || hashSet[num].size() == 0)
       throw logged_error(stdPrintf("Digest not found for DG %02X", num));
@@ -1459,7 +1507,7 @@ void IAS::VerificaSOD(const ByteArray &SOD,
   std::string dump;
   dumpHexData(SOD, dump);
 
-  CASNTag &SODTag = *parser.tags[0];
+  CASNTag &SODTag = asnRoot(parser);
 
   CASNTag &temp = SODTag.Child(0, 0x30);
   uint8_t OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02};
@@ -1478,7 +1526,7 @@ void IAS::VerificaSOD(const ByteArray &SOD,
   ByteArray ttData = temp2.Child(2, 0x30).Child(1, 0xA0).Child(0, 04).content;
   CASNParser ttParser;
   ttParser.Parse(ttData);
-  CASNTag &signedData = *ttParser.tags[0];
+  CASNTag &signedData = asnRoot(ttParser);
   signedData.CheckTag(0x30);
 
   CASNTag &signerCert = temp2.Child(3, 0xA0).Child(0, 0x30);
@@ -1535,23 +1583,16 @@ void IAS::VerificaSOD(const ByteArray &SOD,
 
   CASNParser pubKeyParser;
   pubKeyParser.Parse(pubKeyData);
-  CASNTag &pubKey = *pubKeyParser.tags[0]->tags[1];
+  CASNTag &pubKey = asnPath(pubKeyParser, {0, 1});
 
-  ByteArray content = pubKey.content;
-
-  if (content.data()[0] == 0)  // unsigned bits
-    content = content.mid(1);
+  ByteArray content = asnBitStringContent(pubKey.content);
 
   CASNParser pubKeyParser2;
   pubKeyParser2.Parse(content);
-  CASNTag &pubKey2 = *pubKeyParser2.tags[0];
+  CASNTag &pubKey2 = asnRoot(pubKeyParser2);
 
-  CASNTag &modTag = pubKey2.Child(0, 02);
-  ByteArray mod = modTag.content;
-  while (mod[0] == 0) mod = mod.mid(1);
-  CASNTag &expTag = pubKey2.Child(1, 02);
-  ByteArray exp = expTag.content;
-  while (exp[0] == 0) exp = exp.mid(1);
+  ByteArray mod = asnUnsignedInt(pubKey2.Child(0, 02).content);
+  ByteArray exp = asnUnsignedInt(pubKey2.Child(1, 02).content);
 
   ByteArray signatureData = signature.content;
 
@@ -1591,7 +1632,7 @@ void IAS::VerificaSOD(const ByteArray &SOD,
 
   issuerParser.Parse(issuerBa);
 
-  CASNTag &CertIssuer = *issuerParser.tags[0];
+  CASNTag &CertIssuer = asnRoot(issuerParser);
   if (issuerName.tags.size() != CertIssuer.tags.size())
     Log.writePure("Issuer name mismatch");
 
@@ -1604,7 +1645,7 @@ void IAS::VerificaSOD(const ByteArray &SOD,
     CASNTag &hashDG = *tagPtr;
     CASNTag &dgNum = hashDG.CheckTag(0x30).Child(0, 02);
     const CASNTag &dgHash = hashDG.Child(1, 04);
-    uint8_t num = static_cast<uint8_t>(ByteArrayToVar(dgNum.content, BYTE));
+    uint8_t num = asnDgNumber(dgNum.content);
 
     if (hashSet.find(num) == hashSet.end() || hashSet[num].size() == 0)
       Log.writePure("%s",
