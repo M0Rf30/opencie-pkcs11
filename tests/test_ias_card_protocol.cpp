@@ -11,20 +11,27 @@
 #ifndef _WIN32
 
 #include <openssl/bn.h>
+#include <openssl/evp.h>
+#include <openssl/x509.h>
+#include <openssl/x509v3.h>
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <functional>
 #include <map>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "crypto/des3.h"
 #include "crypto/mac.h"
 #include "crypto/sha256.h"
+#include "csp/csca_certs.h"
 #include "csp/ias.h"
 #include "util/array.h"
 #include "util/util.h"
@@ -955,6 +962,186 @@ TEST_CASE("readDGbySFI rejects malformed or inconsistent TLV lengths",
   ByteDynArray out;
   CHECK_THROWS_WITH(rig.rig.ias.ReadDG1(out),
                     Catch::Matchers::ContainsSubstring("readDGbySFI - "));
+}
+
+// CP-04: the SOD signer certificate must chain to an Italian CSCA.
+
+namespace {
+
+struct TestCert {
+  X509 *x = nullptr;
+  EVP_PKEY *key = nullptr;
+  ~TestCert() {
+    X509_free(x);
+    EVP_PKEY_free(key);
+  }
+  Bytes Der() const {
+    unsigned char *out = nullptr;
+    int n = i2d_X509(x, &out);
+    Bytes b(out, out + n);
+    OPENSSL_free(out);
+    return b;
+  }
+};
+
+// Issues a certificate for a fresh RSA key. `issuer` null => self-signed.
+// The validity window is entirely in the past: chain building must not care.
+std::unique_ptr<TestCert> MakeCert(const char *cn, bool ca,
+                                   const TestCert *issuer) {
+  auto c = std::make_unique<TestCert>();
+  c->key =
+      EVP_PKEY_Q_keygen(nullptr, nullptr, "RSA", static_cast<size_t>(2048));
+  c->x = X509_new();
+  X509_set_version(c->x, 2);
+  ASN1_INTEGER_set(X509_get_serialNumber(c->x), 1);
+  X509_gmtime_adj(X509_getm_notBefore(c->x), -3600L * 24 * 365 * 10);
+  X509_gmtime_adj(X509_getm_notAfter(c->x), -3600L * 24 * 365 * 5);
+  // Built separately: X509_get_subject_name() returns const in OpenSSL 4.
+  // auto: wincrypt.h defines X509_NAME as a macro on Windows.
+  auto *name = X509_NAME_new();
+  X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
+                             reinterpret_cast<const unsigned char *>(cn), -1,
+                             -1, 0);
+  X509_set_subject_name(c->x, name);
+  X509_set_pubkey(c->x, c->key);
+  X509_set_issuer_name(c->x, issuer ? X509_get_subject_name(issuer->x) : name);
+  X509_NAME_free(name);
+  X509V3_CTX v3;
+  X509V3_set_ctx_nodb(&v3);
+  X509V3_set_ctx(&v3, issuer ? issuer->x : c->x, c->x, nullptr, nullptr, 0);
+  X509_EXTENSION *bc =
+      X509V3_EXT_conf_nid(nullptr, &v3, NID_basic_constraints,
+                          ca ? "critical,CA:TRUE" : "CA:FALSE");
+  X509_add_ext(c->x, bc, -1);
+  X509_EXTENSION_free(bc);
+  X509_sign(c->x, issuer ? issuer->key : c->key, EVP_sha256());
+  return c;
+}
+
+ByteArray View(const Bytes &b) { return ByteArray(b.data(), b.size()); }
+
+}  // namespace
+
+TEST_CASE("Document Signer chain verification against an injected store",
+          "[ias][cp04]") {
+  auto csca = MakeCert("Test CSCA", true, nullptr);
+  auto ds = MakeCert("Test DS", false, csca.get());
+  auto otherCsca = MakeCert("Other CSCA", true, nullptr);
+  auto selfSignedDs = MakeCert("Rogue DS", false, nullptr);
+
+  const Bytes cscaDer = csca->Der(), dsDer = ds->Der();
+  const Bytes otherDer = otherCsca->Der(), rogueDer = selfSignedDs->Der();
+
+  SECTION("DS issued by a trusted CSCA is accepted despite expired dates") {
+    CHECK_NOTHROW(
+        IAS::VerifyDocumentSignerChain(View(dsDer), {View(cscaDer)}, {}));
+  }
+  SECTION("DS issued through an untrusted intermediate CA") {
+    auto inter = MakeCert("Test link", true, csca.get());
+    auto leaf = MakeCert("Leaf DS", false, inter.get());
+    const Bytes interDer = inter->Der(), leafDer = leaf->Der();
+    CHECK_NOTHROW(IAS::VerifyDocumentSignerChain(View(leafDer), {View(cscaDer)},
+                                                 {View(interDer)}));
+    // The intermediate is not a trust anchor on its own.
+    CHECK_THROWS_AS(
+        IAS::VerifyDocumentSignerChain(View(leafDer), {}, {View(interDer)}),
+        logged_error);
+    // ... and without it the path cannot be built.
+    CHECK_THROWS_AS(
+        IAS::VerifyDocumentSignerChain(View(leafDer), {View(cscaDer)}, {}),
+        logged_error);
+  }
+  SECTION("DS from a CSCA that is not trusted is rejected") {
+    CHECK_THROWS_AS(
+        IAS::VerifyDocumentSignerChain(View(dsDer), {View(otherDer)}, {}),
+        logged_error);
+  }
+  SECTION("self-signed DS is rejected") {
+    CHECK_THROWS_AS(
+        IAS::VerifyDocumentSignerChain(View(rogueDer), {View(cscaDer)}, {}),
+        logged_error);
+  }
+  SECTION("DS with a forged issuer name is rejected") {
+    // Same subject as the real CSCA, but signed by a different key.
+    auto fake = MakeCert("Test CSCA", true, nullptr);
+    auto forgedDs = MakeCert("Forged DS", false, fake.get());
+    const Bytes forged = forgedDs->Der();
+    CHECK_THROWS_AS(
+        IAS::VerifyDocumentSignerChain(View(forged), {View(cscaDer)}, {}),
+        logged_error);
+  }
+  SECTION("garbage certificates are rejected") {
+    const Bytes junk = {0x30, 0x03, 0x02, 0x01, 0x01};
+    CHECK_THROWS_AS(
+        IAS::VerifyDocumentSignerChain(View(junk), {View(cscaDer)}, {}),
+        logged_error);
+    CHECK_THROWS_AS(
+        IAS::VerifyDocumentSignerChain(View(dsDer), {View(junk)}, {}),
+        logged_error);
+  }
+  SECTION("empty trust store trusts nothing") {
+    CHECK_THROWS_AS(IAS::VerifyDocumentSignerChain(View(dsDer), {}, {}),
+                    logged_error);
+  }
+}
+
+TEST_CASE("Built-in CSCA store: fingerprints and behaviour", "[ias][cp04]") {
+  // SHA-1 fingerprints as published on csca-ita.interno.gov.it.
+  struct Expected {
+    const csca::Der *der;
+    const char *sha1;
+  };
+  static const Expected kExpected[] = {
+      {&csca::kRoots[0], "e8e99576f6e770250b47c663d86e0a0285c9d263"},
+      {&csca::kRoots[1], "eb9d0cc831b89b8c0ac537c4da97031695cba432"},
+      {&csca::kRoots[2], "33dfc79d108640d35ed2ea703c73d2ac4c32fab0"},
+      {&csca::kRoots[3], "2d4d1c9cdbe6943ad1d2b01bafdc1eb0cba72235"},
+      {&csca::kRoots[4], "9cb8d31734faa68009d1f7fef68a5cc802cb8a2e"},
+      {&csca::kRoots[5], "b2c3d823b000593932c539599d59c1d024f13bcd"},
+      {&csca::kLinkCerts[0], "37cacd64b25b1309f2b31e368249baddf194901e"},
+      {&csca::kLinkCerts[1], "dca8376fcf66995ec8782aad70e36740917d3c9b"},
+      {&csca::kLinkCerts[2], "c24ec0884aa6635bbb0113273946dd16f7eff758"},
+      {&csca::kLinkCerts[3], "f394ce2e697ea66ed6dcefdb0b0267c0c3e706e4"},
+      {&csca::kLinkCerts[4], "89270187139854c6748b61d161d32f56c3d9f0c7"},
+  };
+  static_assert(sizeof(csca::kRoots) / sizeof(csca::kRoots[0]) == 6);
+  static_assert(sizeof(csca::kLinkCerts) / sizeof(csca::kLinkCerts[0]) == 5);
+  for (const auto &e : kExpected) {
+    const unsigned char *p = e.der->data;
+    X509 *x = d2i_X509(nullptr, &p, static_cast<long>(e.der->size));
+    REQUIRE(x != nullptr);
+    unsigned char md[EVP_MAX_MD_SIZE];
+    unsigned int mdLen = 0;
+    REQUIRE(X509_digest(x, EVP_sha1(), md, &mdLen) == 1);
+    X509_free(x);
+    std::string hex;
+    char b[3];
+    for (unsigned i = 0; i < mdLen; ++i) {
+      std::snprintf(b, sizeof b, "%02x", md[i]);
+      hex += b;
+    }
+    CHECK(hex == e.sha1);
+  }
+
+  SECTION("a trusted CSCA verifies against the built-in store") {
+    for (const auto &r : csca::kRoots)
+      CHECK_NOTHROW(IAS::VerifyDocumentSignerChain(ByteArray(r.data, r.size)));
+  }
+  SECTION("link certificates chain to the CSCA that signed them") {
+    // The link certificates hold the successor CSCA key signed by the
+    // predecessor, so they chain to a built-in root.
+    for (const auto &l : csca::kLinkCerts)
+      CHECK_NOTHROW(IAS::VerifyDocumentSignerChain(ByteArray(l.data, l.size)));
+  }
+  SECTION("a self-signed or foreign DS is rejected") {
+    auto rogue = MakeCert("Rogue DS", false, nullptr);
+    const Bytes der = rogue->Der();
+    CHECK_THROWS_AS(IAS::VerifyDocumentSignerChain(View(der)), logged_error);
+    auto fakeCsca = MakeCert("Italian Country Signer CA", true, nullptr);
+    auto ds = MakeCert("DS", false, fakeCsca.get());
+    const Bytes dsDer = ds->Der();
+    CHECK_THROWS_AS(IAS::VerifyDocumentSignerChain(View(dsDer)), logged_error);
+  }
 }
 
 #endif  // _WIN32

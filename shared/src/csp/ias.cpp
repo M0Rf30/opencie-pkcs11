@@ -4,6 +4,9 @@
 
 #include <openssl/bn.h>
 #include <openssl/crypto.h>
+#include <openssl/err.h>
+#include <openssl/x509.h>
+#include <openssl/x509_vfy.h>
 
 #include <algorithm>
 #include <initializer_list>
@@ -15,6 +18,7 @@
 #include "crypto/des3.h"
 #include "crypto/mac.h"
 #include "crypto/rsa.h"
+#include "csp/csca_certs.h"
 #include "crypto/sha256.h"
 #include "crypto/sha512.h"
 #include "logger/logger.h"
@@ -1588,6 +1592,84 @@ uint8_t IAS::GetSODDigestAlg(const ByteArray &SOD) {
     throw logged_error("GetSODDigestAlg - Digest algorithm not supported");
 }
 
+namespace {
+
+struct X509Deleter {
+  void operator()(X509 *x) const { X509_free(x); }
+};
+using X509Ptr = std::unique_ptr<X509, X509Deleter>;
+
+struct X509StoreDeleter {
+  void operator()(X509_STORE *s) const { X509_STORE_free(s); }
+};
+using X509StorePtr = std::unique_ptr<X509_STORE, X509StoreDeleter>;
+
+struct X509StoreCtxDeleter {
+  void operator()(X509_STORE_CTX *c) const { X509_STORE_CTX_free(c); }
+};
+using X509StoreCtxPtr = std::unique_ptr<X509_STORE_CTX, X509StoreCtxDeleter>;
+
+struct X509StackDeleter {
+  void operator()(STACK_OF(X509) * s) const { sk_X509_pop_free(s, X509_free); }
+};
+using X509StackPtr = std::unique_ptr<STACK_OF(X509), X509StackDeleter>;
+
+X509Ptr parseCert(const ByteArray &der, const char *what) {
+  const unsigned char *p = der.data();
+  X509Ptr x(d2i_X509(nullptr, &p, static_cast<long>(der.size())));
+  if (!x || p != der.data() + der.size())
+    throw logged_error(stdPrintf("%s: invalid X.509 certificate", what));
+  return x;
+}
+
+}  // namespace
+
+void IAS::VerifyDocumentSignerChain(
+    const ByteArray &dsCertDer, const std::vector<ByteArray> &trustedRoots,
+    const std::vector<ByteArray> &intermediates) {
+  X509Ptr ds = parseCert(dsCertDer, "SOD signer certificate");
+
+  X509StorePtr store(X509_STORE_new());
+  X509StackPtr untrusted(sk_X509_new_null());
+  X509StoreCtxPtr ctx(X509_STORE_CTX_new());
+  if (!store || !untrusted || !ctx)
+    throw logged_error("SOD signer chain: OpenSSL allocation failed");
+
+  for (const auto &root : trustedRoots) {
+    X509Ptr x = parseCert(root, "trusted CSCA");
+    if (!X509_STORE_add_cert(store.get(), x.get()))
+      throw logged_error("SOD signer chain: cannot add trusted CSCA");
+  }
+  for (const auto &inter : intermediates) {
+    X509Ptr x = parseCert(inter, "CSCA link certificate");
+    if (!sk_X509_push(untrusted.get(), x.get()))
+      throw logged_error("SOD signer chain: cannot add intermediate");
+    x.release();  // owned by the stack now
+  }
+
+  // The certificates' validity period is not evaluated: the card (and the
+  // Document Signer it embeds) outlives it, and a SOD has no trustworthy
+  // signing time to evaluate it against.
+  X509_STORE_set_flags(store.get(), X509_V_FLAG_NO_CHECK_TIME);
+
+  if (!X509_STORE_CTX_init(ctx.get(), store.get(), ds.get(), untrusted.get()))
+    throw logged_error("SOD signer chain: X509_STORE_CTX_init failed");
+  if (X509_verify_cert(ctx.get()) != 1) {
+    std::string why =
+        X509_verify_cert_error_string(X509_STORE_CTX_get_error(ctx.get()));
+    ERR_clear_error();
+    throw logged_error(
+        "SOD signer certificate does not chain to a trusted CSCA: " + why);
+  }
+}
+
+void IAS::VerifyDocumentSignerChain(const ByteArray &dsCertDer) {
+  std::vector<ByteArray> roots, links;
+  for (const auto &c : csca::kRoots) roots.emplace_back(c.data, c.size);
+  for (const auto &c : csca::kLinkCerts) links.emplace_back(c.data, c.size);
+  VerifyDocumentSignerChain(dsCertDer, roots, links);
+}
+
 void IAS::VerifyLdsSecurityObject(
     const ByteArray &lds, uint8_t version, const ByteArray &hashOid,
     const std::map<uint8_t, ByteDynArray> &hashSet) {
@@ -1724,6 +1806,8 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
       SOD.mid(static_cast<int>(signerCert.startPos),
               static_cast<int>(signerCert.endPos - signerCert.startPos));
 
+  VerifyDocumentSignerChain(certRaw);
+
   ByteDynArray pubKeyData, issuerBa, serialBa;
   GetPublicKeyFromCert(certRaw.data(), certRaw.size(), pubKeyData, issuerBa,
                        serialBa);
@@ -1840,6 +1924,8 @@ void IAS::VerificaSOD(const ByteArray &SOD,
   ByteArray certRaw =
       SOD.mid(static_cast<int>(signerCert.startPos),
               static_cast<int>(signerCert.endPos - signerCert.startPos));
+
+  VerifyDocumentSignerChain(certRaw);
 
   ByteDynArray pubKeyData, issuerBa, serialBa;
   GetPublicKeyFromCert(certRaw.data(), certRaw.size(), pubKeyData, issuerBa,

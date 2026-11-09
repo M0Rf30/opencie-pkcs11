@@ -16,6 +16,7 @@
 
 #include <map>
 #include <string_view>
+#include <vector>
 
 #include "csp/atr.h"
 #include "pcsc/token.h"
@@ -242,7 +243,8 @@ class IAS {
    *         identity or any digest does not verify, or a read file is not
    *         covered by the SOD.
    * @note The signature is checked against the signer certificate embedded in
-   *       the SOD; the certificate is not chained to a trust anchor.
+   *       the SOD, which must chain to an Italian CSCA
+   *       (VerifyDocumentSignerChain).
    */
   static void VerificaSODPSS(const ByteArray &SOD,
                              const std::map<uint8_t, ByteDynArray> &hashSet);
@@ -253,6 +255,28 @@ class IAS {
    */
   static void VerificaSOD(const ByteArray &SOD,
                           const std::map<uint8_t, ByteDynArray> &hashSet);
+  /**
+   * @brief Verify that a Document Signer certificate chains to a trusted CSCA.
+   * @param dsCertDer      DER of the Document Signer certificate (from the
+   *                       SOD).
+   * @param trustedRoots   DER of the trusted self-signed CSCA certificates.
+   * @param intermediates  DER of untrusted certificates that may be used to
+   *                       build the path (CSCA link certificates).
+   * @throws logged_error if a certificate does not parse or no path to a
+   *         trusted root exists.
+   * @note Validity dates are deliberately not checked
+   *       (X509_V_FLAG_NO_CHECK_TIME): a card outlives the validity period of
+   *       its Document Signer and CSCA certificates, and the SOD carries no
+   *       trustworthy signing time. No CRL is consulted.
+   */
+  static void VerifyDocumentSignerChain(
+      const ByteArray &dsCertDer, const std::vector<ByteArray> &trustedRoots,
+      const std::vector<ByteArray> &intermediates);
+  /**
+   * @brief Same as above against the built-in Italian CSCA certificates
+   *        (csca_certs.h).
+   */
+  static void VerifyDocumentSignerChain(const ByteArray &dsCertDer);
   /**
    * @brief Check a DER LDSSecurityObject (the SOD's signed content) against
    *        the digests of the files read from the card.
