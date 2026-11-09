@@ -192,10 +192,9 @@ long cie_sign_set(int option, void* value) {
 }
 
 long cie_sign_set_int(int option, int value) {
-  int* valuePtr = new int(value);
-  long result = cie_sign_set(option, reinterpret_cast<void*>(valuePtr));
-  delete valuePtr;  // Clean up the allocated memory
-  return result;
+  // Integer options read through a pointer (log level) get the address of
+  // the local copy; the call is synchronous so it cannot dangle.
+  return cie_sign_set(option, static_cast<void*>(&value));
 }
 
 long cie_sign_set_string(int option, char* value) {
@@ -249,11 +248,12 @@ CIE_SIGN_CTX cie_sign_sign_init(void) {
 }
 
 long cie_sign_sign_set_int(CIE_SIGN_CTX ctx, int option, int value) {
-  int* valuePtr = new int(value);
-  long result =
-      cie_sign_sign_set(ctx, option, reinterpret_cast<void*>(valuePtr));
-  delete valuePtr;  // Clean up the allocated memory
-  return result;
+  // cie_sign_sign_set reads integer options as (intptr_t)value, except
+  // PDF_PAGE which is read through a pointer.
+  if (option == CIE_SIGN_OPT_PDF_PAGE)
+    return cie_sign_sign_set(ctx, option, static_cast<void*>(&value));
+  return cie_sign_sign_set(
+      ctx, option, reinterpret_cast<void*>(static_cast<intptr_t>(value)));
 }
 
 long cie_sign_sign_set_string(CIE_SIGN_CTX ctx, int option, char* value) {
@@ -404,9 +404,9 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
       break;
 
     case CIE_SIGN_OPT_PDF_PAGE:
-      LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %ld",
-               ctx, "CIE_SIGN_OPT_PDF_PAGE", *(static_cast<long*>(value))));
-      pContext->nPdfPage = *(static_cast<long*>(value));
+      LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %d",
+               ctx, "CIE_SIGN_OPT_PDF_PAGE", *(static_cast<int*>(value))));
+      pContext->nPdfPage = *(static_cast<int*>(value));
       break;
 
     case CIE_SIGN_OPT_PDF_IMAGEDATA:
@@ -453,9 +453,9 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
       break;
 
     case CIE_SIGN_OPT_VERIFY_USER_CERTIFICATE:
-      LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
+      LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %d",
                ctx, "CIE_SIGN_OPT_VERIFY_USER_CERTIFICATE",
-               static_cast<char*>(value)));
+               static_cast<int>((intptr_t)value)));
       pContext->bVerifyCert = static_cast<BOOL>((intptr_t)value);
       break;
   }
@@ -640,11 +640,9 @@ CIE_SIGN_CTX cie_sign_verify_init(void) {
 }
 
 long cie_sign_verify_set_int(CIE_SIGN_CTX ctx, int option, int value) {
-  int* valuePtr = new int(value);
-  long result =
-      cie_sign_verify_set(ctx, option, reinterpret_cast<void*>(valuePtr));
-  delete valuePtr;  // Clean up the allocated memory
-  return result;
+  // cie_sign_verify_set reads integer options as (intptr_t)value.
+  return cie_sign_verify_set(
+      ctx, option, reinterpret_cast<void*>(static_cast<intptr_t>(value)));
 }
 
 long cie_sign_verify_set_string(CIE_SIGN_CTX ctx, int option, char* value) {
@@ -690,9 +688,18 @@ long cie_sign_verify_set(CIE_SIGN_CTX ctx, int option, void* value) {
       break;
 
     case CIE_SIGN_OPT_PROXY_USRPASS:
-      g_szVerifyProxyUsrPass = static_cast<char*>(value);
-      LOG_DBG((0, "cie_sign_verify_set", "ProxyUsrPass: %s",
-               g_szVerifyProxyUsrPass));
+      // Keep a private copy (the caller's buffer may go away) and wipe the
+      // previous one; credentials never reach the log.
+      if (g_szVerifyProxyUsrPass) {
+        OPENSSL_cleanse(g_szVerifyProxyUsrPass, strlen(g_szVerifyProxyUsrPass));
+        free(g_szVerifyProxyUsrPass);
+        g_szVerifyProxyUsrPass = nullptr;
+      }
+      if (value) {
+        g_szVerifyProxyUsrPass = strdup(static_cast<char*>(value));
+        if (!g_szVerifyProxyUsrPass) return CIE_SIGN_ERROR_UNEXPECTED;
+      }
+      LOG_DBG((0, "cie_sign_verify_set", "ProxyUsrPass: ****"));
       break;
 
     case CIE_SIGN_OPT_PROXY_PORT:
