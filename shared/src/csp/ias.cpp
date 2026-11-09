@@ -446,21 +446,31 @@ void IAS::readDGbySFI(uint8_t sfi, ByteDynArray &content) {
   }
   content.append(resp);
 
-  // Parse BER-TLV length to determine total file size
+  // Parse BER-TLV length to determine total file size. Only the definite
+  // forms an eMRTD data group uses are accepted (short, 81 xx, 82 xx xx);
+  // anything else, or a header the first read did not cover, is an error
+  // rather than an implicitly empty file.
   size_t totalLen = 0;
   size_t headerLen = 0;
-  if (content.size() >= 2) {
-    size_t idx = 1;  // skip tag byte
+  if (content.size() < 2)
+    throw logged_error("readDGbySFI - response too short for a TLV header");
+  {
+    const size_t idx = 1;  // skip tag byte
     if (content[idx] <= 0x7f) {
       totalLen = content[idx];
       headerLen = idx + 1;
-    } else if (content[idx] == 0x81 && content.size() >= 3) {
-      totalLen = content[idx + 1];
-      headerLen = idx + 2;
-    } else if (content[idx] == 0x82 && content.size() >= 4) {
-      totalLen =
-          (static_cast<size_t>(content[idx + 1]) << 8) | content[idx + 2];
-      headerLen = idx + 3;
+    } else if (content[idx] == 0x81 || content[idx] == 0x82) {
+      const size_t llen = content[idx] & 0x0f;
+      if (content.size() < idx + 1 + llen)
+        throw logged_error("readDGbySFI - truncated TLV length");
+      totalLen = 0;
+      for (size_t i = 0; i < llen; ++i)
+        totalLen = (totalLen << 8) | content[idx + 1 + i];
+      headerLen = idx + 1 + llen;
+    } else {
+      throw logged_error(
+          stdPrintf("readDGbySFI - unsupported TLV length form %02X",
+                    static_cast<unsigned>(content[idx])));
     }
   }
   size_t fileSize = headerLen + totalLen;
@@ -468,6 +478,11 @@ void IAS::readDGbySFI(uint8_t sfi, ByteDynArray &content) {
     throw logged_error(
         stdPrintf("readDGbySFI - DG %u declares %zu bytes, above the %zu limit",
                   static_cast<unsigned>(sfi), fileSize, kMaxFileSize));
+  if (content.size() > fileSize)
+    throw logged_error(
+        stdPrintf("readDGbySFI - DG %u returned %zu bytes, more than the "
+                  "%zu it declares",
+                  static_cast<unsigned>(sfi), content.size(), fileSize));
 
   // Read remaining bytes in chunks using absolute offset (P1=0, P2=offset).
   // 224 bytes fits within the SM APDU overhead budget for all CIE variants;
@@ -519,6 +534,10 @@ void IAS::readDGbySFI(uint8_t sfi, ByteDynArray &content) {
       break;
     }
   }
+  if (content.size() != fileSize)
+    throw logged_error(
+        stdPrintf("readDGbySFI - DG %u ended at %zu of %zu declared bytes",
+                  static_cast<unsigned>(sfi), content.size(), fileSize));
 }
 
 void IAS::Sign(const ByteArray &data, ByteDynArray &signedData) {
@@ -1222,7 +1241,9 @@ StatusWord IAS::SendAPDU_SM(ByteArray head, ByteArray data, ByteDynArray &resp,
   ByteDynArray smApdu;
   ByteDynArray s, curresp;
   ByteArray emptyBa;
-  ByteArray leBa = VarToByteArray(*le);
+  // `le` is optional: only look at it when present.
+  uint8_t leVal = le != nullptr ? *le : 0;
+  ByteArray leBa = VarToByteArray(leVal);
 
   StatusWord sw;
   if (data.size() < 0xE7) {
@@ -1243,7 +1264,7 @@ StatusWord IAS::SendAPDU_SM(ByteArray head, ByteArray data, ByteDynArray &resp,
     size_t i = 0;
     uint8_t cla = head[0];
     while (true) {
-      s = ByteDynArray(data.mid(i, min1(0xE7, data.size() - i)));
+      s = ByteDynArray(data.mid(i, std::min<size_t>(0xE7, data.size() - i)));
       i += s.size();
       if (i != data.size())
         head[0] = cla | 0x10;
@@ -1269,7 +1290,9 @@ StatusWord IAS::SendAPDU_SM(ByteArray head, ByteArray data, ByteDynArray &resp,
 StatusWord IAS::SendAPDU(ByteArray head, ByteArray data, ByteDynArray &resp,
                          uint8_t *le) {
   ByteArray emptyBa;
-  ByteArray leBa = VarToByteArray(*le);
+  // `le` is optional: only look at it when present.
+  uint8_t leVal = le != nullptr ? *le : 0;
+  ByteArray leBa = VarToByteArray(leVal);
 
   ByteDynArray apdu, curresp;
   auto ds = data.size();
@@ -1278,7 +1301,7 @@ StatusWord IAS::SendAPDU(ByteArray head, ByteArray data, ByteDynArray &resp,
     size_t i = 0;
     uint8_t cla = head[0];
     while (true) {
-      auto s = data.mid(i, min1(data.size() - i, 255));
+      auto s = data.mid(i, std::min<size_t>(data.size() - i, 255));
       i += s.size();
       if (i != data.size())
         head[0] = (cla | 0x10);

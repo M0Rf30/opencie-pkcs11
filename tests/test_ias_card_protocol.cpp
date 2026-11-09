@@ -328,6 +328,23 @@ SmCard::OnSm SmFile(Bytes file) {
   };
 }
 
+// SM-protected eMRTD data group served with READ BINARY by SFI (P1 = 80|SFI,
+// P2 = offset) for the first read and by absolute offset afterwards.
+// `tail` bytes are served as-is (no padding to the declared length).
+SmCard::OnSm SmDg(Bytes file) {
+  return [file = std::move(file)](SmCard &c, const Bytes &apdu) -> Bytes {
+    if (apdu[1] != 0xB0) return c.Seal({}, 0x9000, apdu[1]);
+    size_t off = (apdu[2] & 0x80)
+                     ? apdu[3]
+                     : ((static_cast<size_t>(apdu[2]) << 8) | apdu[3]);
+    size_t le = (apdu[6] == 0x97) ? apdu[8] : 224;
+    if (off >= file.size()) return c.Seal({}, 0x6B00, 0xB0);
+    size_t n = std::min(le, file.size() - off);
+    return c.Seal(Bytes(file.begin() + off, file.begin() + off + n), 0x9000,
+                  0xB0);
+  };
+}
+
 Bytes DappFile() {
   Bytes modulus(256, 0x5A);
   modulus[0] = 0xC3;
@@ -895,6 +912,49 @@ TEST_CASE("SM GET RESPONSE loop is bounded", "[ias][sm][cp02]") {
   ByteDynArray out;
   CHECK_THROWS_AS(rig.rig.ias.ReadDappPubKey(out), logged_error);
   CHECK(rig.rig.card.Count(0xC0) < 200);
+}
+
+// CP-11: readDGbySFI validates the TLV length it parses.
+
+TEST_CASE("readDGbySFI reads a well-formed multi-chunk data group",
+          "[ias][sm][cp11]") {
+  Bytes body(500);
+  for (size_t i = 0; i < body.size(); ++i) body[i] = static_cast<uint8_t>(i);
+  const Bytes dg = Tlv(0x75, body);
+  SmRig rig(SmDg(dg));
+  ByteDynArray out;
+  REQUIRE_NOTHROW(rig.rig.ias.ReadDG1(out));
+  REQUIRE(out.size() == dg.size());
+  CHECK(std::memcmp(out.data(), dg.data(), dg.size()) == 0);
+}
+
+TEST_CASE("readDGbySFI rejects malformed or inconsistent TLV lengths",
+          "[ias][sm][cp11]") {
+  Bytes file;
+  SECTION("unsupported length form 0x83") {
+    file = Bytes {0x75, 0x83, 0x00, 0x01, 0x00};
+    file.resize(300, 0x11);
+  }
+  SECTION("indefinite length 0x80") {
+    file = Bytes(300, 0x11), file[0] = 0x75, file[1] = 0x80;
+  }
+  SECTION("declared size above the cap") {
+    file = Bytes {0x75, 0x82, 0xFF, 0xFF};
+    file.resize(300, 0x11);
+  }
+  SECTION("file shorter than declared") {
+    file = Bytes {0x75, 0x82, 0x01, 0x00};  // declares 256 content bytes
+    file.resize(100, 0x11);
+  }
+  SECTION("truncated length field") { file = Bytes {0x75, 0x82, 0x01}; }
+  SECTION("longer than declared") {
+    file = Bytes {0x75, 0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE};
+  }
+  SECTION("first read returns less than a header") { file = Bytes {0x75}; }
+  SmRig rig(SmDg(file));
+  ByteDynArray out;
+  CHECK_THROWS_WITH(rig.rig.ias.ReadDG1(out),
+                    Catch::Matchers::ContainsSubstring("readDGbySFI - "));
 }
 
 #endif  // _WIN32
