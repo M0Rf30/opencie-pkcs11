@@ -257,7 +257,7 @@ Never mention IPZS, cie-middleware (including cie-middleware-linux/macos), or th
 | `test` | Linux x86_64 | GCC | ASan + UBSan |
 | `tsan` | Linux x86_64 | GCC | ThreadSanitizer |
 | `linux` | Linux x86_64 | GCC | scan-build static analyzer |
-| `linux-arm64` | Linux aarch64 | GCC cross | `cross-aarch64.ini`; tests run under qemu-user emulation |
+| `linux-arm64` | Linux aarch64 | GCC | Native `ubuntu-24.04-arm` runner; tests run natively |
 | `windows` | Windows x86_64 | Clang + MinGW | vcpkg, `cross-clang-mingw.ini`; tests compiled, not run |
 | `macos` | macOS arm64 | Clang | Native; tests run natively |
 | `android` | Android arm64 | NDK r27c | vcpkg, `cross-android-arm64.ini` |

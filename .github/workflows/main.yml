@@ -290,46 +290,21 @@ jobs:
           path: builddir/meson-logs/meson-log.txt
 
   linux-arm64:
-    # Pinned: multiarch needs amd64 and arm64 package versions in lockstep,
-    # and fresh runner images ship amd64 packages newer than the
-    # ports.ubuntu.com mirror (ubuntu-26.04 forced 80 host downgrades).
-    runs-on: ubuntu-24.04
+    # Native arm64 runner: no multiarch apt setup and no qemu, so the test
+    # suite runs at native speed. 24.04 keeps the glibc baseline of the
+    # released aarch64 .so unchanged.
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Add arm64 architecture and install cross-dependencies
-        run: |
-          sudo dpkg --add-architecture arm64
-          # Ubuntu runners use DEB822 format and security.ubuntu.com does not
-          # serve arm64 packages. Restrict existing sources to amd64 and add
-          # ports.ubuntu.com for arm64. Multiarch needs identical versions on
-          # both architectures, so the ports suite must match the runner's
-          # release (ubuntu-latest moves between releases).
-          . /etc/os-release
-          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-            sudo sed -i 's/^Types:/Architectures: amd64\nTypes:/' /etc/apt/sources.list.d/ubuntu.sources
-          else
-            sudo sed -i 's|^deb |deb [arch=amd64] |' /etc/apt/sources.list
-          fi
-          for suite in "$VERSION_CODENAME" "$VERSION_CODENAME-updates" "$VERSION_CODENAME-security"; do
-            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $suite main restricted universe multiverse"
-          done | sudo tee /etc/apt/sources.list.d/arm64-ports.list
-          sudo apt-get update
-          sudo apt-get install -y \
-            cmake \
-            g++-aarch64-linux-gnu \
-            libcurl4-openssl-dev:arm64 \
-            libfontconfig1-dev:arm64 \
-            libfreetype6-dev:arm64 \
-            libopenjp2-7-dev:arm64 \
-            libpcsclite-dev:arm64 \
-            libpng-dev:arm64 \
-            libssl-dev:arm64 \
-            libxml2-dev:arm64 \
-            pkg-config python3-pip zlib1g-dev:arm64
-
-      - name: Install qemu-user-static (to run the aarch64 test suite under emulation)
-        run: sudo apt-get install -y qemu-user-static
+      - name: Install dependencies
+        run: >
+          sudo apt-get update;
+          sudo apt-get install -y cmake g++
+          libcurl4-openssl-dev libfontconfig1-dev
+          libfreetype6-dev libopenjp2-7-dev libpcsclite-dev libpng-dev
+          libssl-dev libxml2-dev zlib1g-dev
+          pkg-config python3-pip
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
@@ -341,24 +316,20 @@ jobs:
         with:
           key: linux-arm64
 
-      - name: Configure cross file
-        run: sed -i "s|@SOURCE_ROOT@|${GITHUB_WORKSPACE}|g" toolchains/cross-aarch64.ini
-
       - name: Configure
         env:
-          PKG_CONFIG_LIBDIR: /usr/lib/aarch64-linux-gnu/pkgconfig
-          CC: ccache aarch64-linux-gnu-gcc
-          CXX: ccache aarch64-linux-gnu-g++
-        run: meson setup builddir-arm64 --cross-file toolchains/cross-aarch64.ini
+          CC: ccache gcc
+          CXX: ccache g++
+        run: meson setup builddir-arm64
 
       - name: Build
         run: meson compile -C builddir-arm64
 
-      - name: Test (aarch64, under qemu-user emulation)
+      - name: Test
         run: meson test -C builddir-arm64 --print-errorlogs
 
       - name: Strip
-        run: aarch64-linux-gnu-strip builddir-arm64/libopencie-pkcs11.so
+        run: strip builddir-arm64/libopencie-pkcs11.so
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
