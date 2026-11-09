@@ -102,11 +102,11 @@ static void P11RegisterAtFork() {
 #endif
 
 // supported mechanisms
-CK_MECHANISM_TYPE p11_mechanisms[] = {
-    // CKM_RSA_PKCS_KEY_PAIR_GEN,
-    CKM_RSA_PKCS,    CKM_MD5,           CKM_SHA_1,
-    CKM_SHA256,      CKM_SHA1_RSA_PKCS, CKM_SHA256_RSA_PKCS,
-    CKM_MD5_RSA_PKCS};
+CK_MECHANISM_TYPE p11_mechanisms[] = {// CKM_RSA_PKCS_KEY_PAIR_GEN,
+                                      CKM_RSA_PKCS,      CKM_MD5,
+                                      CKM_SHA_1,         CKM_SHA256,
+                                      CKM_SHA1_RSA_PKCS, CKM_SHA256_RSA_PKCS,
+                                      CKM_MD5_RSA_PKCS};
 
 const char *getAttributeName(unsigned long dwId);
 // extern CModuleInfo moduleInfo; // informazioni sulla dll (o so)
@@ -185,6 +185,7 @@ __attribute__((destructor)) void DllMainDetach() {
 #endif
 
 void WriteAttributes(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
+  if (!Logger::getInstance().isDebugEnabled()) return;
   LOG_INFO("[PKCS11] WriteAttributes - Attributes: %lx", ulCount);
 
   if (pTemplate == nullptr && ulCount > 0) {
@@ -197,42 +198,67 @@ void WriteAttributes(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
     if (pTemplate[i].pValue) {
       switch (pTemplate[i].type) {
         case CKA_CLASS:
+          if (pTemplate[i].ulValueLen >= sizeof(CK_OBJECT_CLASS)) {
+            CK_OBJECT_CLASS cls;
+            memcpy(&cls, pTemplate[i].pValue, sizeof(cls));
+            LOG_DEBUG(
+                "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%lx, "
+                "len=%lx",
+                i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
+                cls, pTemplate[i].ulValueLen);
+            break;
+          }
           LOG_DEBUG(
-              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%lx, "
-              "len=%lx",
+              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=?, len=%lx",
               i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
-              *static_cast<CK_OBJECT_CLASS_PTR>(pTemplate[i].pValue),
               pTemplate[i].ulValueLen);
           break;
 
         case CKA_TOKEN:
         case CKA_PRIVATE:
         case CKA_MODIFIABLE:
+          if (pTemplate[i].ulValueLen >= sizeof(CK_BBOOL)) {
+            LOG_DEBUG(
+                "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%x, "
+                "len=%lx",
+                i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
+                *static_cast<CK_BBOOL *>(pTemplate[i].pValue),
+                pTemplate[i].ulValueLen);
+            break;
+          }
           LOG_DEBUG(
-              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%x, len=%lx",
+              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=?, len=%lx",
               i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
-              *static_cast<CK_BBOOL *>(pTemplate[i].pValue),
               pTemplate[i].ulValueLen);
           break;
 
         case CKA_LABEL:
         case CKA_OBJECT_ID:
+        case CKA_VALUE: {
+          // ulValueLen is CK_UNAVAILABLE_INFORMATION after a too-small
+          // buffer and the buffer may be uninitialised: only dump a
+          // bounded prefix of a valid length, never NUL-scan it.
+          constexpr CK_ULONG kMaxDump = 64;
+          const CK_ULONG len = pTemplate[i].ulValueLen;
+          if (len == CK_UNAVAILABLE_INFORMATION) {
+            LOG_DEBUG(
+                "[PKCS11] WriteAttributes - %d) type=%lx (%s), "
+                "value=<unavailable>, len=%lx",
+                i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
+                len);
+            break;
+          }
+          const CK_ULONG shown = len < kMaxDump ? len : kMaxDump;
           LOG_DEBUG(
-              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%s, len=%lx",
-              i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
-              static_cast<char *>(pTemplate[i].pValue),
-              pTemplate[i].ulValueLen);
-          break;
-
-        case CKA_VALUE:
-          LOG_DEBUG(
-              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%s, len=%lx",
+              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%s%s, "
+              "len=%lx",
               i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
               dumpHexData(ByteArray(static_cast<uint8_t *>(pTemplate[i].pValue),
-                                    pTemplate[i].ulValueLen))
+                                    static_cast<size_t>(shown)))
                   .c_str(),
-              pTemplate[i].ulValueLen);
+              shown < len ? "..." : "", len);
           break;
+        }
 
         default:
           LOG_DEBUG(

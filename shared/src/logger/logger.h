@@ -95,6 +95,12 @@ class Logger {
   /** @brief Enable logging to a file on disk. */
   void enableFileLogging();
 
+  /** @brief Whether debug messages would currently be emitted. Use to skip
+   *  expensive argument construction (hex dumps) when logging is off. */
+  bool isDebugEnabled() const noexcept {
+    return m_LogStatus == LOG_STATUS_ENABLED && m_LogLevel <= LOG_LEVEL_DEBUG;
+  }
+
   /** @brief Log a debug message (printf-style format string). */
   void debug(const char* fmt, ...) noexcept CIE_PRINTF(2, 3);
   /** @brief Log a debug message (string reference). */
