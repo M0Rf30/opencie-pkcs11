@@ -291,3 +291,16 @@ TEST_CASE("ByteDynArray clear() zeroizes buffer before free", "[array]") {
   CHECK(da.isNull());
   CHECK(da.size() == 0);
 }
+
+// ── ByteArrayToVar: size check ─────────────────────────────────────────────
+
+TEST_CASE("ByteArrayToVar reads a value and rejects short input", "[array]") {
+  uint8_t buf[] = {0x78, 0x56, 0x34, 0x12};
+  ByteArray full(buf, 4);
+  CHECK(ByteArrayToVar(full, uint32_t) == 0x12345678u);
+  CHECK(ByteArrayToVar(full, uint8_t) == 0x78);
+
+  ByteArray shortBa(buf, 3);
+  CHECK_THROWS(ByteArrayToVar(shortBa, uint32_t));
+  CHECK_THROWS(ByteArrayToVar(ByteArray(), uint8_t));
+}

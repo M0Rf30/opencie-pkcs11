@@ -303,5 +303,21 @@ class ByteDynArray : public ByteArray {
   (ByteArray(reinterpret_cast<uint8_t *>(&(a)), sizeof(a)))
 /** @brief Create an owning ByteDynArray copy of a local variable. */
 #define VarToByteDynArray(a) (ByteDynArray(VarToByteArray(a)))
-/** @brief Reinterpret a ByteArray's data as a value of type @p b. */
-#define ByteArrayToVar(a, b) (*(reinterpret_cast<b *>((a).data())))
+/**
+ * @brief Read a trivially copyable value of type @p T from the start of @p a.
+ *
+ * Unlike a raw pointer cast this never reads past the view and has no
+ * alignment requirement.
+ * @throws logged_error if @p a is shorter than sizeof(T).
+ */
+template <class T>
+T ByteArrayAs(const ByteArray &a) {
+  static_assert(std::is_trivially_copyable_v<T>);
+  if (a.size() < sizeof(T))
+    throw logged_error("ByteArrayToVar: input shorter than target type");
+  T v;
+  memcpy(&v, a.data(), sizeof(T));
+  return v;
+}
+/** @brief Read a value of type @p b from a ByteArray (size-checked). */
+#define ByteArrayToVar(a, b) (ByteArrayAs<b>(a))
