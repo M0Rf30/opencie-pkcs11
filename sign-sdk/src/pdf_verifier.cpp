@@ -10,6 +10,10 @@
 
 // On Windows, windows.h defines GetObject/CreateFont macros that conflict
 // with PoDoFo method names. Include PoDoFo headers first, then undef.
+#include <openssl/crypto.h>
+
+#include "crypto/sha1.h"
+#include "pdf_byte_range.h"
 #include "pdf_verifier.h"
 
 #ifdef GetObject
@@ -23,6 +27,14 @@
 extern logFunc pfnCrashliticsLog;
 
 using namespace PoDoFo;
+
+namespace {
+// A signature that does not cover the whole file is not verified for the
+// document as a whole.
+int ClearSignatureFlag(int res) {
+  return res < 0 ? res : (res & ~VERIFIED_SIGNATURE);
+}
+}  // namespace
 
 PDFVerifier::PDFVerifier() : m_actualLen(0), m_szDocBuffer(nullptr) {}
 
@@ -215,24 +227,6 @@ int PDFVerifier::VerifySignature(const PdfMemDocument *pDoc,
     // fail
     if (!subfilter.empty()) subfilter.pop_back();
 
-    // Parse byteRange "[ start0 len0 start1 len1 ]" — strip brackets then parse
-    // ints
-    std::string cleanRange = byteRange;
-    std::replace(cleanRange.begin(), cleanRange.end(), '[', ' ');
-    std::replace(cleanRange.begin(), cleanRange.end(), ']', ' ');
-    int len, start1, len1;
-    {
-      int _start0_unused;
-      std::istringstream brss(cleanRange);
-      brss >> _start0_unused >> len >> start1 >> len1;
-      if (brss.fail()) throw logged_error("PDFVerifier: malformed /ByteRange");
-    }
-    if (len < 0 || start1 < 0 || len1 < 0 ||
-        static_cast<long long>(len) > m_actualLen ||
-        static_cast<long long>(start1) + static_cast<long long>(len1) >
-            m_actualLen)
-      throw logged_error("PDFVerifier: /ByteRange out of bounds");
-
     // Extract hex-encoded signed data between < and >
     auto ltPos = signdData.find('<');
     auto gtPos = signdData.rfind('>');
@@ -240,6 +234,22 @@ int PDFVerifier::VerifySignature(const PdfMemDocument *pDoc,
         (ltPos != std::string::npos && gtPos != std::string::npos)
             ? signdData.substr(ltPos + 1, gtPos - ltPos - 1)
             : signdData;
+
+    PdfByteRange range;
+    if (!ParsePdfByteRange(byteRange, range))
+      throw logged_error("PDFVerifier: malformed /ByteRange");
+    const PdfByteRangeStatus rangeStatus = ValidatePdfByteRange(
+        reinterpret_cast<const uint8_t *>(m_szDocBuffer),
+        static_cast<size_t>(m_actualLen), range, hexData.size());
+    if (rangeStatus == PdfByteRangeStatus::OutOfBounds)
+      throw logged_error("PDFVerifier: /ByteRange out of bounds");
+    if (rangeStatus == PdfByteRangeStatus::GapMismatch)
+      throw logged_error("PDFVerifier: /ByteRange gap does not match /Contents");
+    const bool partialCoverage =
+        rangeStatus == PdfByteRangeStatus::PartialCoverage;
+    const long long len = range.len0;
+    const long long start1 = range.start1;
+    const long long len1 = range.len1;
 
     ByteDynArray baSignedData(hexData.c_str());
     CSignedDocument signedDocument(baSignedData.data(), baSignedData.size());
@@ -261,10 +271,27 @@ int PDFVerifier::VerifySignature(const PdfMemDocument *pDoc,
 
       CASN1OctetString actualContent(baContent);
 
-      return CSignerInfo::verifySignature(
+      int res = CSignerInfo::verifySignature(
           actualContent, signerInfo, certificates, szDate, pRevocationInfo);
+      return partialCoverage ? ClearSignatureFlag(res) : res;
     } else if (subfilter == "/adbe.pkcs7.sha1") {
-      return signedData.verify(0, szDate, pRevocationInfo);
+      // The encapsulated content is the SHA-1 of the signed byte ranges: it
+      // must be recomputed, not trusted.
+      if (signedData.getContentInfo().size() < 2) return -2;
+      CASN1OctetString encapsulated(signedData.getContentInfo().getContent());
+      const ByteDynArray *digest = encapsulated.getValue();
+      ByteDynArray baContent;
+      baContent.append(ByteArray(reinterpret_cast<BYTE *>(m_szDocBuffer), len));
+      baContent.append(
+          ByteArray((reinterpret_cast<BYTE *>(m_szDocBuffer) + start1), len1));
+      CSHA1 sha1;
+      ByteDynArray computed =
+          sha1.Digest(ByteArray(baContent.data(), baContent.size()));
+      if (!digest || digest->size() != computed.size() ||
+          CRYPTO_memcmp(digest->data(), computed.data(), computed.size()) != 0)
+        return 0;  // digest mismatch: no VERIFIED_* flag
+      int res = signedData.verify(0, szDate, pRevocationInfo);
+      return partialCoverage ? ClearSignatureFlag(res) : res;
 
     } else {
       return -5;

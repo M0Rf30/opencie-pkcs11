@@ -27,10 +27,10 @@ struct PdfByteRange {
 
 /** Outcome of ValidatePdfByteRange(). */
 enum class PdfByteRangeStatus {
-  Ok,                ///< Fully valid and covering the whole file.
-  OutOfBounds,       ///< Negative, unordered, overlapping or past EOF.
-  GapMismatch,       ///< Gap is not exactly the /Contents hex string.
-  PartialCoverage,   ///< Valid, but bytes follow the signed range.
+  Ok,               ///< Valid; covers the file or a whole revision of it.
+  OutOfBounds,      ///< Negative, unordered, overlapping or past EOF.
+  GapMismatch,      ///< Gap is not exactly the /Contents hex string.
+  PartialCoverage,  ///< Signed range ends mid-revision, bytes follow it.
 };
 
 /**
@@ -57,11 +57,28 @@ inline bool ParsePdfByteRange(const std::string& text, PdfByteRange& out) {
 }
 
 /**
+ * True if buf[0, end) ends at a revision boundary: "%%EOF" optionally followed
+ * by one EOL ("\n", "\r" or "\r\n").
+ */
+inline bool EndsAtRevisionBoundary(const uint8_t* buf, size_t end) {
+  size_t e = end;
+  if (e > 0 && buf[e - 1] == '\n') --e;
+  if (e > 0 && buf[e - 1] == '\r') --e;
+  static const char kEof[] = "%%EOF";
+  if (e < 5) return false;
+  for (size_t i = 0; i < 5; ++i)
+    if (buf[e - 5 + i] != static_cast<uint8_t>(kEof[i])) return false;
+  return true;
+}
+
+/**
  * Validate a parsed /ByteRange against the file bytes.
  *
  * Requires start0 == 0, ordered in-bounds non-overlapping ranges, and the gap
  * between them to be exactly "<" + @p contentsHexLen hex digits + ">" as it
- * appears in the file.
+ * appears in the file. A range that stops before the end of the file is
+ * accepted (Ok) only if it ends at a revision boundary (incremental updates);
+ * otherwise PartialCoverage is returned.
  *
  * @param buf             Whole PDF file.
  * @param size            Size of @p buf.
@@ -82,7 +99,9 @@ inline PdfByteRangeStatus ValidatePdfByteRange(const uint8_t* buf, size_t size,
       buf[r.len0] != '<' || buf[r.start1 - 1] != '>')
     return PdfByteRangeStatus::GapMismatch;
 
-  if (r.start1 + r.len1 != fileLen) return PdfByteRangeStatus::PartialCoverage;
+  const long long end = r.start1 + r.len1;
+  if (end != fileLen && !EndsAtRevisionBoundary(buf, static_cast<size_t>(end)))
+    return PdfByteRangeStatus::PartialCoverage;
   return PdfByteRangeStatus::Ok;
 }
 

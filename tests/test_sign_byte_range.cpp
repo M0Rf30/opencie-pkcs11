@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 
 #include <catch2/catch_test_macros.hpp>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -68,9 +69,18 @@ TEST_CASE("ValidatePdfByteRange rejects bad ranges") {
   CHECK(check(doc, r, 6) == PdfByteRangeStatus::GapMismatch);
 }
 
-TEST_CASE("ValidatePdfByteRange flags partial coverage") {
+TEST_CASE("ValidatePdfByteRange flags partial coverage mid-revision") {
   const auto doc = makeDoc(8) + "TRAILING";
   CHECK(check(doc, rangeFor(8), 8) == PdfByteRangeStatus::PartialCoverage);
+}
+
+TEST_CASE("ValidatePdfByteRange accepts ranges ending at a revision boundary") {
+  for (const char* eol : {"", "\n", "\r", "\r\n"}) {
+    const std::string doc =
+        "AAAA<" + std::string(8, '0') + ">%%EOF" + eol + "NEXTREVISION";
+    PdfByteRange r {0, 4, 14, static_cast<long long>(5 + strlen(eol))};
+    CHECK(check(doc, r, 8) == PdfByteRangeStatus::Ok);
+  }
 }
 
 TEST_CASE("VerifyResultToBitmask never turns error codes into all-bits") {
