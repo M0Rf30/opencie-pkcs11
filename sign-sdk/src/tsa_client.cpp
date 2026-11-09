@@ -19,6 +19,10 @@ extern char g_szResolveList[4096];
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb,
                             void* userp);
 
+// An RFC 3161 response is a few KiB (token plus certificate chain); a hostile
+// TSA must not be able to stream unbounded data.
+static constexpr size_t kMaxTsaResponseBytes = 4u * 1024u * 1024u;
+
 // RFC 3161 Section 2.4.2: TSTInfo ::= SEQUENCE { version, policy,
 // messageImprint, serialNumber, genTime, accuracy OPTIONAL,
 // ordering DEFAULT FALSE, nonce OPTIONAL, tsa [0] OPTIONAL,
@@ -64,13 +68,16 @@ CTSAClient::CTSAClient(void) : m_szTSAUrl(""), m_szTSAPassword("") {
   m_szTSAUsername[0] = '\0';
 }
 
-CTSAClient::~CTSAClient(void) {}
+CTSAClient::~CTSAClient(void) {
+  OPENSSL_cleanse(m_szTSAPassword, sizeof(m_szTSAPassword));
+}
 
 void CTSAClient::SetTSAUrl(const char* szUrl) {
   snprintf(m_szTSAUrl, sizeof(m_szTSAUrl), "%s", szUrl);
 }
 
 void CTSAClient::SetCredential(const char* szUsername, const char* szPassword) {
+  OPENSSL_cleanse(m_szTSAPassword, sizeof(m_szTSAPassword));
   snprintf(m_szTSAUsername, sizeof(m_szTSAUsername), "%s", szUsername);
   snprintf(m_szTSAPassword, sizeof(m_szTSAPassword), "%s", szPassword);
 }
@@ -80,6 +87,7 @@ void CTSAClient::SetUsername(const char* szUsername) {
 }
 
 void CTSAClient::SetPassword(const char* szPassword) {
+  OPENSSL_cleanse(m_szTSAPassword, sizeof(m_szTSAPassword));
   snprintf(m_szTSAPassword, sizeof(m_szTSAPassword), "%s", szPassword);
 }
 
@@ -102,6 +110,24 @@ long CTSAClient::GetTimeStampToken(ByteDynArray& digest, const char* szPolicyID,
 
   // general initilization
   CURL* ctx = curl_easy_init();
+  if (!ctx) {
+    LOG_ERR((0, "TSACLient", "GetTimeStampToken: curl_easy_init failed"));
+    return -1;
+  }
+
+  // Only plain HTTP(S) endpoints, also across redirects (never file://,
+  // ftp://, gopher://, ...), and never hang on an unresponsive TSA.
+#if LIBCURL_VERSION_NUM >= 0x075500  // 7.85.0
+  curl_easy_setopt(ctx, CURLOPT_PROTOCOLS_STR, "http,https");
+  curl_easy_setopt(ctx, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+#else
+  curl_easy_setopt(ctx, CURLOPT_PROTOCOLS,
+                   static_cast<long>(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+  curl_easy_setopt(ctx, CURLOPT_REDIR_PROTOCOLS,
+                   static_cast<long>(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+#endif
+  curl_easy_setopt(ctx, CURLOPT_CONNECTTIMEOUT, 15L);
+  curl_easy_setopt(ctx, CURLOPT_TIMEOUT, 60L);
 
   // set URL
   curl_easy_setopt(ctx, CURLOPT_URL, m_szTSAUrl);
@@ -188,6 +214,18 @@ long CTSAClient::GetTimeStampToken(ByteDynArray& digest, const char* szPolicyID,
 
   // talor the header to application/binary
   if (m_szTSAUsername[0]) {
+    // HTTP Basic credentials must never travel in clear text.
+    char scheme[9] = {0};
+    memcpy(scheme, m_szTSAUrl, strnlen(m_szTSAUrl, 8));
+    if (STRICMP(scheme, "https://") != 0) {
+      LOG_ERR((0, "TSACLient",
+               "GetTimeStampToken: refusing to send credentials over a "
+               "non-HTTPS TSA URL"));
+      if (resolve_list) curl_slist_free_all(resolve_list);
+      curl_slist_free_all(headers);
+      curl_easy_cleanup(ctx);
+      return -1;
+    }
     curl_easy_setopt(ctx, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
 
     curl_easy_setopt(ctx, CURLOPT_USERNAME, m_szTSAUsername);
@@ -202,19 +240,27 @@ long CTSAClient::GetTimeStampToken(ByteDynArray& digest, const char* szPolicyID,
 
   // Check for errors
   if (ret != CURLE_OK) {
-    LOG_MSG((0, "HTTPRequest", "error: %x", ret));
-    fprintf(stderr, "curl_easy_perform() failed: %s\n",
-            curl_easy_strerror(ret));
+    LOG_ERR((0, "TSACLient", "curl_easy_perform() failed: %s",
+             curl_easy_strerror(ret)));
     if (resolve_list) curl_slist_free_all(resolve_list);
     curl_slist_free_all(headers);
     curl_easy_cleanup(ctx);
-    return ret;
+    return -1;
   }
+
+  long httpCode = 0;
+  curl_easy_getinfo(ctx, CURLINFO_RESPONSE_CODE, &httpCode);
 
   // clean up
   curl_slist_free_all(headers);
   if (resolve_list) curl_slist_free_all(resolve_list);
   curl_easy_cleanup(ctx);
+
+  // An error page must never be handed to the ASN.1 parser.
+  if (httpCode != 200) {
+    LOG_ERR((0, "TSACLient", "GetTimeStampToken: HTTP %ld from TSA", httpCode));
+    return -1;
+  }
 
   try {
     CTimeStampResponse tsResponse(const_cast<BYTE*>(tsdata.data()),
@@ -258,7 +304,13 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb,
   ByteDynArray* pData = static_cast<ByteDynArray*>(userp);
 
   size_t realsize = size * nmemb;
-  pData->append(ByteArray(static_cast<BYTE*>(contents), realsize));
+  if (pData->size() + realsize > kMaxTsaResponseBytes) return 0;
+  // Exceptions must not unwind through libcurl's C frames.
+  try {
+    pData->append(ByteArray(static_cast<BYTE*>(contents), realsize));
+  } catch (...) {
+    return 0;
+  }
 
   return realsize;
 }

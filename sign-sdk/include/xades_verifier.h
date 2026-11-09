@@ -40,26 +40,34 @@ struct RefDataFile {
  * Per-signer data extracted from an XAdES signature element.
  */
 struct SignatureInfo {
-  char* szId;         ///< Signature id.
-  int nDocs;          ///< Number of separate documents signed.
-  char* szTimeStamp;  ///< Signature timestamp in format "YYYY-MM-DDTHH:MM:SSZ".
+  char* szId = nullptr;         ///< Signature id.
+  int nDocs = 0;                ///< Number of separate documents signed.
+  char* szTimeStamp = nullptr;  ///< Signature timestamp "YYYY-MM-DDTHH:MM:SSZ".
   ByteDynArray sigPropDigest;
   ByteDynArray sigPropRealDigest;
   ByteDynArray sigInfoRealDigest;
   ByteDynArray sigValue;  ///< RSA+SHA1 signature value (base64 text).
-  CCertificate*
-      pX509Cert;  ///< X.509 certificate (used internally during loading).
+  /** Signer X.509 certificate; owned. Null until a certificate has been
+   * parsed from ds:KeyInfo. */
+  CCertificate* pX509Cert = nullptr;
   ByteDynArray mbufOrigContent;
-  int nDigestAlgo;
-  bool bCAdES;
+  int nDigestAlgo = 0;  ///< CIE_SIGN_ALGO_*, 0 when not recognised.
+  bool bCAdES = false;
   /** ds:Signature element in CXAdESVerifier's live document (not owned). */
-  xmlNodePtr pSignatureNode;
+  xmlNodePtr pSignatureNode = nullptr;
 };
 
 /**
  * Parsed XAdES document containing data file references and signature info.
  */
 struct XAdESDoc {
+  XAdESDoc() = default;
+  /** Frees every SignatureInfo (and its certificate), the pointer array and
+   * the XML document. Safe on a partially built object. */
+  ~XAdESDoc();
+  XAdESDoc(const XAdESDoc&) = delete;
+  XAdESDoc& operator=(const XAdESDoc&) = delete;
+
   char* szFormat = nullptr;     ///< Data format name.
   char* szFormatVer = nullptr;  ///< Data format version.
   int nDataFiles = 0;
@@ -101,8 +109,11 @@ class CXAdESVerifier {
                       REVOCATION_INFO* pRevocationInfo);
 
  private:
+  const SignatureInfo* GetSignatureInfo(int index) const;
   static XAdESDoc* parseXAdESFile(char* szFilename);
-  static void parseSignatureNode(xmlXPathContextPtr xpathCtx,
+  /** Fills pXAdESDoc->ppSignatures. Returns false unless every signature
+   * carries a parseable signer certificate. */
+  static bool parseSignatureNode(xmlXPathContextPtr xpathCtx,
                                  xmlNodeSetPtr signatureNodes,
                                  XAdESDoc* pXAdESDoc);
   static bool m_bLibXmlInitialized;

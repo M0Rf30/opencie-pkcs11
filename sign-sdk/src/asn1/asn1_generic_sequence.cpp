@@ -187,7 +187,7 @@ void CASN1GenericSequence::addElementAt(const CASN1Object& obj, int nPos) {
   } else {
     int offset = m_pnOffsets[nPos];
 
-    // copy old val fino all'offset
+    // copy the old value up to the offset
     newVal.append(ByteArray(pOldVal->data(), offset));
 
     // copy val to add
@@ -293,7 +293,7 @@ void CASN1GenericSequence::removeElementAt(int nPos) {
     int offset = m_pnOffsets[nPos];
     int offset1 = m_pnOffsets[nPos + 1];
 
-    // copy old val fino all'offset
+    // copy the old value up to the offset
     newVal.append(ByteArray(oldVal.data(), offset));
 
     // copy the rest of the old val

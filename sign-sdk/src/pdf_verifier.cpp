@@ -10,6 +10,10 @@
 
 // On Windows, windows.h defines GetObject/CreateFont macros that conflict
 // with PoDoFo method names. Include PoDoFo headers first, then undef.
+#include <openssl/crypto.h>
+
+#include "crypto/sha1.h"
+#include "pdf_byte_range.h"
 #include "pdf_verifier.h"
 
 #ifdef GetObject
@@ -23,6 +27,14 @@
 extern logFunc pfnCrashliticsLog;
 
 using namespace PoDoFo;
+
+namespace {
+// A signature that does not cover the whole file is not verified for the
+// document as a whole.
+int ClearSignatureFlag(int res) {
+  return res < 0 ? res : (res & ~VERIFIED_SIGNATURE);
+}
+}  // namespace
 
 PDFVerifier::PDFVerifier() : m_actualLen(0), m_szDocBuffer(nullptr) {}
 
@@ -111,7 +123,7 @@ int PDFVerifier::GetNumberOfSignatures(PdfMemDocument *pPdfDocument) {
   auto &acroForm = pPdfDocument->GetOrCreateAcroForm();
   const PdfObject *fieldsValue =
       acroForm.GetObject().GetDictionary().GetKey("Fields");
-  if (fieldsValue->GetDataType() == PdfDataType::Reference)
+  if (fieldsValue && fieldsValue->GetDataType() == PdfDataType::Reference)
     fieldsValue =
         pPdfDocument->GetObjects().GetObject(fieldsValue->GetReference());
 
@@ -122,6 +134,7 @@ int PDFVerifier::GetNumberOfSignatures(PdfMemDocument *pPdfDocument) {
   int n = 0;
   const PdfArray &array = fieldsValue->GetArray();
   for (const auto &elem : array) {
+    if (!elem.IsReference()) continue;
     const PdfObject *const obj =
         pPdfDocument->GetObjects().GetObject(elem.GetReference());
     if (IsSignatureField(pPdfDocument, obj)) {
@@ -147,7 +160,7 @@ int PDFVerifier::VerifySignature(size_t index, const char *szDate,
   auto &acroForm = m_pPdfMemDocument->GetOrCreateAcroForm();
   const PdfObject *fieldsValue =
       acroForm.GetObject().GetDictionary().GetKey("Fields");
-  if (fieldsValue->GetDataType() == PdfDataType::Reference)
+  if (fieldsValue && fieldsValue->GetDataType() == PdfDataType::Reference)
     fieldsValue =
         m_pPdfMemDocument->GetObjects().GetObject(fieldsValue->GetReference());
 
@@ -159,6 +172,7 @@ int PDFVerifier::VerifySignature(size_t index, const char *szDate,
   /// Verify if each object of the array is a signature field
   const PdfArray &array = fieldsValue->GetArray();
   for (const auto &elem : array) {
+    if (!elem.IsReference()) continue;
     const PdfObject *pObj =
         m_pPdfMemDocument->GetObjects().GetObject(elem.GetReference());
     if (IsSignatureField(m_pPdfMemDocument.get(), pObj)) {
@@ -192,46 +206,32 @@ int PDFVerifier::VerifySignature(const PdfMemDocument *pDoc,
   const PdfObject *const keyVValue = pObj->GetDictionary().GetKey(PdfName("V"));
   if (keyVValue == 0) return -4;
 
+  if (!keyVValue->IsReference()) return -4;
   const PdfObject *const signature =
       pDoc->GetObjects().GetObject(keyVValue->GetReference());
-  if (signature->IsDictionary()) {
+  if (signature && signature->IsDictionary()) {
     std::string byteRange;
     std::string signdData;
     std::string subfilter;
 
     const PdfObject *const keyByteRange =
         signature->GetDictionary().GetKey(PdfName("ByteRange"));
+    if (!keyByteRange) throw logged_error("PDFVerifier: missing /ByteRange");
     keyByteRange->ToString(byteRange);
 
     const PdfObject *const keyContents =
         signature->GetDictionary().GetKey(PdfName("Contents"));
+    if (!keyContents) throw logged_error("PDFVerifier: missing /Contents");
     keyContents->ToString(signdData);
 
     const PdfObject *const keySubFilter =
         signature->GetDictionary().GetKey(PdfName("SubFilter"));
+    if (!keySubFilter) throw logged_error("PDFVerifier: missing /SubFilter");
     keySubFilter->ToString(subfilter);
 
     // PoDoFo 0.10+ adds an invisible trailing character that makes comparison
     // fail
     if (!subfilter.empty()) subfilter.pop_back();
-
-    // Parse byteRange "[ start0 len0 start1 len1 ]" — strip brackets then parse
-    // ints
-    std::string cleanRange = byteRange;
-    std::replace(cleanRange.begin(), cleanRange.end(), '[', ' ');
-    std::replace(cleanRange.begin(), cleanRange.end(), ']', ' ');
-    int len, start1, len1;
-    {
-      int _start0_unused;
-      std::istringstream brss(cleanRange);
-      brss >> _start0_unused >> len >> start1 >> len1;
-      if (brss.fail()) throw logged_error("PDFVerifier: malformed /ByteRange");
-    }
-    if (len < 0 || start1 < 0 || len1 < 0 ||
-        static_cast<long long>(len) > m_actualLen ||
-        static_cast<long long>(start1) + static_cast<long long>(len1) >
-            m_actualLen)
-      throw logged_error("PDFVerifier: /ByteRange out of bounds");
 
     // Extract hex-encoded signed data between < and >
     auto ltPos = signdData.find('<');
@@ -240,6 +240,23 @@ int PDFVerifier::VerifySignature(const PdfMemDocument *pDoc,
         (ltPos != std::string::npos && gtPos != std::string::npos)
             ? signdData.substr(ltPos + 1, gtPos - ltPos - 1)
             : signdData;
+
+    PdfByteRange range;
+    if (!ParsePdfByteRange(byteRange, range))
+      throw logged_error("PDFVerifier: malformed /ByteRange");
+    const PdfByteRangeStatus rangeStatus = ValidatePdfByteRange(
+        reinterpret_cast<const uint8_t *>(m_szDocBuffer),
+        static_cast<size_t>(m_actualLen), range, hexData.size());
+    if (rangeStatus == PdfByteRangeStatus::OutOfBounds)
+      throw logged_error("PDFVerifier: /ByteRange out of bounds");
+    if (rangeStatus == PdfByteRangeStatus::GapMismatch)
+      throw logged_error(
+          "PDFVerifier: /ByteRange gap does not match /Contents");
+    const bool partialCoverage =
+        rangeStatus == PdfByteRangeStatus::PartialCoverage;
+    const long long len = range.len0;
+    const long long start1 = range.start1;
+    const long long len1 = range.len1;
 
     ByteDynArray baSignedData(hexData.c_str());
     CSignedDocument signedDocument(baSignedData.data(), baSignedData.size());
@@ -256,15 +273,33 @@ int PDFVerifier::VerifySignature(const PdfMemDocument *pDoc,
       baContent.append(
           ByteArray((reinterpret_cast<BYTE *>(m_szDocBuffer) + start1), len1));
       CASN1SetOf signerInfos = signedData.getSignerInfos();
+      if (signerInfos.size() < 1) return -2;
       CSignerInfo signerInfo(signerInfos.elementAt(0));
       CASN1SetOf certificates = signedData.getCertificates();
 
       CASN1OctetString actualContent(baContent);
 
-      return CSignerInfo::verifySignature(
+      int res = CSignerInfo::verifySignature(
           actualContent, signerInfo, certificates, szDate, pRevocationInfo);
+      return partialCoverage ? ClearSignatureFlag(res) : res;
     } else if (subfilter == "/adbe.pkcs7.sha1") {
-      return signedData.verify(0, szDate, pRevocationInfo);
+      // The encapsulated content is the SHA-1 of the signed byte ranges: it
+      // must be recomputed, not trusted.
+      if (signedData.getContentInfo().size() < 2) return -2;
+      CASN1OctetString encapsulated(signedData.getContentInfo().getContent());
+      const ByteDynArray *digest = encapsulated.getValue();
+      ByteDynArray baContent;
+      baContent.append(ByteArray(reinterpret_cast<BYTE *>(m_szDocBuffer), len));
+      baContent.append(
+          ByteArray((reinterpret_cast<BYTE *>(m_szDocBuffer) + start1), len1));
+      CSHA1 sha1;
+      ByteDynArray computed =
+          sha1.Digest(ByteArray(baContent.data(), baContent.size()));
+      if (!digest || digest->size() != computed.size() ||
+          CRYPTO_memcmp(digest->data(), computed.data(), computed.size()) != 0)
+        return 0;  // digest mismatch: no VERIFIED_* flag
+      int res = signedData.verify(0, szDate, pRevocationInfo);
+      return partialCoverage ? ClearSignatureFlag(res) : res;
 
     } else {
       return -5;
@@ -300,9 +335,10 @@ bool PDFVerifier::IsSignatureField(const PdfMemDocument *pDoc,
   const PdfObject *const keyVValue = pObj->GetDictionary().GetKey(PdfName("V"));
   if (keyVValue == 0) return false;
 
+  if (!keyVValue->IsReference()) return false;
   const PdfObject *const signature =
       pDoc->GetObjects().GetObject(keyVValue->GetReference());
-  if (signature->IsDictionary()) return true;
+  if (signature && signature->IsDictionary()) return true;
   return false;
 }
 
@@ -314,7 +350,7 @@ int PDFVerifier::GetSignature(size_t index, ByteDynArray &signedDocument,
   auto &acroForm = m_pPdfMemDocument->GetOrCreateAcroForm();
   const PdfObject *fieldsValue =
       acroForm.GetObject().GetDictionary().GetKey("Fields");
-  if (fieldsValue->GetDataType() == PdfDataType::Reference)
+  if (fieldsValue && fieldsValue->GetDataType() == PdfDataType::Reference)
     fieldsValue =
         m_pPdfMemDocument->GetObjects().GetObject(fieldsValue->GetReference());
 
@@ -326,6 +362,7 @@ int PDFVerifier::GetSignature(size_t index, ByteDynArray &signedDocument,
   /// Verify if each object of the array is a signature field
   const PdfArray &array = fieldsValue->GetArray();
   for (const auto &elem : array) {
+    if (!elem.IsReference()) continue;
     const PdfObject *pObj =
         m_pPdfMemDocument->GetObjects().GetObject(elem.GetReference());
     if (IsSignatureField(m_pPdfMemDocument.get(), pObj)) {
@@ -374,13 +411,15 @@ int PDFVerifier::GetSignature(const PoDoFo::PdfMemDocument *pDoc,
   appearanceInfo.width = rect.Width;
   appearanceInfo.heigth = rect.Height;
 
+  if (!keyVValue->IsReference()) return -4;
   const PdfObject *const signature =
       pDoc->GetObjects().GetObject(keyVValue->GetReference());
-  if (signature->IsDictionary()) {
+  if (signature && signature->IsDictionary()) {
     std::string signdData;
 
     const PdfObject *const keyContents =
         signature->GetDictionary().GetKey(PdfName("Contents"));
+    if (!keyContents) return -4;
     keyContents->ToString(signdData);
 
     auto ltPos2 = signdData.find('<');

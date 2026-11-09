@@ -20,12 +20,33 @@ bool CCrl::isRevoked(const CASN1Integer& serialNumber, const char* szDateTime,
 
   CASN1Sequence tbsCertList(elementAt(0));
 
+  // TBSCertList ::= SEQUENCE { version INTEGER OPTIONAL, signature,
+  // issuer, thisUpdate, nextUpdate Time OPTIONAL, revokedCertificates
+  // SEQUENCE OPTIONAL, crlExtensions [0] OPTIONAL }: locate the fields
+  // instead of assuming a v2 CRL that carries nextUpdate.
+  size_t idx = 0;
+  if (tbsCertList.size() > 0 && tbsCertList.elementAt(0).getTag() == 0x02)
+    idx++;
+  const size_t thisUpdateIdx = idx + 2;
+  if (tbsCertList.size() <= thisUpdateIdx)
+    throw logged_error("CCrl::isRevoked: malformed TBSCertList");
+
   if (pRevocationInfo) {
-    CASN1UTCTime thisUpdate = CASN1UTCTime(tbsCertList.elementAt(3));
+    CASN1UTCTime thisUpdate =
+        CASN1UTCTime(tbsCertList.elementAt(thisUpdateIdx));
     thisUpdate.getUTCTime(pRevocationInfo->szThisUpdate);
   }
 
-  CASN1Sequence revokedCertificates(tbsCertList.elementAt(5));
+  size_t nextIdx = thisUpdateIdx + 1;
+  if (nextIdx < tbsCertList.size()) {
+    const BYTE tag = tbsCertList.elementAt(nextIdx).getTag();
+    if (tag == 0x17 || tag == 0x18) nextIdx++;
+  }
+
+  CASN1Sequence revokedCertificates;
+  if (nextIdx < tbsCertList.size() &&
+      tbsCertList.elementAt(nextIdx).getTag() == 0x30)
+    revokedCertificates = CASN1Sequence(tbsCertList.elementAt(nextIdx));
   int count = revokedCertificates.size();
   if (count > 0) {
     for (int i = 0; i < count; i++) {
@@ -38,6 +59,9 @@ bool CCrl::isRevoked(const CASN1Integer& serialNumber, const char* szDateTime,
         CASN1Object revocationDate(revokedCertificate.elementAt(1));
 
         BYTE* btRevocationDate;
+
+        if (revocationDate.getValue()->size() < 13)
+          throw logged_error("CCrl::isRevoked: malformed revocationDate");
 
         if (revocationDate.getValue()->size() > 13) {
           btRevocationDate =
@@ -70,6 +94,8 @@ bool CCrl::isRevoked(const CASN1Integer& serialNumber, const char* szDateTime,
 
           CASN1OctetString reasonCode(crlReason.elementAt(1));
           const ByteDynArray* pVal = reasonCode.getValue();
+          if (pVal->size() < 3)
+            throw logged_error("CCrl::isRevoked: malformed reasonCode");
 
           BYTE reason = pVal->data()[2];  // reasonCode.getTag() & 0x0F;
           if (reason == 6)                // Certificate HOLD
@@ -77,7 +103,7 @@ bool CCrl::isRevoked(const CASN1Integer& serialNumber, const char* szDateTime,
           else
             *pReason = REVOCATION_STATUS_REVOKED;
         } else {
-          // reason non presente
+          // no reason code present
           *pReason = REVOCATION_STATUS_REVOKED;
         }
 
@@ -125,18 +151,25 @@ bool CCrl::isCurrent(const char* szDateTime) {
   try {
     CASN1Sequence tbsCertList(elementAt(0));
 
-    CASN1UTCTime thisUpdate(tbsCertList.elementAt(3));
+    // Skip the optional version, then signature and issuer.
+    size_t idx = 0;
+    if (tbsCertList.size() > 0 && tbsCertList.elementAt(0).getTag() == 0x02)
+      idx++;
+    if (tbsCertList.size() <= idx + 2) return false;
+
+    CASN1UTCTime thisUpdate(tbsCertList.elementAt(idx + 2));
     const ByteDynArray* pThisUpdate = thisUpdate.getValue();
     if (!pThisUpdate || pThisUpdate->size() < 13) return false;
 
     const BYTE* btThisUpdate = pThisUpdate->data() + (pThisUpdate->size() - 13);
     if (memcmp(szRef, btThisUpdate, 13) < 0) return false;  // not yet valid
 
-    if (tbsCertList.isPresent(4)) {
-      CASN1Object nextUpdateObj(tbsCertList.elementAt(4));
-      if (nextUpdateObj.getTag() == 0x17) {  // UTCTime
-        CASN1UTCTime nextUpdate(nextUpdateObj);
-        const ByteDynArray* pNextUpdate = nextUpdate.getValue();
+    if (tbsCertList.isPresent(idx + 3)) {
+      CASN1Object nextUpdateObj(tbsCertList.elementAt(idx + 3));
+      const BYTE nextTag = nextUpdateObj.getTag();
+      if (nextTag == 0x17 || nextTag == 0x18) {  // UTCTime / GeneralizedTime
+        // The last 13 bytes of both forms are YYMMDDHHMMSSZ.
+        const ByteDynArray* pNextUpdate = nextUpdateObj.getValue();
         if (!pNextUpdate || pNextUpdate->size() < 13) return false;
 
         const BYTE* btNextUpdate =

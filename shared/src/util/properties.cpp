@@ -10,8 +10,10 @@
 
 Properties::Properties() = default;
 
-Properties::Properties(const Properties& defaults)
-    : m_properties(defaults.m_properties) {}
+Properties::Properties(const Properties& defaults) {
+  std::shared_lock<std::shared_mutex> lock(defaults.m_mutex);
+  m_properties = defaults.m_properties;
+}
 
 Properties::~Properties() = default;
 
@@ -46,6 +48,7 @@ long Properties::load(const char* szFilePath) {
       value.erase(value.find_last_not_of(" \t\r\n") + 1);
 
       if (!name.empty()) {
+        std::unique_lock<std::shared_mutex> lock(m_mutex);
         m_properties[name] = value;
       }
     }
@@ -87,6 +90,7 @@ long Properties::load(const ByteDynArray& props) {
       value.erase(value.find_last_not_of(" \t\r\n") + 1);
 
       if (!name.empty()) {
+        std::unique_lock<std::shared_mutex> lock(m_mutex);
         m_properties[name] = value;
       }
     }
@@ -99,6 +103,7 @@ long Properties::load(const ByteDynArray& props) {
 
 void Properties::putProperty(const char* szName, const char* szValue) {
   if (szName && szValue) {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     m_properties[std::string(szName)] = std::string(szValue);
   }
 }
@@ -109,11 +114,13 @@ const char* Properties::getProperty(const char* szName,
     return szDefaultValue;
   }
 
+  std::shared_lock<std::shared_mutex> lock(m_mutex);
   auto it = m_properties.find(std::string(szName));
   if (it != m_properties.end()) {
-    // Store result in mutable member to return const char*
-    m_tempResult = it->second;
-    return m_tempResult.c_str();
+    // Point into the map node: it stays valid across rehashes and other
+    // getProperty() calls (no shared scratch buffer), until this key is
+    // overwritten or removed.
+    return it->second.c_str();
   }
 
   return szDefaultValue;
@@ -129,17 +136,25 @@ int Properties::getIntProperty(const char* szName, int nDefaultValue) const {
 
 void Properties::remove(const char* szName) {
   if (szName) {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     m_properties.erase(std::string(szName));
   }
 }
 
-void Properties::removeAll() { m_properties.clear(); }
+void Properties::removeAll() {
+  std::unique_lock<std::shared_mutex> lock(m_mutex);
+  m_properties.clear();
+}
 
 bool Properties::contains(const char* szName) const {
   if (!szName) {
     return false;
   }
+  std::shared_lock<std::shared_mutex> lock(m_mutex);
   return m_properties.find(std::string(szName)) != m_properties.end();
 }
 
-int Properties::size() const { return static_cast<int>(m_properties.size()); }
+int Properties::size() const {
+  std::shared_lock<std::shared_mutex> lock(m_mutex);
+  return static_cast<int>(m_properties.size());
+}

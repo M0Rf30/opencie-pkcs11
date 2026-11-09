@@ -14,8 +14,15 @@
 #include <openssl/crypto.h>
 #include <openssl/rand.h>
 
+#include <cerrno>
+#include <climits>
 #include <cstring>
 #include <fstream>
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 ByteArray::ByteArray() {
   _data = nullptr;
@@ -129,6 +136,8 @@ class init_rnd {
 } _initRand;
 
 ByteArray &ByteArray::random() {
+  if (_size > static_cast<size_t>(INT_MAX))
+    throw logged_error("random: size too large");
   if (RAND_bytes(_data, static_cast<int>(_size)) != 1)
     throw logged_error("RAND_bytes failed");
   return *this;
@@ -306,6 +315,10 @@ ByteDynArray &ByteDynArray::setASN1Tag(unsigned int tag,
   return *this;
 }
 void ByteDynArray::load(const char *fname) {
+  // The only users are the small on-disk cache files, so a hard cap keeps a
+  // planted huge/sparse file from exhausting memory (finding SU-03).
+  constexpr size_t kMaxLoadSize = 1024 * 1024;
+#ifdef _WIN32
   std::ifstream file(fname, std::ios::in | std::ios::binary);
   if (!file) throw logged_error("ByteDynArray::load: cannot open file");
   file.seekg(0, file.end);
@@ -313,10 +326,46 @@ void ByteDynArray::load(const char *fname) {
   file.seekg(0, file.beg);
   if (fsize < 0)
     throw logged_error("ByteDynArray::load: cannot determine file size");
+  if (static_cast<uint64_t>(fsize) > kMaxLoadSize)
+    throw logged_error("ByteDynArray::load: file too large");
   resize(static_cast<size_t>(fsize), false);
   if (fsize > 0) {
     file.read(reinterpret_cast<char *>(_data), fsize);
     if (file.gcount() != fsize)
       throw logged_error("ByteDynArray::load: short read");
   }
+#else
+  // O_NOFOLLOW: refuse a symlink at the final component. O_NONBLOCK: opening
+  // a FIFO must not hang. The type check below rejects anything but a
+  // regular file.
+  int fd = open(fname, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+  if (fd == -1) throw logged_error("ByteDynArray::load: cannot open file");
+  struct stat st {};
+  if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+    close(fd);
+    throw logged_error("ByteDynArray::load: not a regular file");
+  }
+  if (st.st_size < 0 || static_cast<uint64_t>(st.st_size) > kMaxLoadSize) {
+    close(fd);
+    throw logged_error("ByteDynArray::load: file too large");
+  }
+  size_t fsize = static_cast<size_t>(st.st_size);
+  try {
+    resize(fsize, false);
+  } catch (...) {
+    close(fd);
+    throw;
+  }
+  size_t done = 0;
+  while (done < fsize) {
+    ssize_t n = read(fd, _data + done, fsize - done);
+    if (n < 0 && errno == EINTR) continue;
+    if (n <= 0) {
+      close(fd);
+      throw logged_error("ByteDynArray::load: short read");
+    }
+    done += static_cast<size_t>(n);
+  }
+  close(fd);
+#endif
 }

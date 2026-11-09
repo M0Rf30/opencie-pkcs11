@@ -23,6 +23,7 @@
 #if defined(__linux__) && !defined(__ANDROID__)
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <mutex>
 #include <vector>
@@ -107,7 +108,11 @@ class LinuxNFCTransport final : public ISmartCardTransport {
   bool findDevice(uint32_t *deviceIndex);
   /** Consumes the ACK for request @p seq; returns 0 or a negative errno. */
   int awaitAck(uint32_t seq);
+  /** Sends an acknowledged device command; returns 0 or a negative errno. */
+  int sendDeviceCmd(uint8_t cmd, uint32_t deviceIndex, bool withProtocols);
   bool powerUpAndPoll(uint32_t deviceIndex);
+  /** One GET_TARGET probe: true if a target is currently activated. */
+  bool queryTarget(uint32_t deviceIndex, Target *target);
   bool waitForTarget(uint32_t deviceIndex, DWORD timeoutMs, Target *target);
   bool openDataSocket(const Target &target);
   void closeDataSocket();
@@ -127,6 +132,10 @@ class LinuxNFCTransport final : public ISmartCardTransport {
   Target target_;
   std::vector<uint8_t> cachedATR_;
   std::mutex mutex_;
+  /* Guards the GetStatusChange() sleep so Cancel() can wake it; never held
+   * together with mutex_. */
+  std::mutex waitMutex_;
+  std::condition_variable waitCv_;
 
   static constexpr SCARDCONTEXT kContext = 0x4B4E4643; /* "KNFC" */
   static constexpr SCARDHANDLE kHandle = 0x4B4E4644;   /* "KNFD" */

@@ -208,3 +208,25 @@ TEST_CASE("Base64 encode empty input", "[crypto][base64]") {
   b64.Encode(empty, encoded);
   CHECK(encoded.empty());
 }
+
+TEST_CASE("Base64 decode handles padding with trailing whitespace",
+          "[crypto][base64]") {
+  CBase64 b64;
+  for (const char *in : {"QQ==", "QQ== ", "QQ==\t", "QQ==\r\n", " QQ==\n"}) {
+    ByteDynArray out;
+    b64.Decode(in, out);
+    REQUIRE(out.size() == 1);
+    CHECK(out[0] == 'A');
+  }
+  ByteDynArray out2;
+  b64.Decode("QUI=\n", out2);
+  CHECK(out2.size() == 2);
+}
+
+TEST_CASE("Base64 decode rejects malformed padding", "[crypto][base64]") {
+  CBase64 b64;
+  ByteDynArray out;
+  CHECK_THROWS(b64.Decode("QUJD====", out));
+  CHECK_THROWS(b64.Decode("QQ=Q", out));
+  CHECK_THROWS(b64.Decode("QQ=", out));
+}

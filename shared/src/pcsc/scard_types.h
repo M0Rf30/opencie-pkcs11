@@ -96,6 +96,7 @@ struct SCARD_READERSTATE {
 #define SCARD_UNPOWER_CARD 0x0002
 
 /* ---------- Reader states ---------- */
+#define SCARD_STATE_IGNORE 0x0001
 #define SCARD_STATE_CHANGED 0x0002
 #define SCARD_STATE_UNAVAILABLE 0x0008
 #define SCARD_STATE_EMPTY 0x0010

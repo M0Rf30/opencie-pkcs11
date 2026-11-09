@@ -57,10 +57,9 @@ class CLog {
   std::string logPath;     /**< Full path to the current log file. */
   std::string logName;     /**< Base name for the log. */
   std::string logFileName; /**< File name of the current log file. */
-  std::string::iterator
-      threadPos;          /**< Iterator position for thread info in log. */
-  std::string logVersion; /**< Version string written to the log. */
-  bool FirstLog;          /**< Whether this is the first log entry. */
+  size_t threadPos;        /**< Offset of the thread suffix in logPath. */
+  std::string logVersion;  /**< Version string written to the log. */
+  bool FirstLog;           /**< Whether this is the first log entry. */
 
   bool _stack_logged; /**< Whether the call stack has been logged. */
 

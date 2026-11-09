@@ -15,7 +15,7 @@
 //	otherPrimeInfos   OtherPrimeInfos OPTIONAL
 // }
 
-// Macro per trasformazione da little-endian a big-endian e viceversa
+// Reverses a byte array (little-endian <-> big-endian)
 #define REVERSE(in, out, len)       \
   {                                 \
     for (int i = 0; i < len; i++) { \

@@ -4,6 +4,7 @@
 
 #include <openssl/evp.h>
 
+#include <climits>
 #include <cstring>
 #include <vector>
 
@@ -27,19 +28,34 @@ std::string &CBase64::Encode(const ByteArray &data, std::string &encodedData) {
 }
 
 ByteDynArray &CBase64::Decode(const char *encodedData, ByteDynArray &data) {
-  init_func size_t inLen = strlen(encodedData);
-  // EVP_DecodeBlock output: 3 * (n/4), may overcount by 1-2 for padding
-  std::vector<unsigned char> buf(3 * (inLen / 4) + 3);
-  int len = EVP_DecodeBlock(
-      buf.data(), reinterpret_cast<const unsigned char *>(encodedData),
-      static_cast<int>(inLen));
-  if (len < 0) throw logged_error("Base64 decode error");
-  // Adjust for padding
-  while (inLen > 0 && encodedData[inLen - 1] == '=') {
-    --len;
+  init_func auto isWs = [](char ch) {
+    return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
+  };
+  // Trim surrounding whitespace first: the padding count below must look at
+  // the last real base64 character, not at trailing whitespace.
+  const char *begin = encodedData;
+  size_t inLen = strlen(encodedData);
+  while (inLen > 0 && isWs(begin[0])) {
+    ++begin;
     --inLen;
   }
-  if (len < 0) throw logged_error("Base64 decode error");
+  while (inLen > 0 && isWs(begin[inLen - 1])) --inLen;
+  if (inLen > static_cast<size_t>(INT_MAX))
+    throw logged_error("Base64 decode error");
+
+  size_t pad = 0;
+  while (pad < inLen && begin[inLen - 1 - pad] == '=') ++pad;
+  if (pad > 2 || (inLen % 4) != 0 || memchr(begin, '=', inLen - pad) != nullptr)
+    throw logged_error("Base64 decode error");
+
+  // EVP_DecodeBlock output: 3 * (n/4), including the padding bytes
+  std::vector<unsigned char> buf(3 * (inLen / 4) + 3);
+  int len = EVP_DecodeBlock(buf.data(),
+                            reinterpret_cast<const unsigned char *>(begin),
+                            static_cast<int>(inLen));
+  if (len < 0 || static_cast<size_t>(len) < pad)
+    throw logged_error("Base64 decode error");
+  len -= static_cast<int>(pad);
   ByteArray decodedBa(buf.data(), len);
   data.append(decodedBa);
   return data;

@@ -44,7 +44,6 @@ class CCIESigner : public CBaseSigner {
   virtual long Close() override;
 
  private:
-  IAS* m_pIAS;     /**< IAS interface for card communication. */
-  char m_szPIN[9]; /**< Cached user PIN (8 digits + null terminator). */
+  IAS* m_pIAS; /**< IAS interface for card communication. */
   std::unique_ptr<CCertificate> m_pCertificate;
 };

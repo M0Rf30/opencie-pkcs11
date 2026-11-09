@@ -30,9 +30,9 @@ size_t countHexData(const std::string &data) {
       throw logged_error("Invalid character");
     }
 
-    if ((i < slen - 3) && data[i] == '0' && data[i + 3] == 'h') continue;
+    if ((i + 3 < slen) && data[i] == '0' && data[i + 3] == 'h') continue;
 
-    if ((i < slen - 2) && data[i] == '0' && data[i + 1] == 'x') {
+    if ((i + 2 < slen) && data[i] == '0' && data[i + 1] == 'x') {
       i += 1;
       continue;
     }
@@ -56,9 +56,9 @@ size_t setHexData(const std::string &data, uint8_t *buf) {
       throw logged_error("Invalid character");
     }
 
-    if ((i < slen - 3) && data[i] == '0' && data[i + 3] == 'h') continue;
+    if ((i + 3 < slen) && data[i] == '0' && data[i + 3] == 'h') continue;
 
-    if ((i < slen - 2) && data[i] == '0' && data[i + 1] == 'x') {
+    if ((i + 2 < slen) && data[i] == '0' && data[i + 1] == 'x') {
       i += 1;
       continue;
     }
@@ -90,9 +90,9 @@ void readHexData(const std::string &data, ByteDynArray &ba) {
       throw logged_error("Invalid character");
     }
 
-    if ((i < slen - 3) && data[i] == '0' && data[i + 3] == 'h') continue;
+    if ((i + 3 < slen) && data[i] == '0' && data[i + 3] == 'h') continue;
 
-    if ((i < slen - 2) && data[i] == '0' && data[i + 1] == 'x') {
+    if ((i + 2 < slen) && data[i] == '0' && data[i + 1] == 'x') {
       i += 1;
       continue;
     }
@@ -160,7 +160,7 @@ std::string dumpHexDataLowerCase(ByteArray data, std::string &dump) {
 void PutPaddingBT0(const ByteArray &ba, long dwLen) {
   init_func
 
-      if (dwLen > static_cast<long>(ba.size())) {
+      if (dwLen < 0 || dwLen > static_cast<long>(ba.size())) {
     throw logged_error("Invalid padding length");
   }
 
@@ -224,10 +224,13 @@ unsigned long RemovePaddingBT1(const ByteArray &paddedData) {
 }
 
 unsigned long RemovePaddingBT2(const ByteArray &paddedData) {
-  init_func if (paddedData[0] != 0) throw logged_error("Padding error");
+  init_func if (paddedData.size() < 11) throw logged_error("Padding error");
+  if (paddedData[0] != 0) throw logged_error("Padding error");
   if (paddedData[1] != 2) throw logged_error("Padding error");
   for (unsigned long i = 2; i < paddedData.size(); i++)
     if (paddedData[i] == 0) {
+      // RFC 8017 7.2.2: the padding string PS must be at least 8 bytes.
+      if (i < 10) throw logged_error("Padding error");
       return i + 1;
     }
   throw logged_error("Padding error");
@@ -295,12 +298,14 @@ ByteDynArray ISOPad(const ByteArray &data) {
 }
 
 long ByteArrayToInt(const ByteArray &ba) {
-  init_func long val = 0;
+  init_func if (ba.size() >
+                sizeof(long)) throw logged_error("Value too large for long");
+  unsigned long val = 0;
   for (unsigned long i = 0; i < ba.size(); i++) {
     val <<= 8;
     val |= ba[i];
   }
-  return val;
+  return static_cast<long>(val);
 }
 
 const char *CardErr(DWORD dwSW) {
@@ -548,8 +553,10 @@ SYSTEMTIME convertStringToSystemTime(const char *dateTimeString) {
 
   memset(&systime, 0, sizeof(systime));
   // Date string should be "yyyyMMddhhmm"
-  sscanf(dateTimeString, "%04hu%02hu%02huT%02hu%02hu%02huZ", &systime.wYear,
-         &systime.wMonth, &systime.wDay, &systime.wHour, &systime.wMinute,
-         &systime.wSecond);
+  if (dateTimeString == nullptr ||
+      sscanf(dateTimeString, "%04hu%02hu%02huT%02hu%02hu%02huZ", &systime.wYear,
+             &systime.wMonth, &systime.wDay, &systime.wHour, &systime.wMinute,
+             &systime.wSecond) != 6)
+    throw logged_error("Invalid date/time string");
   return systime;
 }

@@ -2,18 +2,25 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #include "csp/ias.h"
 
+#include <openssl/bn.h>
 #include <openssl/crypto.h>
+#include <openssl/err.h>
+#include <openssl/x509.h>
+#include <openssl/x509_vfy.h>
 
 #include <algorithm>
+#include <initializer_list>
+#include <memory>
+#include <set>
 
 #include "crypto/aes.h"
 #include "crypto/asn_parser.h"
 #include "crypto/des3.h"
 #include "crypto/mac.h"
 #include "crypto/rsa.h"
-#include "crypto/sha1.h"
 #include "crypto/sha256.h"
 #include "crypto/sha512.h"
+#include "csp/csca_certs.h"
 #include "logger/logger.h"
 #include "util/cache_lib.h"
 #include "util/module_info.h"
@@ -41,6 +48,258 @@ void GetPublicKeyFromCert(const uint8_t *certDer, size_t certLen,
 
 void showUI(const char *szPAN);
 void notifyCardNotRegistered(const char *szPAN);
+
+namespace {
+
+// Everything parsed out of a card response is attacker-controlled: the parser
+// may return an empty or shallower tree than the protocol promises. These
+// accessors turn a missing node into a logged_error instead of UB.
+CASNTag &asnChild(CASNTag &tag, size_t idx) {
+  if (idx >= tag.tags.size())
+    throw logged_error("ASN.1 structure verification error");
+  return *tag.tags[idx];
+}
+
+CASNTag &asnRoot(CASNParser &parser) {
+  if (parser.tags.empty())
+    throw logged_error("ASN.1 structure verification error: empty response");
+  return *parser.tags[0];
+}
+
+// Equivalent of parser.tags[p0]->tags[p1]->...: the first index selects the
+// top-level node, every following one descends into its children.
+CASNTag &asnPath(CASNParser &parser, std::initializer_list<size_t> path) {
+  auto it = path.begin();
+  if (it == path.end() || *it >= parser.tags.size())
+    throw logged_error("ASN.1 structure verification error: empty response");
+  CASNTag *cur = parser.tags[*it].get();
+  for (++it; it != path.end(); ++it) cur = &asnChild(*cur, *it);
+  return *cur;
+}
+
+CASNTag &asnRequireTag(CASNTagArray &tags, DWORD id) {
+  auto it = std::find_if(tags.begin(), tags.end(),
+                         [id](const auto &tag) { return tag->tagInt() == id; });
+  if (it == tags.end())
+    throw logged_error(
+        stdPrintf("ASN.1 structure verification error: tag %lX missing",
+                  static_cast<unsigned long>(id)));
+  return **it;
+}
+
+// Strips leading zero bytes (DER sign padding) from an unsigned big-endian
+// integer; an empty or all-zero value is rejected.
+ByteArray asnUnsignedInt(const ByteArray &content) {
+  size_t skip = 0;
+  while (skip < content.size() && content.data()[skip] == 0) ++skip;
+  if (skip == content.size())
+    throw logged_error("ASN.1 structure verification error: empty integer");
+  return content.mid(skip);
+}
+
+// Content of a BIT STRING holding a DER structure: drop the unused-bits byte.
+ByteArray asnBitStringContent(const ByteArray &content) {
+  if (content.isEmpty())
+    throw logged_error("ASN.1 structure verification error: empty bit string");
+  return content[0] == 0 ? content.mid(1) : content;
+}
+
+// Single-byte DG number out of a SOD DataGroupHash INTEGER.
+uint8_t asnDgNumber(const ByteArray &content) {
+  if (content.size() == 2 && content.data()[0] == 0) return content.data()[1];
+  if (content.size() != 1)
+    throw logged_error("ASN.1 structure verification error: bad DG number");
+  return content.data()[0];
+}
+
+// READ BINARY carries the file offset in P1-P2, so nothing beyond 16 bits can
+// be addressed; a longer "file" can only be a card that never signals EOF.
+constexpr size_t kMaxFileSize = 0x10000;
+
+// A GET RESPONSE chain longer than this (each round trip returns at most 256
+// bytes) is a card that keeps announcing more data without ever finishing.
+constexpr size_t kMaxGetResponseRounds = 64;
+
+// Guards the read loops below against a card that answers 9000 without
+// advancing the file (empty chunk) or without ever reaching EOF.
+void checkReadProgress(const char *who, size_t offset, size_t chunkSize) {
+  if (chunkSize == 0)
+    throw logged_error(stdPrintf(
+        "%s - card returned no data with 9000 at offset %zu", who, offset));
+  if (offset + chunkSize > kMaxFileSize)
+    throw logged_error(
+        stdPrintf("%s - file exceeds the %zu byte limit", who, kMaxFileSize));
+}
+
+struct BnDeleter {
+  void operator()(BIGNUM *b) const { BN_clear_free(b); }
+};
+using Bn = std::unique_ptr<BIGNUM, BnDeleter>;
+
+struct BnCtxDeleter {
+  void operator()(BN_CTX *c) const { BN_CTX_free(c); }
+};
+using BnCtx = std::unique_ptr<BN_CTX, BnCtxDeleter>;
+
+Bn bnNew() {
+  Bn b(BN_new());
+  if (!b) throw logged_error("BN_new failed");
+  return b;
+}
+
+BnCtx bnCtxNew() {
+  BnCtx c(BN_CTX_new());
+  if (!c) throw logged_error("BN_CTX_new failed");
+  return c;
+}
+
+Bn bnFromBytes(const ByteArray &in) {
+  Bn b(BN_bin2bn(in.data(), static_cast<int>(in.size()), nullptr));
+  if (!b) throw logged_error("BN_bin2bn failed");
+  return b;
+}
+
+// Size window for the card-supplied Diffie-Hellman group. The widest group
+// the supported cards are expected to use is a 2048-bit prime; the floor is
+// the smallest standardised MODP group (1024-bit prime, 160-bit order). The
+// bounds also cap the cost of the modular exponentiations a hostile card can
+// make the host perform.
+constexpr int kMinDhPrimeBits = 1024;
+constexpr int kMaxDhPrimeBits = 4096;
+constexpr int kMinDhOrderBits = 160;
+constexpr size_t kMaxDhFieldBytes = kMaxDhPrimeBits / 8 + 1;
+
+// Same idea for the card's RSA key used by DAPP: a modulus in the usual RSA
+// range and a short public exponent.
+constexpr int kMinDappModulusBits = 1024;
+constexpr int kMaxDappModulusBits = 4096;
+constexpr size_t kMaxDappExponentBytes = 8;
+
+// Validates the DH domain parameters the card announced. The parameters are
+// not authenticated (there is no trust anchor for them on the card), so this
+// only rejects values that are malformed or cannot form a prime-order-subgroup
+// group: bounded sizes, odd p and q, 1 < g < p-1, q | p-1 and g^q == 1 mod p.
+void validateDhParams(const ByteArray &gBa, const ByteArray &pBa,
+                      const ByteArray &qBa) {
+  if (gBa.isEmpty() || pBa.isEmpty() || qBa.isEmpty())
+    throw logged_error("DH parameters missing");
+  if (gBa.size() > kMaxDhFieldBytes || pBa.size() > kMaxDhFieldBytes ||
+      qBa.size() > kMaxDhFieldBytes)
+    throw logged_error("DH parameters too large");
+
+  Bn g = bnFromBytes(gBa), p = bnFromBytes(pBa), q = bnFromBytes(qBa);
+  int pBits = BN_num_bits(p.get());
+  if (pBits < kMinDhPrimeBits || pBits > kMaxDhPrimeBits)
+    throw logged_error(stdPrintf("DH prime size %d bits not supported", pBits));
+  if (BN_num_bits(q.get()) < kMinDhOrderBits || BN_num_bits(q.get()) >= pBits)
+    throw logged_error("DH subgroup order size not supported");
+  if (!BN_is_odd(p.get()) || !BN_is_odd(q.get()))
+    throw logged_error("DH prime or order is even");
+
+  BnCtx ctx = bnCtxNew();
+  Bn pm1 = bnNew(), rem = bnNew(), gq = bnNew();
+  if (!BN_sub(pm1.get(), p.get(), BN_value_one()))
+    throw logged_error("BN_sub failed");
+  if (BN_cmp(g.get(), BN_value_one()) <= 0 || BN_cmp(g.get(), pm1.get()) >= 0)
+    throw logged_error("DH generator out of range");
+  if (!BN_nnmod(rem.get(), pm1.get(), q.get(), ctx.get()))
+    throw logged_error("BN_nnmod failed");
+  if (!BN_is_zero(rem.get()))
+    throw logged_error("DH subgroup order does not divide p-1");
+  if (!BN_mod_exp(gq.get(), g.get(), q.get(), p.get(), ctx.get()))
+    throw logged_error("BN_mod_exp failed");
+  if (!BN_is_one(gq.get()))
+    throw logged_error("DH generator is not in the order-q subgroup");
+}
+
+// Validates the ICC's DH public value: 1 < y < p-1 and, since the order q of
+// the subgroup is known, y^q == 1 mod p. Rejects the trivial and small-order
+// values an attacker could use to force the shared secret into a tiny set.
+void validateDhPublicKey(const ByteArray &yBa, const ByteArray &pBa,
+                         const ByteArray &qBa) {
+  if (yBa.isEmpty() || yBa.size() > pBa.size() + 1)
+    throw logged_error("DH public key has an invalid size");
+  Bn y = bnFromBytes(yBa), p = bnFromBytes(pBa), q = bnFromBytes(qBa);
+  Bn pm1 = bnNew(), yq = bnNew();
+  BnCtx ctx = bnCtxNew();
+  if (!BN_sub(pm1.get(), p.get(), BN_value_one()))
+    throw logged_error("BN_sub failed");
+  if (BN_cmp(y.get(), BN_value_one()) <= 0 || BN_cmp(y.get(), pm1.get()) >= 0)
+    throw logged_error("DH public key out of range");
+  if (!BN_mod_exp(yq.get(), y.get(), q.get(), p.get(), ctx.get()))
+    throw logged_error("BN_mod_exp failed");
+  if (!BN_is_one(yq.get()))
+    throw logged_error("DH public key is not in the order-q subgroup");
+}
+
+// Length-checked comparison whose running time does not depend on where the
+// first differing byte is. Used for MACs and authentication hashes.
+bool ctEqual(const ByteArray &a, const ByteArray &b) {
+  return a.size() == b.size() &&
+         CRYPTO_memcmp(a.data(), b.data(), a.size()) == 0;
+}
+
+// Big-endian encoding of a non-negative BIGNUM, left-padded to `len` bytes.
+ByteDynArray bnToBytes(const BIGNUM *bn, size_t len) {
+  ByteDynArray out(len);
+  if (BN_bn2binpad(bn, out.data(), static_cast<int>(len)) < 0)
+    throw logged_error("BN_bn2binpad failed");
+  return out;
+}
+
+// out = base^exp mod p with a fixed-window, constant-time exponentiation. The
+// exponent is the ephemeral DH private key: the generic BN_mod_exp takes the
+// variable-time sliding-window path unless the exponent carries
+// BN_FLG_CONSTTIME, so call the constant-time routine directly. p must be odd
+// and base reduced below p, both guaranteed by validateDh*().
+ByteDynArray dhModExp(const BIGNUM *base, const BIGNUM *exp, const BIGNUM *p,
+                      BN_CTX *ctx) {
+  Bn r = bnNew();
+  if (!BN_mod_exp_mont_consttime(r.get(), base, exp, p, ctx, nullptr))
+    throw logged_error("BN_mod_exp_mont_consttime failed");
+  return bnToBytes(r.get(), static_cast<size_t>(BN_num_bytes(p)));
+}
+
+ByteArray stripLeadingZeros(const ByteArray &v) {
+  size_t skip = 0;
+  while (skip < v.size() && v.data()[skip] == 0) ++skip;
+  return v.mid(skip);
+}
+
+// SignerInfo.sid (IssuerAndSerialNumber) names the certificate the SOD
+// signature has to verify against. The certificate that is actually used is
+// the one embedded in the SOD, so the two must agree: otherwise the signature
+// is checked against a key the SignerInfo never referred to.
+void requireSignerIdentity(const ByteArray &sod, const CASNTag &sidIssuer,
+                           const CASNTag &sidSerial,
+                           const ByteArray &certIssuerDer,
+                           const ByteArray &certSerial) {
+  ByteArray sidIssuerDer =
+      sod.mid(sidIssuer.startPos, sidIssuer.endPos - sidIssuer.startPos);
+  if (certIssuerDer.isEmpty() || sidIssuerDer != certIssuerDer)
+    throw logged_error(
+        "SOD signer issuer does not match the signer certificate");
+  if (stripLeadingZeros(sidSerial.content) != stripLeadingZeros(certSerial))
+    throw logged_error(
+        "SOD signer serial does not match the signer certificate");
+}
+
+// Bounds the DAPP RSA public key read from the card.
+void validateDappKey(const ByteArray &module, const ByteArray &exponent) {
+  Bn n = bnFromBytes(module);
+  int bits = BN_num_bits(n.get());
+  if (bits < kMinDappModulusBits || bits > kMaxDappModulusBits ||
+      !BN_is_odd(n.get()))
+    throw logged_error("DAPP public key modulus not acceptable");
+  if (exponent.size() > kMaxDappExponentBytes)
+    throw logged_error("DAPP public key exponent too large");
+  Bn e = bnFromBytes(exponent);
+  if (!BN_is_odd(e.get()) || BN_cmp(e.get(), BN_value_one()) <= 0 ||
+      BN_cmp(e.get(), n.get()) >= 0)
+    throw logged_error("DAPP public key exponent not acceptable");
+}
+
+}  // namespace
 
 IAS::IAS(CToken::TokenTransmitCallback transmit, ByteArray ATR)
     : attemptsRemaining(0) {
@@ -191,24 +450,43 @@ void IAS::readDGbySFI(uint8_t sfi, ByteDynArray &content) {
   }
   content.append(resp);
 
-  // Parse BER-TLV length to determine total file size
+  // Parse BER-TLV length to determine total file size. Only the definite
+  // forms an eMRTD data group uses are accepted (short, 81 xx, 82 xx xx);
+  // anything else, or a header the first read did not cover, is an error
+  // rather than an implicitly empty file.
   size_t totalLen = 0;
   size_t headerLen = 0;
-  if (content.size() >= 2) {
-    size_t idx = 1;  // skip tag byte
+  if (content.size() < 2)
+    throw logged_error("readDGbySFI - response too short for a TLV header");
+  {
+    const size_t idx = 1;  // skip tag byte
     if (content[idx] <= 0x7f) {
       totalLen = content[idx];
       headerLen = idx + 1;
-    } else if (content[idx] == 0x81 && content.size() >= 3) {
-      totalLen = content[idx + 1];
-      headerLen = idx + 2;
-    } else if (content[idx] == 0x82 && content.size() >= 4) {
-      totalLen =
-          (static_cast<size_t>(content[idx + 1]) << 8) | content[idx + 2];
-      headerLen = idx + 3;
+    } else if (content[idx] == 0x81 || content[idx] == 0x82) {
+      const size_t llen = content[idx] & 0x0f;
+      if (content.size() < idx + 1 + llen)
+        throw logged_error("readDGbySFI - truncated TLV length");
+      totalLen = 0;
+      for (size_t i = 0; i < llen; ++i)
+        totalLen = (totalLen << 8) | content[idx + 1 + i];
+      headerLen = idx + 1 + llen;
+    } else {
+      throw logged_error(
+          stdPrintf("readDGbySFI - unsupported TLV length form %02X",
+                    static_cast<unsigned>(content[idx])));
     }
   }
   size_t fileSize = headerLen + totalLen;
+  if (fileSize > kMaxFileSize)
+    throw logged_error(
+        stdPrintf("readDGbySFI - DG %u declares %zu bytes, above the %zu limit",
+                  static_cast<unsigned>(sfi), fileSize, kMaxFileSize));
+  if (content.size() > fileSize)
+    throw logged_error(
+        stdPrintf("readDGbySFI - DG %u returned %zu bytes, more than the "
+                  "%zu it declares",
+                  static_cast<unsigned>(sfi), content.size(), fileSize));
 
   // Read remaining bytes in chunks using absolute offset (P1=0, P2=offset).
   // 224 bytes fits within the SM APDU overhead budget for all CIE variants;
@@ -232,22 +510,23 @@ void IAS::readDGbySFI(uint8_t sfi, ByteDynArray &content) {
   // hardware pass across the card-type matrix above and both PC/SC and
   // Android NFC (IsoDep.transceive() has its own vendor-dependent max
   // transceive size) transports before it can be safely changed here.
-  WORD cnt = static_cast<WORD>(content.size());
+  size_t cnt = content.size();
   chunk = 224;
   while (cnt < fileSize) {
     ByteDynArray chn;
     uint8_t remaining =
         static_cast<uint8_t>(std::min<size_t>(chunk, fileSize - cnt));
-    uint8_t readFile[] = {0x00, 0xb0, static_cast<uint8_t>(HIBYTE(cnt)),
-                          static_cast<uint8_t>(LOBYTE(cnt))};
+    uint8_t readFile[] = {0x00, 0xb0, static_cast<uint8_t>((cnt >> 8) & 0xff),
+                          static_cast<uint8_t>(cnt & 0xff)};
     sw = SendAPDU_SM(VarToByteArray(readFile), ByteArray(), chn, &remaining);
     if ((sw >> 8) == 0x6c) {
       uint8_t le = sw & 0xff;
       sw = SendAPDU_SM(VarToByteArray(readFile), ByteArray(), chn, &le);
     }
     if (sw == 0x9000) {
+      checkReadProgress("readDGbySFI", cnt, chn.size());
       content.append(chn);
-      cnt = static_cast<WORD>(content.size());
+      cnt = content.size();
     } else {
       if (sw == 0x6282)
         content.append(chn);
@@ -259,6 +538,10 @@ void IAS::readDGbySFI(uint8_t sfi, ByteDynArray &content) {
       break;
     }
   }
+  if (content.size() != fileSize)
+    throw logged_error(
+        stdPrintf("readDGbySFI - DG %u ended at %zu of %zu declared bytes",
+                  static_cast<unsigned>(sfi), content.size(), fileSize));
 }
 
 void IAS::Sign(const ByteArray &data, ByteDynArray &signedData) {
@@ -340,18 +623,19 @@ void IAS::readfile(uint16_t id, ByteDynArray &content) {
                      resp)) != 0x9000)
     throw scard_error(sw);
 
-  WORD cnt = 0;
+  size_t cnt = 0;
   uint8_t chunk = 224;
   while (true) {
     ByteDynArray chn;
-    uint8_t readFile[] = {0x00, 0xb0, static_cast<uint8_t>(HIBYTE(cnt)),
-                          static_cast<uint8_t>(LOBYTE(cnt))};
+    uint8_t readFile[] = {0x00, 0xb0, static_cast<uint8_t>((cnt >> 8) & 0xff),
+                          static_cast<uint8_t>(cnt & 0xff)};
     sw = SendAPDU(VarToByteArray(readFile), ByteArray(), chn, &chunk);
     if ((sw >> 8) == 0x6c) {
       uint8_t le = sw & 0xff;
       sw = SendAPDU(VarToByteArray(readFile), ByteArray(), chn, &le);
     }
     if (sw == 0x9000) {
+      checkReadProgress("readfile", cnt, chn.size());
       content.append(chn);
       cnt = content.size();
       chunk = 224;
@@ -375,18 +659,19 @@ void IAS::readfile_SM(uint16_t id, ByteDynArray &content) {
                         resp)) != 0x9000)
     throw scard_error(sw);
 
-  WORD cnt = 0;
+  size_t cnt = 0;
   uint8_t chunk = 224;
   while (true) {
     ByteDynArray chn;
-    uint8_t readFile[] = {0x00, 0xb0, static_cast<uint8_t>(HIBYTE(cnt)),
-                          static_cast<uint8_t>(LOBYTE(cnt))};
+    uint8_t readFile[] = {0x00, 0xb0, static_cast<uint8_t>((cnt >> 8) & 0xff),
+                          static_cast<uint8_t>(cnt & 0xff)};
     sw = SendAPDU_SM(VarToByteArray(readFile), ByteArray(), chn, &chunk);
     if ((sw >> 8) == 0x6c) {
       uint8_t le = sw & 0xff;
       sw = SendAPDU_SM(VarToByteArray(readFile), ByteArray(), chn, &le);
     }
     if (sw == 0x9000) {
+      checkReadProgress("readfile", cnt, chn.size());
       content.append(chn);
       cnt = content.size();
       chunk = 224;
@@ -469,12 +754,11 @@ void IAS::ReadDappPubKey(ByteDynArray &DappKey) {
 
   CASNParser parser;
   parser.Parse(DappKey);
-  ByteArray module = parser.tags[0]->tags[0]->content;
-  while (module[0] == 0) module = module.mid(1);
-  DappModule = ByteDynArray(module);
-  ByteArray pubKey = parser.tags[0]->tags[1]->content;
-  while (pubKey[0] == 0) pubKey = pubKey.mid(1);
-  DappPubKey = ByteDynArray(pubKey);
+  ByteDynArray module(asnUnsignedInt(asnPath(parser, {0, 0}).content));
+  ByteDynArray pubKey(asnUnsignedInt(asnPath(parser, {0, 1}).content));
+  validateDappKey(module, pubKey);
+  DappModule = std::move(module);
+  DappPubKey = std::move(pubKey);
 }
 
 void IAS::ReadPAN() { readfile(0xd003, PAN); }
@@ -623,7 +907,7 @@ void IAS::DAPP() {
 
   ByteDynArray calcHashIFD = sha256.Digest(toHashIFD);
 
-  ER_ASSERT(calcHashIFD == hashICC, "Chip authentication error")
+  ER_ASSERT(ctEqual(calcHashIFD, hashICC), "Chip authentication error")
   ER_ASSERT(intAuthResp.right(1)[0] == 0xbc, "Chip authentication error");
 
   ByteArray challengeBa = challenge.right(4);
@@ -635,21 +919,27 @@ void IAS::DAPP() {
 void IAS::DHKeyExchange() {
   CASNParser asn1;
 
-  ByteDynArray dh_prKey, secret, resp, d1;
+  // The group must have been validated by InitDHParam(); never run the key
+  // exchange on missing parameters.
+  if (dh_g.isEmpty() || dh_p.isEmpty() || dh_q.isEmpty())
+    throw logged_error("DHKeyExchange - DH parameters not initialised");
+
+  ByteDynArray secret, resp, d1;
+
+  BnCtx bnCtx = bnCtxNew();
+  Bn p = bnFromBytes(dh_p), q = bnFromBytes(dh_q), g = bnFromBytes(dh_g);
+
+  // Ephemeral private exponent: uniform in [2, q-1] from the private-key DRBG
+  // (the former code drew q.size() raw bytes and only compared the top byte,
+  // which is neither uniform nor bounded by q).
+  Bn x = bnNew();
   do {
-    dh_prKey.resize(dh_q.size());
-    dh_prKey.random();
-  } while (dh_q[0] < dh_prKey[0]);
+    if (!BN_priv_rand_range_ex(x.get(), q.get(), 0, bnCtx.get()))
+      throw logged_error("DH private exponent generation failed");
+  } while (BN_is_zero(x.get()) || BN_is_one(x.get()));
+  BN_set_flags(x.get(), BN_FLG_CONSTTIME);
 
-  // dh_prKey deve essere dispari
-  dh_prKey.right(1)[0] |= 1;
-
-  ByteDynArray dhg(dh_g.size());
-  dhg.fill(0);
-  dhg.rightcopy(dh_g);
-  CRSA rsa(dh_p, dh_prKey);
-
-  dh_pubKey = rsa.RSA_PURE(dhg);
+  dh_pubKey = dhModExp(g.get(), x.get(), p.get(), bnCtx.get());
 
   uint8_t algo = 0x9b;
   uint8_t keyId = CIE_KEY_DH_ID;
@@ -671,9 +961,11 @@ void IAS::DHKeyExchange() {
     throw scard_error(sw);
 
   asn1.Parse(resp);
-  dh_ICCpubKey = asn1.tags[0]->tags[0]->content;
+  dh_ICCpubKey = asnPath(asn1, {0, 0}).content;
+  validateDhPublicKey(dh_ICCpubKey, dh_p, dh_q);
 
-  secret = rsa.RSA_PURE(dh_ICCpubKey);
+  Bn iccPub = bnFromBytes(dh_ICCpubKey);
+  secret = dhModExp(iccPub.get(), x.get(), p.get(), bnCtx.get());
 
   CSHA256 sha256;
 
@@ -783,6 +1075,7 @@ StatusWord IAS::respSM(const ByteArray &keyEnc, const ByteArray &keySig,
   increment(seq);
   DWORD index, llen, lgn;
   StatusWord sw = 0xffff;
+  bool haveSw = false;
   ByteDynArray encData;
   ByteDynArray respMac, calcMac;
   ByteDynArray iv(8);
@@ -811,11 +1104,15 @@ StatusWord IAS::respSM(const ByteArray &keyEnc, const ByteArray &keySig,
           throw logged_error("Invalid status word length");
         calcMac.append(resp.mid(index, resp[index + 1] + 2));
         sw = resp[index + 2] << 8 | resp[index + 3];
+        haveSw = true;
         index += 4;
       } else if (resp[index] == 0x8e) {
         if (resp[index + 1] != 0x08) throw logged_error("Invalid MAC length");
         respMac = ByteDynArray(resp.mid(index + 2, 8));
         index += 10;
+        // The MAC covers everything before it; nothing may follow it.
+        if (index != resp.size())
+          throw logged_error("Data after the MAC in Secure Messaging response");
       } else if (resp[index] == 0x85) {
         if (resp[index + 1] > 0x80) {
           llen = resp[index + 1] - 0x80;
@@ -860,8 +1157,11 @@ StatusWord IAS::respSM(const ByteArray &keyEnc, const ByteArray &keySig,
         throw logged_error("Unrecognized tag in Secure Messaging response");
     } while (index < resp.size());
 
+    // The status word DO is mandatory and the MAC must be present and equal.
+    if (!haveSw)
+      throw logged_error("Secure Messaging response without status word");
     auto smMac = sigMac.Mac(ISOPad(calcMac));
-    ER_ASSERT(smMac == respMac, "Chip response checksum error")
+    ER_ASSERT(ctEqual(smMac, respMac), "Chip response checksum error")
   } catch (const logged_error &e) {
     throw card_link_error(std::string("SM response: ") + e.what());
   }
@@ -881,8 +1181,10 @@ StatusWord IAS::getResp(const ByteDynArray &resp, StatusWord sw,
   if (resp.size() != 0) elabresp.append(resp);
 
   ByteDynArray curresp;
-  while (true) {
+  for (size_t round = 0;; ++round) {
     if ((sw >> 8) == 0x61) {
+      if (round >= kMaxGetResponseRounds)
+        throw logged_error("getResp - too many GET RESPONSE rounds");
       uint8_t ln = sw & 0xff;
       if (ln != 0) {
         uint8_t apdu[] = {0x00, 0xc0, 0x00, 0x00, ln};
@@ -892,6 +1194,8 @@ StatusWord IAS::getResp(const ByteDynArray &resp, StatusWord sw,
       } else {
         uint8_t apdu[] = {0x00, 0xc0, 0x00, 0x00, 0x00};
         sw = token.Transmit(VarToByteArray(apdu), &curresp);
+        if (curresp.isEmpty() && (sw >> 8) == 0x61)
+          throw logged_error("getResp - GET RESPONSE made no progress");
         elabresp.append(curresp);
       }
     } else {
@@ -908,18 +1212,24 @@ StatusWord IAS::getResp_SM(const ByteArray &resp, StatusWord sw,
   if (resp.size() != 0) elabresp.append(resp);
 
   ByteDynArray curresp;
-  while (true) {
+  for (size_t round = 0;; ++round) {
     if ((sw >> 8) == 0x61) {
+      if (round >= kMaxGetResponseRounds)
+        throw logged_error("getResp_SM - too many GET RESPONSE rounds");
       uint8_t ln = sw & 0xff;
       if (ln != 0) {
         uint8_t apdu[] = {0x00, 0xc0, 0x00, 0x00, ln};
         sw = token.Transmit(VarToByteArray(apdu), &curresp);
+        if (curresp.isEmpty() && (sw >> 8) == 0x61)
+          throw logged_error("getResp_SM - GET RESPONSE made no progress");
         elabresp.append(curresp);
         if (sw == 0x9000) break;
         if ((sw >> 8) != 0x61) throw scard_error(sw);
       } else {
         uint8_t apdu[] = {0x0c, 0xc0, 0x00, 0x00, 0x00};
         sw = token.Transmit(VarToByteArray(apdu), &curresp);
+        if (curresp.isEmpty() && (sw >> 8) == 0x61)
+          throw logged_error("getResp_SM - GET RESPONSE made no progress");
         elabresp.append(curresp);
       }
     } else if (sw == 0x9000 || sw == 0x6b00 || sw == 0x6282)
@@ -935,7 +1245,9 @@ StatusWord IAS::SendAPDU_SM(ByteArray head, ByteArray data, ByteDynArray &resp,
   ByteDynArray smApdu;
   ByteDynArray s, curresp;
   ByteArray emptyBa;
-  ByteArray leBa = VarToByteArray(*le);
+  // `le` is optional: only look at it when present.
+  uint8_t leVal = le != nullptr ? *le : 0;
+  ByteArray leBa = VarToByteArray(leVal);
 
   StatusWord sw;
   if (data.size() < 0xE7) {
@@ -956,7 +1268,7 @@ StatusWord IAS::SendAPDU_SM(ByteArray head, ByteArray data, ByteDynArray &resp,
     size_t i = 0;
     uint8_t cla = head[0];
     while (true) {
-      s = ByteDynArray(data.mid(i, min1(0xE7, data.size() - i)));
+      s = ByteDynArray(data.mid(i, std::min<size_t>(0xE7, data.size() - i)));
       i += s.size();
       if (i != data.size())
         head[0] = cla | 0x10;
@@ -982,7 +1294,9 @@ StatusWord IAS::SendAPDU_SM(ByteArray head, ByteArray data, ByteDynArray &resp,
 StatusWord IAS::SendAPDU(ByteArray head, ByteArray data, ByteDynArray &resp,
                          uint8_t *le) {
   ByteArray emptyBa;
-  ByteArray leBa = VarToByteArray(*le);
+  // `le` is optional: only look at it when present.
+  uint8_t leVal = le != nullptr ? *le : 0;
+  ByteArray leBa = VarToByteArray(leVal);
 
   ByteDynArray apdu, curresp;
   auto ds = data.size();
@@ -991,7 +1305,7 @@ StatusWord IAS::SendAPDU(ByteArray head, ByteArray data, ByteDynArray &resp,
     size_t i = 0;
     uint8_t cla = head[0];
     while (true) {
-      auto s = data.mid(i, min1(data.size() - i, 255));
+      auto s = data.mid(i, std::min<size_t>(data.size() - i, 255));
       i += s.size();
       if (i != data.size())
         head[0] = (cla | 0x10);
@@ -1042,9 +1356,9 @@ void IAS::InitDHParam() {
 
     parser.Parse(resp);
 
-    dh_g = parser.tags[0]->tags[0]->tags[0]->tags[0]->content;
-    dh_p = parser.tags[0]->tags[0]->tags[0]->tags[1]->content;
-    dh_q = parser.tags[0]->tags[0]->tags[0]->tags[2]->content;
+    dh_g = asnPath(parser, {0, 0, 0, 0}).content;
+    dh_p = asnPath(parser, {0, 0, 0, 1}).content;
+    dh_q = asnPath(parser, {0, 0, 0, 2}).content;
   } else if (type == CIE_Type::CIE_NXP || type == CIE_Type::CIE_STM ||
              type == CIE_Type::CIE_STM2 || type == CIE_Type::CIE_STM3 ||
              type == CIE_Type::CIE_ACTALIS || type == CIE_Type::CIE_BIT4ID) {
@@ -1056,7 +1370,7 @@ void IAS::InitDHParam() {
                        VarToByteArray(getDHDuopData_g), resp)) != 0x9000)
       throw scard_error(sw);
     parser.Parse(resp);
-    dh_g = parser.tags[0]->tags[0]->tags[0]->tags[0]->content;
+    dh_g = asnPath(parser, {0, 0, 0, 0}).content;
 
     uint8_t getDHDuopData_p[] = {0x4D, 0x0A, 0x70, 0x08, 0xBF, 0xA1,
                                  0x01, 0x04, 0xA3, 0x02, 0x98, 0x00};
@@ -1064,7 +1378,7 @@ void IAS::InitDHParam() {
                        VarToByteArray(getDHDuopData_p), resp)) != 0x9000)
       throw scard_error(sw);
     parser.Parse(resp);
-    dh_p = parser.tags[0]->tags[0]->tags[0]->tags[0]->content;
+    dh_p = asnPath(parser, {0, 0, 0, 0}).content;
 
     uint8_t getDHDuopData_q[] = {0x4D, 0x0A, 0x70, 0x08, 0xBF, 0xA1,
                                  0x01, 0x04, 0xA3, 0x02, 0x99, 0x00};
@@ -1072,15 +1386,11 @@ void IAS::InitDHParam() {
                        VarToByteArray(getDHDuopData_q), resp)) != 0x9000)
       throw scard_error(sw);
     parser.Parse(resp);
-    dh_q = parser.tags[0]->tags[0]->tags[0]->tags[0]->content;
+    dh_q = asnPath(parser, {0, 0, 0, 0}).content;
   } else
     throw logged_error("InitDHParam - CIE type not recognized");
-}
 
-CASNTag *GetTag(CASNTagArray &tags, DWORD id) {
-  auto it = std::find_if(tags.begin(), tags.end(),
-                         [id](const auto &tag) { return tag->tagInt() == id; });
-  return it != tags.end() ? it->get() : nullptr;
+  validateDhParams(dh_g, dh_p, dh_q);
 }
 
 void IAS::InitExtAuthKeyParam() {
@@ -1098,15 +1408,12 @@ void IAS::InitExtAuthKeyParam() {
   CASNParser parser;
   parser.Parse(resp);
 
-  CA_module = ByteDynArray(
-      GetTag(parser.tags[0]->tags[0]->tags[0]->tags, 0x81)->content);
-  CA_pubexp = ByteDynArray(
-      GetTag(parser.tags[0]->tags[0]->tags[0]->tags, 0x82)->content);
+  CASNTagArray &keyTags = asnPath(parser, {0, 0, 0}).tags;
+  CA_module = ByteDynArray(asnRequireTag(keyTags, 0x81).content);
+  CA_pubexp = ByteDynArray(asnRequireTag(keyTags, 0x82).content);
   CA_privexp = ByteDynArray(baExtAuth_PrivExp);
-  CA_CHR = ByteDynArray(
-      GetTag(parser.tags[0]->tags[0]->tags[0]->tags, 0x5F20)->content);
-  CA_CHA = ByteDynArray(
-      GetTag(parser.tags[0]->tags[0]->tags[0]->tags, 0x5F4C)->content);
+  CA_CHR = ByteDynArray(asnRequireTag(keyTags, 0x5F20).content);
+  CA_CHA = ByteDynArray(asnRequireTag(keyTags, 0x5F4C).content);
   CA_CAR = ByteDynArray(CA_CHR.mid(4));
   CA_AID = ByteDynArray(CA_CHA.left(6));
 }
@@ -1268,7 +1575,7 @@ uint8_t IAS::GetSODDigestAlg(const ByteArray &SOD) {
   std::string dump;
   dumpHexData(SOD, dump);
 
-  CASNTag &SODTag = *parser.tags[0];
+  CASNTag &SODTag = asnRoot(parser);
 
   CASNTag &temp = SODTag.Child(0, 0x30);
 
@@ -1285,19 +1592,138 @@ uint8_t IAS::GetSODDigestAlg(const ByteArray &SOD) {
     throw logged_error("GetSODDigestAlg - Digest algorithm not supported");
 }
 
+namespace {
+
+struct X509Deleter {
+  void operator()(X509 *x) const { X509_free(x); }
+};
+using X509Ptr = std::unique_ptr<X509, X509Deleter>;
+
+struct X509StoreDeleter {
+  void operator()(X509_STORE *s) const { X509_STORE_free(s); }
+};
+using X509StorePtr = std::unique_ptr<X509_STORE, X509StoreDeleter>;
+
+struct X509StoreCtxDeleter {
+  void operator()(X509_STORE_CTX *c) const { X509_STORE_CTX_free(c); }
+};
+using X509StoreCtxPtr = std::unique_ptr<X509_STORE_CTX, X509StoreCtxDeleter>;
+
+struct X509StackDeleter {
+  void operator()(STACK_OF(X509) * s) const { sk_X509_pop_free(s, X509_free); }
+};
+using X509StackPtr = std::unique_ptr<STACK_OF(X509), X509StackDeleter>;
+
+X509Ptr parseCert(const ByteArray &der, const char *what) {
+  const unsigned char *p = der.data();
+  X509Ptr x(d2i_X509(nullptr, &p, static_cast<long>(der.size())));
+  if (!x || p != der.data() + der.size())
+    throw logged_error(stdPrintf("%s: invalid X.509 certificate", what));
+  return x;
+}
+
+}  // namespace
+
+void IAS::VerifyDocumentSignerChain(
+    const ByteArray &dsCertDer, const std::vector<ByteArray> &trustedRoots,
+    const std::vector<ByteArray> &intermediates) {
+  X509Ptr ds = parseCert(dsCertDer, "SOD signer certificate");
+
+  X509StorePtr store(X509_STORE_new());
+  X509StackPtr untrusted(sk_X509_new_null());
+  X509StoreCtxPtr ctx(X509_STORE_CTX_new());
+  if (!store || !untrusted || !ctx)
+    throw logged_error("SOD signer chain: OpenSSL allocation failed");
+
+  for (const auto &root : trustedRoots) {
+    X509Ptr x = parseCert(root, "trusted CSCA");
+    if (!X509_STORE_add_cert(store.get(), x.get()))
+      throw logged_error("SOD signer chain: cannot add trusted CSCA");
+  }
+  for (const auto &inter : intermediates) {
+    X509Ptr x = parseCert(inter, "CSCA link certificate");
+    if (!sk_X509_push(untrusted.get(), x.get()))
+      throw logged_error("SOD signer chain: cannot add intermediate");
+    x.release();  // owned by the stack now
+  }
+
+  // The certificates' validity period is not evaluated: the card (and the
+  // Document Signer it embeds) outlives it, and a SOD has no trustworthy
+  // signing time to evaluate it against.
+  X509_STORE_set_flags(store.get(), X509_V_FLAG_NO_CHECK_TIME);
+
+  if (!X509_STORE_CTX_init(ctx.get(), store.get(), ds.get(), untrusted.get()))
+    throw logged_error("SOD signer chain: X509_STORE_CTX_init failed");
+  if (X509_verify_cert(ctx.get()) != 1) {
+    std::string why =
+        X509_verify_cert_error_string(X509_STORE_CTX_get_error(ctx.get()));
+    ERR_clear_error();
+    throw logged_error(
+        "SOD signer certificate does not chain to a trusted CSCA: " + why);
+  }
+}
+
+void IAS::VerifyDocumentSignerChain(const ByteArray &dsCertDer) {
+  std::vector<ByteArray> roots, links;
+  for (const auto &c : csca::kRoots) roots.emplace_back(c.data, c.size);
+  for (const auto &c : csca::kLinkCerts) links.emplace_back(c.data, c.size);
+  VerifyDocumentSignerChain(dsCertDer, roots, links);
+}
+
+void IAS::VerifyLdsSecurityObject(
+    const ByteArray &lds, uint8_t version, const ByteArray &hashOid,
+    const std::map<uint8_t, ByteDynArray> &hashSet) {
+  // Nothing read from the card would be authenticated by an empty set.
+  if (hashSet.empty())
+    throw logged_error("SOD verification - no data group digests to check");
+
+  CASNParser parser;
+  parser.Parse(lds);
+  CASNTag &so = asnRoot(parser).CheckTag(0x30);
+  so.Child(0, 02).Verify(VarToByteArray(version));
+  so.Child(1, 0x30).Child(0, 06).Verify(hashOid);
+
+  // Every data group digest the SOD announces for a file we read has to match
+  // what we computed. DGs listed in the SOD that were not read are ignored:
+  // no card data depends on them.
+  std::set<uint8_t> listed;
+  for (const auto &tagPtr : so.Child(2, 0x30).tags) {
+    CASNTag &hashDG = tagPtr->CheckTag(0x30);
+    uint8_t num = asnDgNumber(hashDG.Child(0, 02).content);
+    const CASNTag &dgHash = hashDG.Child(1, 04);
+
+    if (!listed.insert(num).second)
+      throw logged_error(
+          stdPrintf("SOD verification - duplicate digest for DG %02X", num));
+
+    auto it = hashSet.find(num);
+    if (it == hashSet.end()) continue;
+    if (it->second.isEmpty() || it->second != dgHash.content)
+      throw logged_error(
+          stdPrintf("SOD verification - digest mismatch for DG %02X", num));
+  }
+
+  // Conversely, every file we read has to be covered by the SOD, otherwise its
+  // content is unauthenticated.
+  for (const auto &entry : hashSet)
+    if (listed.find(entry.first) == listed.end())
+      throw logged_error(stdPrintf(
+          "SOD verification - no digest in the SOD for DG %02X", entry.first));
+}
+
 void IAS::VerificaSODPSS(const ByteArray &SOD,
-                         std::map<uint8_t, ByteDynArray> &hashSet) {
+                         const std::map<uint8_t, ByteDynArray> &hashSet) {
   CASNParser parser;
   parser.Parse(SOD);
 
   std::string dump;
   dumpHexData(SOD, dump);
 
-  CASNTag &SODTag = *parser.tags[0];
+  CASNTag &SODTag = asnRoot(parser);
 
   CASNTag &temp = SODTag.Child(0, 0x30);
 
-  /* Verifica OID contentInfo */
+  /* Check the contentInfo OID (signedData) */
   uint8_t OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02};
   temp.Child(0, 06).Verify(VarToByteArray(OID));
 
@@ -1312,15 +1738,15 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
   uint8_t OID3[] = {0x67, 0x81, 0x08, 0x01, 0x01, 0x01};
   temp2.Child(2, 0x30).Child(0, 06).Verify(VarToByteArray(OID3));
 
-  /* Prendo gli sha512 dei DG letti */
+  /* The SHA-512 digests of the data groups that were read */
   ByteArray ttData = temp2.Child(2, 0x30).Child(1, 0xA0).Child(0, 04).content;
 
   CASNParser ttParser;
   ttParser.Parse(ttData);
-  CASNTag &signedData = *ttParser.tags[0];
+  CASNTag &signedData = asnRoot(ttParser);
   signedData.CheckTag(0x30);
 
-  /* Prendo il certificato del signer */
+  /* The signer certificate */
   CASNTag &signerCert = temp2.Child(3, 0xA0).Child(0, 0x30);
 
   CASNTag &temp3 = temp2.Child(4, 0x31).Child(0, 0x30);
@@ -1328,7 +1754,7 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
   temp3.Child(0, 02).Verify(VarToByteArray(val1));
 
   CASNTag &issuerName = temp3.Child(1, 0x30).Child(0, 0x30);
-  temp3.Child(1, 0x30).Child(1, 02);
+  CASNTag &signerSerial = temp3.Child(1, 0x30).Child(1, 02);
 
   temp3.Child(2, 0x30).Child(0, 06).Verify(VarToByteArray(OID_SHA512));
 
@@ -1380,29 +1806,24 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
       SOD.mid(static_cast<int>(signerCert.startPos),
               static_cast<int>(signerCert.endPos - signerCert.startPos));
 
+  VerifyDocumentSignerChain(certRaw);
+
   ByteDynArray pubKeyData, issuerBa, serialBa;
   GetPublicKeyFromCert(certRaw.data(), certRaw.size(), pubKeyData, issuerBa,
                        serialBa);
 
   CASNParser pubKeyParser;
   pubKeyParser.Parse(pubKeyData);
-  CASNTag &pubKey = *pubKeyParser.tags[0]->tags[1];
+  CASNTag &pubKey = asnPath(pubKeyParser, {0, 1});
 
-  ByteArray content = pubKey.content;
-
-  if (content.data()[0] == 0)  // unsigned bits
-    content = content.mid(1);
+  ByteArray content = asnBitStringContent(pubKey.content);
 
   CASNParser pubKeyParser2;
   pubKeyParser2.Parse(content);
-  CASNTag &pubKey2 = *pubKeyParser2.tags[0];
+  CASNTag &pubKey2 = asnRoot(pubKeyParser2);
 
-  CASNTag &modTag = pubKey2.Child(0, 02);
-  ByteArray mod = modTag.content;
-  while (mod[0] == 0) mod = mod.mid(1);
-  CASNTag &expTag = pubKey2.Child(1, 02);
-  ByteArray exp = expTag.content;
-  while (exp[0] == 0) exp = exp.mid(1);
+  ByteArray mod = asnUnsignedInt(pubKey2.Child(0, 02).content);
+  ByteArray exp = asnUnsignedInt(pubKey2.Child(1, 02).content);
 
   ByteArray signatureData = signature.content;
 
@@ -1422,44 +1843,22 @@ void IAS::VerificaSODPSS(const ByteArray &SOD,
     throw logged_error("VerificaSODPSS - SOD Sign not valid");
   }
 
-  issuerName.Reparse();
-  CASNParser issuerParser;
+  requireSignerIdentity(SOD, issuerName, signerSerial, issuerBa, serialBa);
 
-  issuerParser.Parse(issuerBa);
-
-  CASNTag &CertIssuer = *issuerParser.tags[0];
-  if (issuerName.tags.size() != CertIssuer.tags.size())
-    Log.writePure("Issuer name mismatch");
-
-  uint8_t val = 1;
-  signedData.Child(0, 02).Verify(VarToByteArray(val));
-  signedData.Child(1, 0x30).Child(0, 06).Verify(VarToByteArray(OID_SHA512));
-
-  CASNTag &hashTag = signedData.Child(2, 0x30);
-  for (const auto &tagPtr : hashTag.tags) {
-    CASNTag &hashDG = *tagPtr;
-    CASNTag &dgNum = hashDG.CheckTag(0x30).Child(0, 02);
-    const CASNTag &dgHash = hashDG.Child(1, 04);
-    uint8_t num = static_cast<uint8_t>(ByteArrayToVar(dgNum.content, BYTE));
-
-    if (hashSet.find(num) == hashSet.end() || hashSet[num].size() == 0)
-      throw logged_error(stdPrintf("Digest not found for DG %02X", num));
-
-    if (hashSet[num] != dgHash.content)
-      throw logged_error(
-          stdPrintf("VerificaSODPSS - Digest for DG %02X not found", num));
-  }
+  VerifyLdsSecurityObject(
+      ttData.mid(signedData.startPos, signedData.endPos - signedData.startPos),
+      1, VarToByteArray(OID_SHA512), hashSet);
 }
 
 void IAS::VerificaSOD(const ByteArray &SOD,
-                      std::map<BYTE, ByteDynArray> &hashSet) {
+                      const std::map<uint8_t, ByteDynArray> &hashSet) {
   CASNParser parser;
   parser.Parse(SOD);
 
   std::string dump;
   dumpHexData(SOD, dump);
 
-  CASNTag &SODTag = *parser.tags[0];
+  CASNTag &SODTag = asnRoot(parser);
 
   CASNTag &temp = SODTag.Child(0, 0x30);
   uint8_t OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02};
@@ -1478,7 +1877,7 @@ void IAS::VerificaSOD(const ByteArray &SOD,
   ByteArray ttData = temp2.Child(2, 0x30).Child(1, 0xA0).Child(0, 04).content;
   CASNParser ttParser;
   ttParser.Parse(ttData);
-  CASNTag &signedData = *ttParser.tags[0];
+  CASNTag &signedData = asnRoot(ttParser);
   signedData.CheckTag(0x30);
 
   CASNTag &signerCert = temp2.Child(3, 0xA0).Child(0, 0x30);
@@ -1487,6 +1886,7 @@ void IAS::VerificaSOD(const ByteArray &SOD,
   uint8_t val1 = 1;
   temp3.Child(0, 02).Verify(VarToByteArray(val1));
   CASNTag &issuerName = temp3.Child(1, 0x30).Child(0, 0x30);
+  CASNTag &signerSerial = temp3.Child(1, 0x30).Child(1, 02);
   temp3.Child(2, 0x30).Child(0, 06).Verify(VarToByteArray(OID_SH256));
 
   CASNTag &signerInfo = temp3.Child(3, 0xA0);
@@ -1506,13 +1906,9 @@ void IAS::VerificaSOD(const ByteArray &SOD,
   uint8_t OID_RSAwithSHA1[] = {0x2a, 0x86, 0x48, 0x86, 0xf7,
                                0x0d, 0x01, 0x01, 0x05};
   auto &digestAlgo = temp3.Child(4, 0x30).Child(0, 06).content;
-  bool isSHA1 = false;
-  bool isSHA256 = false;
   if (digestAlgo == VarToByteArray(OID_RSAwithSHA1))
-    isSHA1 = true;
-  else if (digestAlgo == VarToByteArray(OID_RSAwithSHA256))
-    isSHA256 = true;
-  else
+    throw logged_error("VerificaSOD - SHA-1 signatures are not accepted");
+  if (digestAlgo != VarToByteArray(OID_RSAwithSHA256))
     throw logged_error("VerificaSOD - Digest algorithm not valid");
 
   CASNTag &signature = temp3.Child(5, 04);
@@ -1529,29 +1925,24 @@ void IAS::VerificaSOD(const ByteArray &SOD,
       SOD.mid(static_cast<int>(signerCert.startPos),
               static_cast<int>(signerCert.endPos - signerCert.startPos));
 
+  VerifyDocumentSignerChain(certRaw);
+
   ByteDynArray pubKeyData, issuerBa, serialBa;
   GetPublicKeyFromCert(certRaw.data(), certRaw.size(), pubKeyData, issuerBa,
                        serialBa);
 
   CASNParser pubKeyParser;
   pubKeyParser.Parse(pubKeyData);
-  CASNTag &pubKey = *pubKeyParser.tags[0]->tags[1];
+  CASNTag &pubKey = asnPath(pubKeyParser, {0, 1});
 
-  ByteArray content = pubKey.content;
-
-  if (content.data()[0] == 0)  // unsigned bits
-    content = content.mid(1);
+  ByteArray content = asnBitStringContent(pubKey.content);
 
   CASNParser pubKeyParser2;
   pubKeyParser2.Parse(content);
-  CASNTag &pubKey2 = *pubKeyParser2.tags[0];
+  CASNTag &pubKey2 = asnRoot(pubKeyParser2);
 
-  CASNTag &modTag = pubKey2.Child(0, 02);
-  ByteArray mod = modTag.content;
-  while (mod[0] == 0) mod = mod.mid(1);
-  CASNTag &expTag = pubKey2.Child(1, 02);
-  ByteArray exp = expTag.content;
-  while (exp[0] == 0) exp = exp.mid(1);
+  ByteArray mod = asnUnsignedInt(pubKey2.Child(0, 02).content);
+  ByteArray exp = asnUnsignedInt(pubKey2.Child(1, 02).content);
 
   ByteArray signatureData = signature.content;
 
@@ -1566,54 +1957,22 @@ void IAS::VerificaSOD(const ByteArray &SOD,
       static_cast<int>(signerInfo.tags[signerInfo.tags.size() - 1]->endPos -
                        signerInfo.tags[0]->startPos));
 
-  ByteDynArray digestSignature;
-  if (isSHA1) {
-    CSHA1 sha1;
-    decryptedSignature =
-        ByteDynArray(decryptedSignature.mid(RemoveSha1(decryptedSignature)));
-    digestSignature = sha1.Digest(toSign.getASN1Tag(0x31));
-  }
-  if (isSHA256) {
-    CSHA256 sha256_2;
-    decryptedSignature =
-        ByteDynArray(decryptedSignature.mid(RemoveSha256(decryptedSignature)));
+  CSHA256 sha256_2;
+  decryptedSignature =
+      ByteDynArray(decryptedSignature.mid(RemoveSha256(decryptedSignature)));
 
-    ByteDynArray toSignBa = toSign.getASN1Tag(0x31);
-    ByteArray ba(toSignBa.data(), toSignBa.size());
+  ByteDynArray toSignBa = toSign.getASN1Tag(0x31);
+  ByteArray ba(toSignBa.data(), toSignBa.size());
 
-    digestSignature = sha256_2.Digest(ba);
-  }
+  ByteDynArray digestSignature = sha256_2.Digest(ba);
   if (digestSignature != decryptedSignature)
     throw logged_error("VerificaSOD - SOD sign not valid");
 
-  issuerName.Reparse();
-  CASNParser issuerParser;
+  requireSignerIdentity(SOD, issuerName, signerSerial, issuerBa, serialBa);
 
-  issuerParser.Parse(issuerBa);
-
-  CASNTag &CertIssuer = *issuerParser.tags[0];
-  if (issuerName.tags.size() != CertIssuer.tags.size())
-    Log.writePure("Issuer name mismatch");
-
-  uint8_t val0 = 0;
-  signedData.Child(0, 02).Verify(VarToByteArray(val0));
-  signedData.Child(1, 0x30).Child(0, 06).Verify(VarToByteArray(OID_SH256));
-
-  CASNTag &hashTag = signedData.Child(2, 0x30);
-  for (const auto &tagPtr : hashTag.tags) {
-    CASNTag &hashDG = *tagPtr;
-    CASNTag &dgNum = hashDG.CheckTag(0x30).Child(0, 02);
-    const CASNTag &dgHash = hashDG.Child(1, 04);
-    uint8_t num = static_cast<uint8_t>(ByteArrayToVar(dgNum.content, BYTE));
-
-    if (hashSet.find(num) == hashSet.end() || hashSet[num].size() == 0)
-      Log.writePure("%s",
-                    stdPrintf("Digest not found for DG %02X", num).c_str());
-
-    if (hashSet[num] != dgHash.content)
-      Log.writePure("%s",
-                    stdPrintf("Digest mismatch for DG %02X", num).c_str());
-  }
+  VerifyLdsSecurityObject(
+      ttData.mid(signedData.startPos, signedData.endPos - signedData.startPos),
+      0, VarToByteArray(OID_SH256), hashSet);
 }
 
 #define DWL_MSGRESULT 0

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #include "pcsc/token.h"
 
+#include <openssl/crypto.h>
+
 #include <cstring>
 #include <vector>
 
@@ -10,6 +12,19 @@
 #include "util/util.h"
 
 extern CLog Log;
+
+namespace {
+// Wipes a stack buffer on every exit path (including exceptions): card
+// responses can seed key material and APDUs can carry PINs.
+struct ScopedCleanse {
+  void *p;
+  size_t n;
+  ScopedCleanse(void *p, size_t n) : p(p), n(n) {}
+  ~ScopedCleanse() { OPENSSL_cleanse(p, n); }
+  ScopedCleanse(const ScopedCleanse &) = delete;
+  ScopedCleanse &operator=(const ScopedCleanse &) = delete;
+};
+}  // namespace
 
 CToken::CToken() {
   transmitCallback = nullptr;
@@ -52,6 +67,7 @@ StatusWord CToken::Transmit(const ByteArray &apdu, ByteDynArray *resp) {
   init_func
 
       BYTE pbtResp[3000];
+  ScopedCleanse respGuard(pbtResp, sizeof(pbtResp));
   DWORD dwResp = 3000;
   HRESULT res = transmitCallback(transmitCallbackData,
                                  reinterpret_cast<uint8_t *>(apdu.data()),
@@ -81,6 +97,8 @@ StatusWord CToken::Transmit(const APDU &apdu, ByteDynArray *resp) {
 
       BYTE pbtAPDU[3000];
   BYTE pbtResp[3000];
+  ScopedCleanse apduGuard(pbtAPDU, sizeof(pbtAPDU));
+  ScopedCleanse respGuard(pbtResp, sizeof(pbtResp));
 
   int iAPDUSize = 0;
   pbtAPDU[0] = apdu.btCLA;

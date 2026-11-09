@@ -201,12 +201,4 @@ extern "C" {
  * @return Number of settings in the global registry.
  */
 int GetNumIniSettings();
-
-/**
- * @brief Retrieve INI setting information by index.
- * @param i Zero-based index of the setting.
- * @param data Output buffer to receive the setting data.
- * @return 0 on success, non-zero on failure.
- */
-int GetIniSettings(int i, void* data);
 }

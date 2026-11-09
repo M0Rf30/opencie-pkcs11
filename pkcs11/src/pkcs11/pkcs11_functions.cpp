@@ -75,7 +75,23 @@ struct PinCleanser {
   std::vector<CK_BYTE> &buf_;
 };
 
+// Runs a session operation that writes into `out`. On CKR_BUFFER_TOO_SMALL the
+// session leaves the required size in `out`; report it to the caller as
+// PKCS#11 requires before propagating the error.
+template <typename F>
+static void sizedOutput(ByteArray &out, CK_ULONG_PTR pulLen, F &&op) {
+  try {
+    op();
+  } catch (p11_error &e) {
+    if (e.getP11ErrorCode() == CKR_BUFFER_TOO_SMALL)
+      *pulLen = static_cast<CK_ULONG>(out.size());
+    throw;
+  }
+}
+
 std::mutex p11Mutex;
+// True while C_Finalize has dropped p11Mutex to join the monitor thread.
+static std::atomic<bool> bP11Finalizing {false};
 auto_reset_event p11slotEvent /*("CardOS_P11_Event")*/;
 
 #ifndef _WIN32
@@ -90,6 +106,11 @@ auto_reset_event p11slotEvent /*("CardOS_P11_Event")*/;
 static void P11AtForkChild() {
   bP11Initialized = false;
   bP11Terminate = false;
+  // The monitor thread does not exist in the child: forget it so a fresh
+  // C_Initialize starts a new one (and C_Finalize never joins a ghost).
+  if (CSlot::Thread.joinable()) CSlot::Thread.detach();
+  CSlot::ThreadContext = nullptr;
+  CSlot::bMonitorExited = true;
   p11Mutex.~mutex();
   new (&p11Mutex) std::mutex();
 }
@@ -102,14 +123,13 @@ static void P11RegisterAtFork() {
 #endif
 
 // supported mechanisms
-CK_MECHANISM_TYPE p11_mechanisms[] = {
-    // CKM_RSA_PKCS_KEY_PAIR_GEN,
+CK_MECHANISM_TYPE p11_mechanisms[] = {  // CKM_RSA_PKCS_KEY_PAIR_GEN,
     CKM_RSA_PKCS,    CKM_MD5,           CKM_SHA_1,
     CKM_SHA256,      CKM_SHA1_RSA_PKCS, CKM_SHA256_RSA_PKCS,
     CKM_MD5_RSA_PKCS};
 
 const char *getAttributeName(unsigned long dwId);
-// extern CModuleInfo moduleInfo; // informazioni sulla dll (o so)
+// extern CModuleInfo moduleInfo; // information about the dll (or so)
 bool bModuleInit = false;
 
 /* ---- GENERATE CK_FUNCTION_LIST */
@@ -185,6 +205,7 @@ __attribute__((destructor)) void DllMainDetach() {
 #endif
 
 void WriteAttributes(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
+  if (!Logger::getInstance().isDebugEnabled()) return;
   LOG_INFO("[PKCS11] WriteAttributes - Attributes: %lx", ulCount);
 
   if (pTemplate == nullptr && ulCount > 0) {
@@ -197,42 +218,67 @@ void WriteAttributes(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
     if (pTemplate[i].pValue) {
       switch (pTemplate[i].type) {
         case CKA_CLASS:
+          if (pTemplate[i].ulValueLen >= sizeof(CK_OBJECT_CLASS)) {
+            CK_OBJECT_CLASS cls;
+            memcpy(&cls, pTemplate[i].pValue, sizeof(cls));
+            LOG_DEBUG(
+                "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%lx, "
+                "len=%lx",
+                i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
+                cls, pTemplate[i].ulValueLen);
+            break;
+          }
           LOG_DEBUG(
-              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%lx, "
-              "len=%lx",
+              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=?, len=%lx",
               i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
-              *static_cast<CK_OBJECT_CLASS_PTR>(pTemplate[i].pValue),
               pTemplate[i].ulValueLen);
           break;
 
         case CKA_TOKEN:
         case CKA_PRIVATE:
         case CKA_MODIFIABLE:
+          if (pTemplate[i].ulValueLen >= sizeof(CK_BBOOL)) {
+            LOG_DEBUG(
+                "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%x, "
+                "len=%lx",
+                i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
+                *static_cast<CK_BBOOL *>(pTemplate[i].pValue),
+                pTemplate[i].ulValueLen);
+            break;
+          }
           LOG_DEBUG(
-              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%x, len=%lx",
+              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=?, len=%lx",
               i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
-              *static_cast<CK_BBOOL *>(pTemplate[i].pValue),
               pTemplate[i].ulValueLen);
           break;
 
         case CKA_LABEL:
         case CKA_OBJECT_ID:
+        case CKA_VALUE: {
+          // ulValueLen is CK_UNAVAILABLE_INFORMATION after a too-small
+          // buffer and the buffer may be uninitialised: only dump a
+          // bounded prefix of a valid length, never NUL-scan it.
+          constexpr CK_ULONG kMaxDump = 64;
+          const CK_ULONG len = pTemplate[i].ulValueLen;
+          if (len == CK_UNAVAILABLE_INFORMATION) {
+            LOG_DEBUG(
+                "[PKCS11] WriteAttributes - %d) type=%lx (%s), "
+                "value=<unavailable>, len=%lx",
+                i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
+                len);
+            break;
+          }
+          const CK_ULONG shown = len < kMaxDump ? len : kMaxDump;
           LOG_DEBUG(
-              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%s, len=%lx",
-              i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
-              static_cast<char *>(pTemplate[i].pValue),
-              pTemplate[i].ulValueLen);
-          break;
-
-        case CKA_VALUE:
-          LOG_DEBUG(
-              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%s, len=%lx",
+              "[PKCS11] WriteAttributes - %d) type=%lx (%s), value=%s%s, "
+              "len=%lx",
               i + 1, pTemplate[i].type, getAttributeName(pTemplate[i].type),
               dumpHexData(ByteArray(static_cast<uint8_t *>(pTemplate[i].pValue),
-                                    pTemplate[i].ulValueLen))
+                                    static_cast<size_t>(shown)))
                   .c_str(),
-              pTemplate[i].ulValueLen);
+              shown < len ? "..." : "", len);
           break;
+        }
 
         default:
           LOG_DEBUG(
@@ -271,6 +317,9 @@ CK_RV CK_ENTRY C_UpdateSlotList() {
   return pkcs11_guard(__FUNCTION__, [&]() -> CK_RV {
     std::unique_lock<std::mutex> lock(p11Mutex);
 
+    if (!bP11Initialized || g_transport == nullptr)
+      throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+
     CSlot::InitSlotList(*g_transport);
 
     return CKR_OK;
@@ -285,6 +334,7 @@ CK_RV CK_ENTRY C_GetSlotList(CK_BBOOL tokenPresent, CK_SLOT_ID_PTR pSlotList,
     logParam(tokenPresent) logParam(pSlotList) logParam(pulCount)
 
         if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulCount == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     bool bOver = false;
     unsigned int iCnt;
@@ -342,7 +392,8 @@ CK_RV CK_ENTRY C_Initialize(CK_VOID_PTR pReserved) {
 
     logParam(pReserved)
 
-        if (bP11Initialized) throw p11_error(CKR_CRYPTOKI_ALREADY_INITIALIZED);
+        if (bP11Initialized ||
+            bP11Finalizing) throw p11_error(CKR_CRYPTOKI_ALREADY_INITIALIZED);
 
     // verify that the flags are supported
     CK_C_INITIALIZE_ARGS_PTR iargs = nullptr;
@@ -402,9 +453,11 @@ CK_RV CK_ENTRY C_Finalize(CK_VOID_PTR pReserved) {
         if (hC != 0) tc->transport.Cancel(hC);
       }
       p11slotEvent.set();
+      bP11Finalizing = true;
       lock.unlock();
       CSlot::Thread.join();
       lock.lock();
+      bP11Finalizing = false;
     }
 
     bP11Terminate = false;
@@ -472,8 +525,8 @@ CK_RV CK_ENTRY C_OpenSession(CK_SLOT_ID slotID, CK_FLAGS flags,
     // add the session to the global list
     *phSession = CSession::AddSession(std::move(pSession));
 
-    LOG_INFO("[PKCS11] C_OpenSession - Sessione: %lu", *phSession);
-    LOG_INFO("[PKCS11] C_OpenSession - Lettore: %s", pSlot->szName.c_str());
+    LOG_INFO("[PKCS11] C_OpenSession - Session: %lu", *phSession);
+    LOG_INFO("[PKCS11] C_OpenSession - Reader: %s", pSlot->szName.c_str());
     LOG_INFO("[PKCS11] C_OpenSession - CardManager: %s",
              pSlot->pTemplate->szName.c_str());
     std::string szModel;
@@ -690,6 +743,7 @@ CK_RV CK_ENTRY C_CreateObject(CK_SESSION_HANDLE hSession,
     WriteAttributes(pTemplate, ulCount);
 
     if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (phObject == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -717,6 +771,7 @@ CK_RV CK_ENTRY C_GenerateKey(CK_SESSION_HANDLE hSession,
     WriteAttributes(pTemplate, ulCount);
 
     if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (phKey == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -810,6 +865,7 @@ CK_RV CK_ENTRY C_Digest(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
         logParamBuf(pDigest, pulDigestLen)
 
             if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulDigestLen == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -817,7 +873,7 @@ CK_RV CK_ENTRY C_Digest(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
 
     ByteArray Digest(pDigest, *pulDigestLen);
     ByteArray input(pData, ulDataLen);
-    pSession->Digest(input, Digest);
+    sizedOutput(Digest, pulDigestLen, [&] { pSession->Digest(input, Digest); });
     *pulDigestLen = static_cast<CK_ULONG>(Digest.size());
 
     return CKR_OK;
@@ -832,13 +888,14 @@ CK_RV CK_ENTRY C_DigestFinal(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pDigest,
     logParam(hSession) logParamBuf(pDigest, pulDigestLen)
 
         if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulDigestLen == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
-    ByteDynArray Digest(ByteArray(pDigest, *pulDigestLen));
-    pSession->DigestFinal(Digest);
+    ByteArray Digest(pDigest, *pulDigestLen);
+    sizedOutput(Digest, pulDigestLen, [&] { pSession->DigestFinal(Digest); });
     *pulDigestLen = static_cast<CK_ULONG>(Digest.size());
 
     return CKR_OK;
@@ -874,6 +931,8 @@ CK_RV CK_ENTRY C_FindObjects(CK_SESSION_HANDLE hSession,
         logParam(pulObjectCount)
 
             if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (phObject == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
+    if (pulObjectCount == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
@@ -970,6 +1029,7 @@ CK_RV CK_ENTRY C_GetMechanismList(CK_SLOT_ID slotID,
             sizeof(p11_mechanisms) / sizeof(CK_MECHANISM_TYPE);
 
     if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulCount == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSlot> pSlot = CSlot::GetSlotFromID(slotID);
     if (pSlot == nullptr) throw p11_error(CKR_SLOT_ID_INVALID);
@@ -982,9 +1042,11 @@ CK_RV CK_ENTRY C_GetMechanismList(CK_SLOT_ID slotID,
     if (*pulCount >= dwNumMechansms) {
       std::memcpy(pMechanismList, p11_mechanisms,
                   dwNumMechansms * sizeof(CK_MECHANISM_TYPE));
+      *pulCount = dwNumMechansms;
       return CKR_OK;
-    } else
-      throw p11_error(CKR_BUFFER_TOO_SMALL);
+    }
+    *pulCount = dwNumMechansms;
+    throw p11_error(CKR_BUFFER_TOO_SMALL);
   });
 }
 
@@ -996,6 +1058,7 @@ CK_RV CK_ENTRY C_GetMechanismInfo(CK_SLOT_ID slotID, CK_MECHANISM_TYPE type,
     logParam(slotID) logParam(type) logParam(pInfo)
 
         if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pInfo == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSlot> pSlot = CSlot::GetSlotFromID(slotID);
 
@@ -1049,6 +1112,7 @@ CK_RV CK_ENTRY C_GetSessionInfo(CK_SESSION_HANDLE hSession,
     logParam(hSession) logParam(pInfo)
 
         if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pInfo == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
@@ -1096,6 +1160,8 @@ CK_RV CK_ENTRY C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType,
     if (userType != CKU_SO && userType != CKU_USER)
       throw p11_error(CKR_USER_TYPE_INVALID);
 
+    // No protected authentication path: a NULL PIN is never valid.
+    if (pPin == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
     std::vector<CK_BYTE> pinCopy(pPin, pPin + ulPinLen);
     PinCleanser pinCleanser(pinCopy);
     pSession->Login(userType, pinCopy.data(), pinCopy.size());
@@ -1156,6 +1222,7 @@ CK_RV CK_ENTRY C_Sign(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
         logParamBuf(pSignature, pulSignatureLen)
 
             if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulSignatureLen == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -1163,7 +1230,8 @@ CK_RV CK_ENTRY C_Sign(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
 
     ByteArray Signature(pSignature, *pulSignatureLen);
     ByteArray input(pData, ulDataLen);
-    pSession->Sign(input, Signature);
+    sizedOutput(Signature, pulSignatureLen,
+                [&] { pSession->Sign(input, Signature); });
     *pulSignatureLen = static_cast<CK_ULONG>(Signature.size());
     return CKR_OK;
   });
@@ -1177,6 +1245,7 @@ CK_RV CK_ENTRY C_SignFinal(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pSignature,
     logParam(hSession) logParamBuf(pSignature, pulSignatureLen)
 
         if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulSignatureLen == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -1189,7 +1258,8 @@ CK_RV CK_ENTRY C_SignFinal(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pSignature,
       throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
 
     ByteArray Signature(pSignature, *pulSignatureLen);
-    pSession->SignFinal(Signature);
+    sizedOutput(Signature, pulSignatureLen,
+                [&] { pSession->SignFinal(Signature); });
     *pulSignatureLen = static_cast<CK_ULONG>(Signature.size());
 
     return CKR_OK;
@@ -1280,6 +1350,7 @@ CK_RV CK_ENTRY C_SignRecover(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
         logParamBuf(pSignature, pulSignatureLen)
 
             if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulSignatureLen == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -1287,7 +1358,8 @@ CK_RV CK_ENTRY C_SignRecover(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
 
     ByteArray Signature(pSignature, *pulSignatureLen);
     ByteArray input(pData, ulDataLen);
-    pSession->SignRecover(input, Signature);
+    sizedOutput(Signature, pulSignatureLen,
+                [&] { pSession->SignRecover(input, Signature); });
     *pulSignatureLen = static_cast<CK_ULONG>(Signature.size());
 
     return CKR_OK;
@@ -1329,6 +1401,7 @@ CK_RV CK_ENTRY C_VerifyRecover(CK_SESSION_HANDLE hSession,
         logParamBuf(pData, pulDataLen)
 
             if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulDataLen == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -1336,7 +1409,8 @@ CK_RV CK_ENTRY C_VerifyRecover(CK_SESSION_HANDLE hSession,
 
     ByteArray Data(pData, *pulDataLen);
     ByteArray input(pSignature, ulSignatureLen);
-    pSession->VerifyRecover(input, Data);
+    sizedOutput(Data, pulDataLen,
+                [&] { pSession->VerifyRecover(input, Data); });
     *pulDataLen = static_cast<CK_ULONG>(Data.size());
 
     return CKR_OK;
@@ -1514,6 +1588,7 @@ CK_RV CK_ENTRY C_WaitForSlotEvent(CK_FLAGS flags, CK_SLOT_ID_PTR pSlot,
       throw p11_error(CKR_ARGUMENTS_BAD);
 
     if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pSlot == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     if (flags & CKF_DONT_BLOCK) {
       std::unique_lock<std::mutex> lock(p11Mutex);
@@ -1531,6 +1606,9 @@ CK_RV CK_ENTRY C_WaitForSlotEvent(CK_FLAGS flags, CK_SLOT_ID_PTR pSlot,
       p11slotEvent.wait();
       if (!bP11Initialized) {
         *pSlot = 0;
+        // The event is auto-reset: pass the wake-up on so every other
+        // blocked waiter also observes the shutdown.
+        p11slotEvent.set();
         throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
       }
       {
@@ -1567,6 +1645,9 @@ CK_RV CK_ENTRY C_GenerateRandom(CK_SESSION_HANDLE hSession,
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
+    if (RandomData == nullptr && ulRandomLen > 0)
+      throw p11_error(CKR_ARGUMENTS_BAD);
+
     ByteArray input(RandomData, ulRandomLen);
     pSession->GenerateRandom(input);
 
@@ -1587,6 +1668,8 @@ CK_RV CK_ENTRY C_InitPIN(CK_SESSION_HANDLE hSession, CK_CHAR_PTR pPin,
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
+    // No protected authentication path: a NULL PIN is never valid.
+    if (pPin == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
     std::vector<CK_BYTE> pinCopy(pPin, pPin + ulPinLen);
     PinCleanser pinCleanser(pinCopy);
     ByteArray input(pinCopy.data(), pinCopy.size());
@@ -1611,9 +1694,11 @@ CK_RV CK_ENTRY C_SetPIN(CK_SESSION_HANDLE hSession, CK_CHAR_PTR pOldPin,
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
+    if (pOldPin == nullptr || pNewPin == nullptr)
+      throw p11_error(CKR_ARGUMENTS_BAD);
     std::vector<CK_BYTE> oldCopy(pOldPin, pOldPin + ulOldLen);
-    std::vector<CK_BYTE> newCopy(pNewPin, pNewPin + ulNewLen);
     PinCleanser oldCleanser(oldCopy);
+    std::vector<CK_BYTE> newCopy(pNewPin, pNewPin + ulNewLen);
     PinCleanser newCleanser(newCopy);
     ByteArray inputOld(oldCopy.data(), oldCopy.size());
     ByteArray inputNew(newCopy.data(), newCopy.size());
@@ -1631,6 +1716,7 @@ CK_RV CK_ENTRY C_GetObjectSize(CK_SESSION_HANDLE hSession,
     logParam(hSession) logParam(hObject) logParam(pulSize)
 
         if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulSize == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
@@ -1651,13 +1737,15 @@ CK_RV CK_ENTRY C_GetOperationState(CK_SESSION_HANDLE hSession,
     logParam(hSession) logParamBuf(pOperationState, pulOperationStateLen)
 
         if (!bP11Initialized) throw p11_error(CKR_CRYPTOKI_NOT_INITIALIZED);
+    if (pulOperationStateLen == nullptr) throw p11_error(CKR_ARGUMENTS_BAD);
 
     std::shared_ptr<CSession> pSession = CSession::GetSessionFromID(hSession);
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
     ByteArray OperationState(pOperationState, *pulOperationStateLen);
-    pSession->GetOperationState(OperationState);
+    sizedOutput(OperationState, pulOperationStateLen,
+                [&] { pSession->GetOperationState(OperationState); });
     *pulOperationStateLen = static_cast<CK_ULONG>(OperationState.size());
 
     return CKR_OK;

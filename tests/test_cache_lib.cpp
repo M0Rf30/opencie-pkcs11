@@ -267,11 +267,118 @@ TEST_CASE(
   REQUIRE(gotCertAgain.size() == cert.size());
   CHECK(std::string(gotCertAgain.begin(), gotCertAgain.end()) == cert);
 
-  // C_Login needs the cached first PIN half from the same legacy file.
+  // C_Login needs the cached PIN half: the legacy file is accepted once and
+  // immediately rewritten in the authenticated format.
   std::vector<uint8_t> gotPin;
   CacheGetPIN(PAN, gotPin);
   CHECK(std::string(gotPin.begin(), gotPin.end()) == pin);
-  CHECK(ReadFileBinary(cachePath) == legacyCiphertext);
+  std::string upgraded = ReadFileBinary(cachePath);
+  CHECK(upgraded != legacyCiphertext);
+  REQUIRE(upgraded.size() >= 4);
+  CHECK(upgraded.substr(0, 4) == "CIE1");
+
+  // Second read goes through the authenticated path; cert still readable.
+  std::vector<uint8_t> pinAgain, certAfter;
+  CacheGetPIN(PAN, pinAgain);
+  CHECK(std::string(pinAgain.begin(), pinAgain.end()) == pin);
+  CacheGetCertificate(PAN, certAfter);
+  CHECK(std::string(certAfter.begin(), certAfter.end()) == cert);
+}
+
+TEST_CASE("CacheGetPIN refuses a tampered authenticated cache", "[cache]") {
+  std::string dir = MakeTempDir();
+  ScopedHomeOverride homeGuard(dir);
+  std::string pin = "1234", cert = "cert-bytes";
+  const char *PAN = "AABBCCDD";
+  CacheSetData(PAN, reinterpret_cast<uint8_t *>(cert.data()),
+               static_cast<int>(cert.size()),
+               reinterpret_cast<uint8_t *>(pin.data()),
+               static_cast<int>(pin.size()));
+  std::string path = homeGuard.dir() + "/.CIEPKI/" + PAN + ".cache";
+  std::string blob = ReadFileBinary(path);
+  blob[blob.size() / 2] ^= 0x01;
+  std::ofstream(path, std::ios::binary | std::ios::trunc)
+      .write(blob.data(), static_cast<std::streamsize>(blob.size()));
+  std::vector<uint8_t> out;
+  CHECK_THROWS(CacheGetPIN(PAN, out));
+  CHECK(ReadFileBinary(path) == blob);
+}
+
+TEST_CASE("Cache refuses a symlinked cache directory", "[cache]") {
+  std::string dir = MakeTempDir();
+  ScopedHomeOverride homeGuard(dir);
+
+  std::string target = dir + "/attacker";
+  std::filesystem::create_directories(target);
+  std::filesystem::create_directory_symlink(target, dir + "/.CIEPKI");
+
+  std::string cert = "cert";
+  std::string pin = "1234";
+  const char *PAN = "AABBCCDD";
+  CHECK_THROWS(CacheSetData(PAN, reinterpret_cast<uint8_t *>(cert.data()),
+                            static_cast<int>(cert.size()),
+                            reinterpret_cast<uint8_t *>(pin.data()),
+                            static_cast<int>(pin.size())));
+  CHECK_THROWS(CacheSetDer(PAN, reinterpret_cast<const uint8_t *>(cert.data()),
+                           cert.size()));
+  // Nothing may have been written through the symlink.
+  CHECK(std::filesystem::is_empty(target));
+
+  // Readers refuse it too: a planted file is not seen.
+  std::ofstream(target + "/AABBCCDD.cache") << "x";
+  CHECK_FALSE(CacheExists(PAN));
+  std::vector<uint8_t> out;
+  CHECK_FALSE(CacheGetDer(PAN, out));
+}
+
+TEST_CASE("Cache refuses a regular file in place of the cache directory",
+          "[cache]") {
+  std::string dir = MakeTempDir();
+  ScopedHomeOverride homeGuard(dir);
+  std::ofstream(dir + "/.CIEPKI") << "not a dir";
+
+  std::string cert = "cert";
+  std::string pin = "1234";
+  CHECK_THROWS(CacheSetData(
+      "AABBCCDD", reinterpret_cast<uint8_t *>(cert.data()),
+      static_cast<int>(cert.size()), reinterpret_cast<uint8_t *>(pin.data()),
+      static_cast<int>(pin.size())));
+}
+
+TEST_CASE("Cache tightens a loosely-permissioned own cache directory",
+          "[cache]") {
+  std::string dir = MakeTempDir();
+  ScopedHomeOverride homeGuard(dir);
+  std::filesystem::create_directories(dir + "/.CIEPKI");
+  chmod((dir + "/.CIEPKI").c_str(), 0755);
+
+  std::string cert = "cert";
+  std::string pin = "1234";
+  CacheSetData("AABBCCDD", reinterpret_cast<uint8_t *>(cert.data()),
+               static_cast<int>(cert.size()),
+               reinterpret_cast<uint8_t *>(pin.data()),
+               static_cast<int>(pin.size()));
+  struct stat st {};
+  REQUIRE(stat((dir + "/.CIEPKI").c_str(), &st) == 0);
+  CHECK((st.st_mode & 0777) == 0700);
+}
+
+TEST_CASE("CacheSetData leaves no temporary files behind", "[cache]") {
+  std::string dir = MakeTempDir();
+  ScopedHomeOverride homeGuard(dir);
+  std::string cert = "cert";
+  std::string pin = "1234";
+  for (int i = 0; i < 3; ++i)
+    CacheSetData("AABBCCDD", reinterpret_cast<uint8_t *>(cert.data()),
+                 static_cast<int>(cert.size()),
+                 reinterpret_cast<uint8_t *>(pin.data()),
+                 static_cast<int>(pin.size()));
+  size_t n = 0;
+  for (auto &e : std::filesystem::directory_iterator(dir + "/.CIEPKI")) {
+    CHECK(e.path().filename() == "AABBCCDD.cache");
+    ++n;
+  }
+  CHECK(n == 1);
 }
 
 TEST_CASE("CacheSetData rejects a path-traversal PAN", "[cache]") {
@@ -341,3 +448,15 @@ TEST_CASE(
   CHECK(!std::filesystem::exists(cachePath + ".tmp"));
 }
 #endif  // !_WIN32
+
+#ifndef _WIN32
+TEST_CASE("CacheSetData rejects negative sizes and null buffers", "[cache]") {
+  std::string dir = MakeTempDir();
+  ScopedHomeOverride homeGuard(dir);
+  uint8_t buf[4] = {1, 2, 3, 4};
+  CHECK_THROWS(CacheSetData("AABBCCDD", buf, -1, buf, 4));
+  CHECK_THROWS(CacheSetData("AABBCCDD", buf, 4, buf, -5));
+  CHECK_THROWS(CacheSetData("AABBCCDD", nullptr, 4, buf, 4));
+  CHECK_FALSE(CacheExists("AABBCCDD"));
+}
+#endif

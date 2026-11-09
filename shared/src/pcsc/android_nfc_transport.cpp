@@ -23,6 +23,7 @@
 #include <android/log.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 
 #define LOG_TAG "CIE-NFC"
@@ -189,8 +190,12 @@ void AndroidNFCTransport::buildATR(JNIEnv *env) {
                             reinterpret_cast<jbyte *>(hist.data()));
     env->DeleteLocalRef(jHistBytes);
 
+    /* T0 holds the historical byte count in 4 bits: cap at 15 so it always
+     * agrees with the bytes that follow. */
+    if (hist.size() > 15) hist.resize(15);
+
     cachedATR_.push_back(0x3B);                                    /* TS */
-    cachedATR_.push_back(0x80 | (len & 0x0F));                     /* T0 */
+    cachedATR_.push_back(0x80 | (hist.size() & 0x0F));             /* T0 */
     cachedATR_.push_back(0x80);                                    /* TD1 */
     cachedATR_.push_back(0x01);                                    /* TD2 */
     cachedATR_.insert(cachedATR_.end(), hist.begin(), hist.end()); /* Tk */
@@ -214,8 +219,10 @@ void AndroidNFCTransport::buildATR(JNIEnv *env) {
                             reinterpret_cast<jbyte *>(hi.data()));
     env->DeleteLocalRef(jHiLayer);
 
+    if (hi.size() > 15) hi.resize(15);
+
     cachedATR_.push_back(0x3B);
-    cachedATR_.push_back(0x80 | (len & 0x0F));
+    cachedATR_.push_back(0x80 | (hi.size() & 0x0F));
     cachedATR_.push_back(0x80);
     cachedATR_.push_back(0x01);
     cachedATR_.insert(cachedATR_.end(), hi.begin(), hi.end());
@@ -286,6 +293,7 @@ AndroidNFCTransport::~AndroidNFCTransport() {
 LONG AndroidNFCTransport::EstablishContext(DWORD /*dwScope*/,
                                            LPSCARDCONTEXT phContext) {
   if (!phContext) return SCARD_E_INVALID_PARAMETER;
+  cancelled_.store(false, std::memory_order_relaxed);
   *phContext = kDummyContext;
   return SCARD_S_SUCCESS;
 }
@@ -329,14 +337,42 @@ LONG AndroidNFCTransport::ListReaders(SCARDCONTEXT /*hContext*/,
 }
 
 LONG AndroidNFCTransport::GetStatusChange(SCARDCONTEXT /*hContext*/,
-                                          DWORD /*dwTimeout*/,
+                                          DWORD dwTimeout,
                                           SCARD_READERSTATE *rgReaderStates,
                                           DWORD cReaders) {
-  for (DWORD i = 0; i < cReaders; ++i) {
-    if (isoDep_) {
-      rgReaderStates[i].dwEventState =
-          SCARD_STATE_PRESENT | SCARD_STATE_CHANGED;
+  if (!rgReaderStates || cReaders == 0) return SCARD_E_INVALID_PARAMETER;
 
+  /* PC/SC semantics: return at once if a reader's state differs from the
+   * caller's dwCurrentState, otherwise block up to dwTimeout (woken early by
+   * Cancel()) and report SCARD_E_TIMEOUT without a CHANGED flag. The tag is
+   * fixed for the lifetime of this transport, so presence cannot change while
+   * waiting; the wait takes only waitMutex_, never mutex_. */
+  const DWORD state = isoDep_ ? SCARD_STATE_PRESENT : SCARD_STATE_EMPTY;
+
+  bool changed = false;
+  for (DWORD i = 0; i < cReaders; ++i) {
+    if (rgReaderStates[i].dwCurrentState & SCARD_STATE_IGNORE) continue;
+    if ((rgReaderStates[i].dwCurrentState & state) == 0) changed = true;
+  }
+
+  if (!changed) {
+    std::unique_lock<std::mutex> waitLock(waitMutex_);
+    const auto wake = [this] {
+      return cancelled_.load(std::memory_order_relaxed);
+    };
+    if (dwTimeout == INFINITE)
+      waitCv_.wait(waitLock, wake);
+    else
+      waitCv_.wait_for(waitLock, std::chrono::milliseconds(dwTimeout), wake);
+    if (cancelled_.load(std::memory_order_relaxed)) return SCARD_E_CANCELLED;
+  }
+
+  for (DWORD i = 0; i < cReaders; ++i) {
+    rgReaderStates[i].dwEventState = state;
+    if ((rgReaderStates[i].dwCurrentState & state) == 0)
+      rgReaderStates[i].dwEventState |= SCARD_STATE_CHANGED;
+
+    if (isoDep_) {
       /* Copy cached ATR into the reader state */
       DWORD atrLen =
           std::min(static_cast<DWORD>(cachedATR_.size()),
@@ -344,14 +380,18 @@ LONG AndroidNFCTransport::GetStatusChange(SCARDCONTEXT /*hContext*/,
       std::memcpy(rgReaderStates[i].rgbAtr, cachedATR_.data(), atrLen);
       rgReaderStates[i].cbAtr = atrLen;
     } else {
-      rgReaderStates[i].dwEventState = SCARD_STATE_EMPTY | SCARD_STATE_CHANGED;
       rgReaderStates[i].cbAtr = 0;
     }
   }
-  return SCARD_S_SUCCESS;
+  return changed ? SCARD_S_SUCCESS : SCARD_E_TIMEOUT;
 }
 
 LONG AndroidNFCTransport::Cancel(SCARDCONTEXT /*hContext*/) {
+  {
+    std::lock_guard<std::mutex> lock(waitMutex_);
+    cancelled_.store(true, std::memory_order_relaxed);
+  }
+  waitCv_.notify_all();
   return SCARD_S_SUCCESS;
 }
 

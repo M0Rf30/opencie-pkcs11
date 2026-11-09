@@ -31,6 +31,18 @@ void wipe(Bytes& b) {
   if (!b.empty()) OPENSSL_cleanse(b.data(), b.size());
 }
 
+/** Wipes a secret buffer on every scope exit, including exceptions. */
+class ScopedWipe {
+ public:
+  explicit ScopedWipe(Bytes& b) : b_(b) {}
+  ~ScopedWipe() { wipe(b_); }
+  ScopedWipe(const ScopedWipe&) = delete;
+  ScopedWipe& operator=(const ScopedWipe&) = delete;
+
+ private:
+  Bytes& b_;
+};
+
 void append(Bytes& dst, const Bytes& src) {
   dst.insert(dst.end(), src.begin(), src.end());
 }
@@ -126,12 +138,19 @@ struct GroupDel {
 using Group = std::unique_ptr<EC_GROUP, GroupDel>;
 
 struct PointDel {
-  void operator()(EC_POINT* p) const { EC_POINT_free(p); }
+  void operator()(EC_POINT* p) const { EC_POINT_clear_free(p); }
 };
 using Point = std::unique_ptr<EC_POINT, PointDel>;
 
+/**
+ * BIGNUM from big-endian bytes. The value may be a secret scalar/exponent
+ * (private keys, the PACE nonce), so it is flagged for constant-time
+ * arithmetic; the flag is harmless for public values.
+ */
 Bn bnFromBytes(const Bytes& b) {
-  return Bn(BN_bin2bn(b.data(), static_cast<int>(b.size()), nullptr));
+  Bn bn(BN_bin2bn(b.data(), static_cast<int>(b.size()), nullptr));
+  if (bn) BN_set_flags(bn.get(), BN_FLG_CONSTTIME);
+  return bn;
 }
 
 Bytes bnToBytes(const BIGNUM* bn, size_t len) {
@@ -156,8 +175,11 @@ const EVP_CIPHER* cbcCipher(Cipher c) {
 
 /** 3DES key from a 16-byte two-key value: K1 || K2 || K1. */
 Bytes expandTdesKey(const Bytes& key) {
-  if (key.size() == 24) return key;
-  Bytes k = key;
+  // Reserve up front: growing a vector holding key material would leave an
+  // un-wiped copy of the key in the freed old buffer.
+  Bytes k;
+  k.reserve(24);
+  k.assign(key.begin(), key.end());
   if (key.size() == 16) k.insert(k.end(), key.begin(), key.begin() + 8);
   return k;
 }
@@ -184,7 +206,10 @@ Bytes cbcImpl(Cipher c, const Bytes& key, const Bytes& iv, const Bytes& data,
          EVP_CipherFinal_ex(ctx.get(), out.data() + len1, &len2) == 1;
   }
   wipe(k);
-  if (!ok) return {};
+  if (!ok) {
+    wipe(out);
+    return {};
+  }
   out.resize(static_cast<size_t>(len1 + len2));
   return out;
 }
@@ -338,18 +363,21 @@ class EcMapping : public GenericMapping {
         EC_POINT_cmp(group_.get(), chip.get(), mapPub_.get(), ctx_.get()) == 0)
       return false;
     Point h(EC_POINT_new(group_.get()));
+    Point sg(EC_POINT_new(group_.get()));
     Point gp(EC_POINT_new(group_.get()));
     Bn s = bnFromBytes(nonce);
-    Bn one(BN_new());
-    if (!h || !gp || !s || !one || !BN_one(one.get())) return false;
+    if (!h || !sg || !gp || !s) return false;
     // H = d_map * PK_map,IC
     if (!EC_POINT_mul(group_.get(), h.get(), nullptr, chip.get(),
                       mapPriv_.get(), ctx_.get()) ||
         EC_POINT_is_at_infinity(group_.get(), h.get()))
       return false;
-    // G' = s*G + H
-    if (!EC_POINT_mul(group_.get(), gp.get(), s.get(), h.get(), one.get(),
+    // G' = s*G + H. The secret nonce s is multiplied on its own (a
+    // single-scalar EC_POINT_mul is constant time; the combined s*G + 1*H
+    // form is not), then H is added.
+    if (!EC_POINT_mul(group_.get(), sg.get(), s.get(), nullptr, nullptr,
                       ctx_.get()) ||
+        !EC_POINT_add(group_.get(), gp.get(), sg.get(), h.get(), ctx_.get()) ||
         EC_POINT_is_at_infinity(group_.get(), gp.get()))
       return false;
     mapped_ = std::move(gp);
@@ -607,7 +635,13 @@ int cipherRank(Cipher c) {
 uint16_t sendPlain(const Transmit& tx, Bytes apdu, Bytes& resp) {
   resp.clear();
   uint16_t sw = tx(apdu, resp);
-  if ((sw >> 8) == 0x6C && apdu.size() >= 5 && apdu.size() <= 261) {
+  // 6Cxx means "wrong Le": only retry when the command actually carries an
+  // Le byte (case 2: header + Le; case 4: header + Lc + data + Le). A case 3
+  // command has no Le, so its last byte is data and must not be rewritten
+  // (the status word is unauthenticated).
+  const bool hasLe =
+      apdu.size() == 5 || (apdu.size() > 5 && apdu.size() == 6u + apdu[4]);
+  if ((sw >> 8) == 0x6C && hasLe && apdu.size() <= 261) {
     apdu.back() = static_cast<uint8_t>(sw & 0xFF);
     resp.clear();
     sw = tx(apdu, resp);
@@ -905,7 +939,11 @@ size_t keyLength(Cipher c) {
 }
 
 Bytes kdf(Cipher c, const Bytes& k, uint32_t counter) {
-  Bytes in = k;
+  // Reserve first so appending the counter never reallocates (which would
+  // leave an un-wiped copy of the secret in the old buffer).
+  Bytes in;
+  in.reserve(k.size() + 4);
+  in.assign(k.begin(), k.end());
   in.push_back(static_cast<uint8_t>(counter >> 24));
   in.push_back(static_cast<uint8_t>(counter >> 16));
   in.push_back(static_cast<uint8_t>(counter >> 8));
@@ -914,11 +952,17 @@ Bytes kdf(Cipher c, const Bytes& k, uint32_t counter) {
                                                          : crypto::sha1(in);
   wipe(in);
   const size_t len = keyLength(c);
-  if (h.size() < len) return {};
-  h.resize(len);
+  if (h.size() < len) {
+    wipe(h);
+    return {};
+  }
+  // Copy the key out and wipe the whole digest: shrinking h in place would
+  // leave the truncated tail behind in its buffer.
+  Bytes out(h.begin(), h.begin() + static_cast<long>(len));
+  wipe(h);
   if (c == Cipher::TDES)
-    std::transform(h.begin(), h.end(), h.begin(), oddParity);
-  return h;
+    std::transform(out.begin(), out.end(), out.begin(), oddParity);
+  return out;
 }
 
 Bytes decryptNonce(Cipher c, const Bytes& kpi, const Bytes& encNonce) {
@@ -1011,12 +1055,16 @@ bool selectProtocol(const std::vector<PaceInfo>& infos, Params& out) {
         p.ec = false;
         p.mapping = Mapping::GM;
         if (!findDhGroup(i.parameterId)) continue;
+        // EF.CardAccess is unauthenticated: refuse the 1024-bit group.
+        if (i.parameterId == 0) continue;
         break;
       case 2:  // ECDH-GM
       case 6:  // ECDH-CAM (PACE phase identical to GM)
         p.ec = true;
         p.mapping = (mapId == 2) ? Mapping::GM : Mapping::CAM;
         if (!findCurve(i.parameterId)) continue;
+        // Refuse 192-bit curves (ids 8, 9) for the same reason.
+        if (i.parameterId == 8 || i.parameterId == 9) continue;
         break;
       default:  // Integrated Mapping is not supported
         continue;
@@ -1282,7 +1330,7 @@ Result readCardAccess(const Transmit& tx, Bytes& out) {
   return readTransparent(read, kPlainChunk, out);
 }
 
-Result performPace(const Transmit& tx, const std::string& can, const Params& p,
+Result performPace(const Transmit& tx, std::string_view can, const Params& p,
                    std::unique_ptr<SecureChannel>& channel,
                    const Options& opt) {
   channel.reset();
@@ -1330,7 +1378,9 @@ Result performPace(const Transmit& tx, const std::string& can, const Params& p,
   const Cipher c = p.cipher;
   Bytes canBytes =
       opt.password.empty() ? Bytes(can.begin(), can.end()) : opt.password;
+  ScopedWipe canWipe(canBytes);
   Bytes kpi = kdf(c, canBytes, 3);
+  ScopedWipe kpiWipe(kpi);
   wipe(canBytes);
   if (kpi.empty()) return fail(0, "KDF failure");
 
@@ -1338,26 +1388,20 @@ Result performPace(const Transmit& tx, const std::string& can, const Params& p,
   Bytes encNonce;
   Result r = gaStep(0x10, Bytes {}, 0x80, encNonce, sw);
   if (r.status != Status::Ok) {
-    wipe(kpi);
     if (isAuthRejected(sw) && (sw >> 8) == 0x63) r.status = Status::WrongCan;
     return r;
   }
   Bytes nonce = decryptNonce(c, kpi, encNonce);
+  ScopedWipe nonceWipe(nonce);
   wipe(kpi);
   if (nonce.empty()) return fail(0, "nonce decryption failed");
 
   // --- Step 2: nonce mapping ---
   const Bytes mapPub = mapping->mappingPublicKey(opt.fixedMappingKey);
-  if (mapPub.empty()) {
-    wipe(nonce);
-    return fail(0, "mapping key generation failed");
-  }
+  if (mapPub.empty()) return fail(0, "mapping key generation failed");
   Bytes chipMapPub;
   r = gaStep(0x10, tlv(0x81, mapPub), 0x82, chipMapPub, sw);
-  if (r.status != Status::Ok) {
-    wipe(nonce);
-    return r;
-  }
+  if (r.status != Status::Ok) return r;
   const bool mapped = mapping->mapNonce(chipMapPub, nonce);
   wipe(nonce);
   if (!mapped) return fail(0, "invalid chip mapping key");
@@ -1369,16 +1413,16 @@ Result performPace(const Transmit& tx, const std::string& can, const Params& p,
   r = gaStep(0x10, tlv(0x83, ifdPub), 0x84, icPub, sw);
   if (r.status != Status::Ok) return r;
   Bytes shared;
+  ScopedWipe sharedWipe(shared);
   if (!mapping->agree(icPub, shared)) return fail(0, "invalid chip public key");
 
   Bytes ksEnc = kdf(c, shared, 1);
+  ScopedWipe ksEncWipe(ksEnc);
   Bytes ksMac = kdf(c, shared, 2);
+  ScopedWipe ksMacWipe(ksMac);
   wipe(shared);
-  if (ksEnc.empty() || ksMac.empty()) {
-    wipe(ksEnc);
-    wipe(ksMac);
+  if (ksEnc.empty() || ksMac.empty())
     return fail(0, "session key derivation failed");
-  }
 
   // --- Step 4: mutual authentication ---
   const Bytes tIfd = authToken(p, ksMac, icPub);
@@ -1386,8 +1430,6 @@ Result performPace(const Transmit& tx, const std::string& can, const Params& p,
   Bytes chipToken;
   r = gaStep(0x00, tlv(0x85, tIfd), 0x86, chipToken, sw);
   if (r.status != Status::Ok) {
-    wipe(ksEnc);
-    wipe(ksMac);
     if (isAuthRejected(sw)) {
       r.status = Status::WrongCan;
       r.detail =
@@ -1398,8 +1440,6 @@ Result performPace(const Transmit& tx, const std::string& can, const Params& p,
   }
   if (tIc.size() != 8 || chipToken.size() != 8 ||
       CRYPTO_memcmp(tIc.data(), chipToken.data(), 8) != 0) {
-    wipe(ksEnc);
-    wipe(ksMac);
     Result w;
     w.status = Status::WrongCan;
     w.sw = 0x9000;
@@ -1407,6 +1447,8 @@ Result performPace(const Transmit& tx, const std::string& can, const Params& p,
     return w;
   }
 
+  // The keys move into the channel; the moved-from locals are empty, so the
+  // scope guards above wipe nothing here.
   channel =
       std::make_unique<SecureChannel>(c, std::move(ksEnc), std::move(ksMac));
   return success();

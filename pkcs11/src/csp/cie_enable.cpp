@@ -402,8 +402,10 @@ CK_RV CK_ENTRY cie_enable(const char* /*szPAN*/, const char* szPIN,
       }
 
       if (ias.IsEnrolled()) {
-        LOG_INFO("cie_enable - CIE already enabled. Serial number: %s\n",
-                 IdServizi2.data());
+        // EF.IdServizi is card data and not NUL-terminated: bound the read.
+        LOG_INFO("cie_enable - CIE already enabled. Serial number: %.*s\n",
+                 static_cast<int>(IdServizi2.size()),
+                 reinterpret_cast<const char*>(IdServizi2.data()));
 
         // Use PAN.mid(5,6) — same key as IAS::IsEnrolled() / GetCertificate()
         std::string sidServizi_already = hexEncode(ias.PAN.data() + 5, 6);
@@ -730,11 +732,17 @@ HRESULT TokenTransmitCallback(void* data, BYTE* apdu, DWORD apduSize,
 
   if (apduSize == 2) {
     WORD code = *reinterpret_cast<WORD*>(apdu);
+    // Every pseudo-APDU below writes into resp: *respSize is its capacity.
+    const DWORD needed =
+        code == 0xfffd ? static_cast<DWORD>(sizeof(conn->hCard) + 2) : 2;
+    if ((code == 0xfffd || code == 0xfffe || code == 0xffff) &&
+        *respSize < needed)
+      return SCARD_E_INSUFFICIENT_BUFFER;
     if (code == 0xfffd) {
       *respSize = sizeof(conn->hCard) + 2;
       std::memcpy(resp, &conn->hCard, sizeof(conn->hCard));
-      resp[sizeof(&conn->hCard)] = 0;
-      resp[sizeof(&conn->hCard) + 1] = 0;
+      resp[sizeof(conn->hCard)] = 0;
+      resp[sizeof(conn->hCard) + 1] = 0;
 
       return SCARD_S_SUCCESS;
     } else if (code == 0xfffe) {
@@ -774,8 +782,11 @@ HRESULT TokenTransmitCallback(void* data, BYTE* apdu, DWORD apduSize,
   auto ris = conn->transport.Transmit(conn->hCard, SCARD_PCI_T1, apdu, apduSize,
                                       resp, respSize);
 
-  LOG_DEBUG("TokenTransmitCallback - Smart card response:");
-  LOG_BUFFER(resp, *respSize);
+  // *respSize is only meaningful when Transmit succeeded.
+  if (ris == SCARD_S_SUCCESS) {
+    LOG_DEBUG("TokenTransmitCallback - Smart card response:");
+    LOG_BUFFER(resp, *respSize);
+  }
 
   if (ris == static_cast<LONG>(SCARD_W_RESET_CARD) ||
       ris == static_cast<LONG>(SCARD_W_UNPOWERED_CARD)) {
@@ -791,8 +802,10 @@ HRESULT TokenTransmitCallback(void* data, BYTE* apdu, DWORD apduSize,
     else {
       ris = conn->transport.Transmit(conn->hCard, SCARD_PCI_T1, apdu, apduSize,
                                      resp, respSize);
-      LOG_DEBUG("TokenTransmitCallback - Smart card response:");
-      LOG_BUFFER(resp, *respSize);
+      if (ris == SCARD_S_SUCCESS) {
+        LOG_DEBUG("TokenTransmitCallback - Smart card response:");
+        LOG_BUFFER(resp, *respSize);
+      }
     }
   }
 

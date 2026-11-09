@@ -133,7 +133,8 @@ class CASNParser {
   void Parse(const ByteArray &data, CASNTagArray &outTags, size_t startseq,
              size_t depth = 0);
 
-  CASNTagArray tags;  ///< Parsed ASN.1 tag tree.
+  CASNTagArray tags;      ///< Parsed ASN.1 tag tree.
+  size_t nodeCount_ = 0;  ///< Nodes built by the current Parse() call.
 
   /** @brief Calculates the total encoded length of all tags. */
   size_t CalcLen();

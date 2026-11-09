@@ -291,3 +291,65 @@ TEST_CASE("ByteDynArray clear() zeroizes buffer before free", "[array]") {
   CHECK(da.isNull());
   CHECK(da.size() == 0);
 }
+
+// ── ByteArrayToVar: size check ─────────────────────────────────────────────
+
+TEST_CASE("ByteArrayToVar reads a value and rejects short input", "[array]") {
+  uint8_t buf[] = {0x78, 0x56, 0x34, 0x12};
+  ByteArray full(buf, 4);
+  CHECK(ByteArrayToVar(full, uint32_t) == 0x12345678u);
+  CHECK(ByteArrayToVar(full, uint8_t) == 0x78);
+
+  ByteArray shortBa(buf, 3);
+  CHECK_THROWS(ByteArrayToVar(shortBa, uint32_t));
+  CHECK_THROWS(ByteArrayToVar(ByteArray(), uint8_t));
+}
+
+#ifndef _WIN32
+// ── ByteDynArray::load hardening ───────────────────────────────────────────
+
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <filesystem>
+#include <fstream>
+
+TEST_CASE("ByteDynArray::load rejects symlinks, FIFOs and oversized files",
+          "[array]") {
+  namespace fs = std::filesystem;
+  fs::path dir =
+      fs::temp_directory_path() / ("cie_load_test_" + std::to_string(getpid()));
+  fs::create_directories(dir);
+
+  fs::path ok = dir / "ok.bin";
+  std::ofstream(ok, std::ios::binary) << "hello";
+  ByteDynArray good;
+  good.load(ok.c_str());
+  REQUIRE(good.size() == 5);
+  CHECK(good[0] == 'h');
+
+  fs::path link = dir / "link.bin";
+  fs::create_symlink(ok, link);
+  ByteDynArray viaLink;
+  CHECK_THROWS(viaLink.load(link.c_str()));
+
+  fs::path fifo = dir / "fifo.bin";
+  REQUIRE(mkfifo(fifo.c_str(), 0600) == 0);
+  ByteDynArray viaFifo;
+  CHECK_THROWS(viaFifo.load(fifo.c_str()));
+
+  fs::path big = dir / "big.bin";
+  {
+    std::ofstream f(big, std::ios::binary);
+    f.seekp(64 * 1024 * 1024);
+    f.put('x');
+  }
+  ByteDynArray viaBig;
+  CHECK_THROWS(viaBig.load(big.c_str()));
+
+  CHECK_THROWS(ByteDynArray().load((dir / "missing").c_str()));
+
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+}
+#endif

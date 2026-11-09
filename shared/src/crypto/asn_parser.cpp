@@ -18,6 +18,11 @@ namespace {
 // controlled input with deeply nested "30 02" chains would otherwise
 // exhaust the stack. RFC 5280 profiles need far fewer than this.
 constexpr size_t kMaxAsn1NestingDepth = 32;
+// Bounds the number of TLV nodes one Parse() call may build. Every node costs
+// tens to hundreds of heap bytes, so a few MiB of "30 00 30 00 ..." would
+// otherwise amplify into a huge tag tree. Real certificates and card files
+// hold far fewer nodes.
+constexpr size_t kMaxAsn1Nodes = 100000;
 }  // namespace
 
 size_t GetASN1DataLenght(const ByteArray &data) {
@@ -189,6 +194,7 @@ void CASNParser::Encode(ByteDynArray &data) {
 
 void CASNParser::Parse(const ByteArray &data) {
   init_func tags.clear();
+  nodeCount_ = 0;
   Parse(data, tags, 0);
 }
 
@@ -227,8 +233,10 @@ void CASNParser::Parse(const ByteArray &data, CASNTagArray &outTags,
 
     int llen = 0;
     if (cur[1] == 0x80) {
-      llen = 1;
-      len = data.size() - l - 2;
+      // BER indefinite length would need end-of-contents handling; treating
+      // "rest of the buffer" as the content is wrong, and the data this
+      // parser reads (certificates, card files) is DER.
+      throw logged_error("Indefinite length not supported in ASN.1");
     } else if (BitValue(cur[1], 7) == 1) {
       llen = (cur[1] & 0x7f);
       // Bounds-check before reading llen more octets, and reject encodings
@@ -255,6 +263,9 @@ void CASNParser::Parse(const ByteArray &data, CASNTagArray &outTags,
     size_t header = static_cast<size_t>(llen) + 1;
     if (header > remaining || len > remaining - header)
       throw logged_error("Excessive length in ASN.1");
+
+    if (++nodeCount_ > kMaxAsn1Nodes)
+      throw logged_error("Too many ASN.1 nodes");
 
     auto tag = std::unique_ptr<CASNTag>(new CASNTag());
     tag->startPos = startseq + tagStart;

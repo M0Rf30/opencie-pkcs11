@@ -1163,3 +1163,50 @@ TEST_CASE("RFC 5114 DH groups used by PACE match OpenSSL's named groups",
   }
   CHECK_FALSE(makeMapping(suite(false, 3, Cipher::AES128)));
 }
+
+// ---------------------------------------------------------------------------
+// Review fixes: 6Cxx handling (CP-07) and parameter floor (CP-09)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("PACE does not rewrite case-3 command data on a 6Cxx answer",
+          "[pace][flow]") {
+  SimPaceChip chip;
+  chip.p = suite(true, 13, Cipher::AES128);
+  chip.can = "123456";
+  std::vector<Bytes> mseApdus;
+  const Transmit tx = [&](const Bytes& a, Bytes& r) -> uint16_t {
+    if (a.size() > 1 && a[1] == 0x22) {
+      mseApdus.push_back(a);
+      r.clear();
+      return 0x6C10;  // injected: MSE:Set AT is case 3, it has no Le
+    }
+    return chip.handle(a, r);
+  };
+  std::unique_ptr<SecureChannel> ch;
+  Result r = performPace(tx, "123456", chip.p, ch);
+  CHECK(r.status != Status::Ok);
+  CHECK_FALSE(ch);
+  // Not retried: the password reference byte was never mutated.
+  CHECK(mseApdus.size() == 1);
+}
+
+TEST_CASE("selectProtocol refuses weak unauthenticated parameters",
+          "[pace][cardaccess]") {
+  Params p;
+  // DH-GM AES-128 with the 1024-bit group 0
+  CHECK_FALSE(selectProtocol(
+      parseCardAccess(H("3114 3012060A04007F00070202040102 020102 020100")),
+      p));
+  // ECDH-GM AES-128 with secp192r1 (id 8) and brainpoolP192r1 (id 9)
+  CHECK_FALSE(selectProtocol(
+      parseCardAccess(H("3114 3012060A04007F00070202040202 020102 020108")),
+      p));
+  CHECK_FALSE(selectProtocol(
+      parseCardAccess(H("3114 3012060A04007F00070202040202 020102 020109")),
+      p));
+  // A strong option next to a weak one is still chosen.
+  Bytes body = H("3012060A04007F00070202040102 020102 020100");
+  body = cat(body, H("3012060A04007F00070202040101 020102 020102"));
+  REQUIRE(selectProtocol(parseCardAccess(ber(0x31, body)), p));
+  CHECK(p.parameterId == 2);
+}

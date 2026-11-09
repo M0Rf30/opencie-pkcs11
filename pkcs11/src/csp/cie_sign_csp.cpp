@@ -162,11 +162,15 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
 
       ByteDynArray IdServizi;
       ias->ReadIdServizi(IdServizi);
-      ByteArray baPan =
-          ByteArray(reinterpret_cast<const uint8_t*>(pan), strlen(pan));
+      // A NULL/empty pan opts out of the check. Otherwise the caller's pan
+      // must cover (and match) the card's service id: the compare length
+      // comes from the caller's buffer, never from card data alone.
+      ByteArray baPan = ByteArray(reinterpret_cast<const uint8_t*>(pan),
+                                  pan != nullptr ? strlen(pan) : 0);
 
       if (baPan.size() > 0 &&
-          memcmp(baPan.data(), IdServizi.data(), IdServizi.size()) != 0) {
+          (baPan.size() < IdServizi.size() ||
+           memcmp(baPan.data(), IdServizi.data(), IdServizi.size()) != 0)) {
         panMismatch = true;
         ATR.reset();
         continue;
@@ -192,29 +196,47 @@ CK_RV CK_ENTRY cie_sign(const char* inFilePath, const char* type,
       progressCallBack(75, "Starting signature...");
 
       char fullPinCStr[9];
+      // Wipe the PIN copies on every exit path, including exceptions.
+      struct PinWipe {
+        char* c;
+        size_t cLen;
+        ByteDynArray& full;
+        ~PinWipe() {
+          OPENSSL_cleanse(c, cLen);
+          OPENSSL_cleanse(full.data(), full.size());
+        }
+      } pinWipe {fullPinCStr, sizeof(fullPinCStr), FullPIN};
       memcpy(fullPinCStr, FullPIN.data(), 8);
       fullPinCStr[8] = 0;
 
       auto cieSign = std::make_unique<CIESign>(ias.get());
 
-      uint16_t ret = cieSign->sign(inFilePath, type, fullPinCStr, page, x, y, w,
-                                   h, imageData, imageDataLen, outFilePath);
-      OPENSSL_cleanse(fullPinCStr, sizeof(fullPinCStr));
-      OPENSSL_cleanse(FullPIN.data(), FullPIN.size());
-      if ((ret & (0x63C0)) == 0x63C0) {
+      // Full status: either 0, a status word from VERIFY PIN (63Cx, 6983...)
+      // or a CIE_SIGN_ERROR_* code above 16 bits. Never truncate it.
+      const long ret =
+          cieSign->sign(inFilePath, type, fullPinCStr, page, x, y, w, h,
+                        imageData, imageDataLen, outFilePath);
+      // 63Cx: wrong PIN, x retries left (a bit-mask test also matched
+      // unrelated words such as 0x6FFF).
+      if (ret >= 0 && ret <= 0xFFFF && (ret & 0xFFF0) == 0x63C0) {
         return CKR_PIN_INCORRECT;
       } else if (ret == 0x6983) {
         return CKR_PIN_LOCKED;
       }
 
-      progressCallBack(100, "OK!");
+      if (ret == 0) progressCallBack(100, "OK!");
 
-      LOG_INFO("cie_sign - completed, res: %d", ret);
+      LOG_INFO("cie_sign - completed, res: 0x%lx", ret);
 
       // At this point if there has been a pan mismatch doesn't matter
       panMismatch = false;
 
-      completedCallBack(ret);
+      completedCallBack(static_cast<int>(ret));
+
+      if (ret != 0) {
+        LOG_ERROR("cie_sign - signing failed: 0x%lx", ret);
+        return CKR_GENERAL_ERROR;
+      }
 
       // A this point a CIE has been found, stop looking for it
       break;

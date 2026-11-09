@@ -13,12 +13,10 @@ CIESign::CIESign(IAS* ias) { this->ias = ias; }
 
 CIESign::~CIESign() = default;
 
-uint16_t CIESign::sign(const char* inFilePath, const char* type,
-                       const char* pin, int page, float x, float y, float w,
-                       float h, const unsigned char* imageData,
-                       int imageDataLen, const char* outFilePath) {
-  uint16_t response;
-
+long CIESign::sign(const char* inFilePath, const char* type, const char* pin,
+                   int page, float x, float y, float w, float h,
+                   const unsigned char* imageData, int imageDataLen,
+                   const char* outFilePath) {
   CIE_SIGN_CTX ctx = nullptr;
   long ret = 0;
 
@@ -154,7 +152,5 @@ uint16_t CIESign::sign(const char* inFilePath, const char* type,
 
   if (ctx) cie_sign_sign_cleanup(ctx);
 
-  response = ret;
-
-  return response;
+  return ret;
 }

@@ -19,7 +19,9 @@ CSignedDocument::CSignedDocument(const BYTE* content, int len) {
 
   ByteDynArray c;
 
-  if (content[0] == 'M' || content[0] == '-') {  // base64
+  // DER always starts with a SEQUENCE tag (0x30); anything else is PEM or
+  // bare base64 (which may start with any alphabet character).
+  if (content[0] != 0x30) {  // base64
     try {
       LOG_DBG((0, "CSignedDocument", "base64"));
 
@@ -135,8 +137,10 @@ CSignerInfo CSignedDocument::getSignerInfo(int index) {
 }
 
 void CSignedDocument::getContent(ByteDynArray& content) {
-  CASN1OctetString octetString(reinterpret_cast<const char*>(
-      m_pSignedData->getContentInfo().getValue()->data()));
+  // Detached: no encapsulated content.
+  if (m_pSignedData->getContentInfo().size() < 2) return;
+
+  CASN1OctetString octetString(m_pSignedData->getContentInfo().getContent());
 
   // content
   if (octetString.getTag() == 0x24) {  // contructed octet string
@@ -177,8 +181,8 @@ bool CSignedDocument::isDetached() {
   return m_pSignedData->getContentInfo().size() == 1;
 }
 
-// 0 successivo al 30 Giugno 2011, 1 successivo al 30 agosto 2010, 2 precedente
-// al 30 agosto 2010
+// 0 if after 30 June 2011, 1 if after 30 August 2010, 2 if before
+// 30 August 2010
 int CSignedDocument::get452009Range(char* szDateTime) {
   int flag452009 = 0;
 

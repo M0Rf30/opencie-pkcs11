@@ -14,20 +14,26 @@
 
 #include <libxml/tree.h>
 #include <libxml/xmlmemory.h>
+#include <openssl/crypto.h>
 
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <vector>
 
 #include "asn1/asn1_exception.h"
+#include "asn1/signed_data.h"
 #include "asn1/time_stamp_data.h"
 #include "asn1/time_stamp_response.h"
 #include "cert_store.h"
 #include "cie_signer.h"
 #include "crypto/base64.h"
+#include "crypto/sha1.h"
+#include "crypto/sha256.h"
 #include "csp/ias.h"
 #include "m7m_parser.h"
+#include "pdf_byte_range.h"
 #include "pdf_signature_generator.h"
 #include "pdf_verifier.h"
 #include "properties.h"
@@ -42,8 +48,15 @@ static long readFileIntoByteArray(const char* path, ByteDynArray& data) {
   int nRead = 0;
   FILE* f = fopen(path, "rb");
   if (!f) return CIE_SIGN_ERROR_FILE_NOT_FOUND;
-  while ((nRead = fread(buffer, 1, BUFFERSIZE, f)) > 0)
+  // Inputs are parsed in memory: refuse files larger than this.
+  static constexpr size_t kMaxInputFileSize = 256u * 1024 * 1024;
+  while ((nRead = fread(buffer, 1, BUFFERSIZE, f)) > 0) {
+    if (data.size() + static_cast<size_t>(nRead) > kMaxInputFileSize) {
+      fclose(f);
+      return CIE_SIGN_ERROR_INVALID_FILE;
+    }
     data.append(ByteArray(buffer, nRead));
+  }
   fclose(f);
   return 0;
 }
@@ -190,10 +203,9 @@ long cie_sign_set(int option, void* value) {
 }
 
 long cie_sign_set_int(int option, int value) {
-  int* valuePtr = new int(value);
-  long result = cie_sign_set(option, reinterpret_cast<void*>(valuePtr));
-  delete valuePtr;  // Clean up the allocated memory
-  return result;
+  // Integer options read through a pointer (log level) get the address of
+  // the local copy; the call is synchronous so it cannot dangle.
+  return cie_sign_set(option, static_cast<void*>(&value));
 }
 
 long cie_sign_set_string(int option, char* value) {
@@ -205,7 +217,7 @@ void cie_sign_cleanup() { CCertStore::CleanUp(); }
 CIE_SIGN_CTX cie_sign_sign_init(void) {
   LOG_MSG((0, "--> cie_sign_sign_init", "Called"));
 
-  CIE_SIGN_CONTEXT* pContext = new CIE_SIGN_CONTEXT;
+  CIE_SIGN_CONTEXT* pContext = new CIE_SIGN_CONTEXT();
 
   pContext->bDetached = 0;
   pContext->bVerifyCert = DEFAULT_VERIFY_USER_CERT;
@@ -236,10 +248,13 @@ CIE_SIGN_CTX cie_sign_sign_init(void) {
   pContext->szTSAUsername[0] = 0;
   pContext->szTSAPassword[0] = 0;
   pContext->bCades = false;
+  pContext->pSigner = nullptr;
   pContext->pSignatureGenerator = nullptr;
   pContext->pIAS = nullptr;
 
-  if (g_mapOIDProps.size() == 0) g_mapOIDProps.load("OID.txt");
+  // The OID -> name map is only loaded on request (CIE_SIGN_OPT_OID_MAP_FILE):
+  // never from a CWD-relative path an attacker could plant. Without it OIDs
+  // are shown in dotted form.
 
   LOG_MSG((0, "<-- cie_sign_sign_init", "Context: %p", pContext));
 
@@ -247,11 +262,12 @@ CIE_SIGN_CTX cie_sign_sign_init(void) {
 }
 
 long cie_sign_sign_set_int(CIE_SIGN_CTX ctx, int option, int value) {
-  int* valuePtr = new int(value);
-  long result =
-      cie_sign_sign_set(ctx, option, reinterpret_cast<void*>(valuePtr));
-  delete valuePtr;  // Clean up the allocated memory
-  return result;
+  // cie_sign_sign_set reads integer options as (intptr_t)value, except
+  // PDF_PAGE which is read through a pointer.
+  if (option == CIE_SIGN_OPT_PDF_PAGE)
+    return cie_sign_sign_set(ctx, option, static_cast<void*>(&value));
+  return cie_sign_sign_set(
+      ctx, option, reinterpret_cast<void*>(static_cast<intptr_t>(value)));
 }
 
 long cie_sign_sign_set_string(CIE_SIGN_CTX ctx, int option, char* value) {
@@ -402,9 +418,9 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
       break;
 
     case CIE_SIGN_OPT_PDF_PAGE:
-      LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %ld",
-               ctx, "CIE_SIGN_OPT_PDF_PAGE", *(static_cast<long*>(value))));
-      pContext->nPdfPage = *(static_cast<long*>(value));
+      LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %d",
+               ctx, "CIE_SIGN_OPT_PDF_PAGE", *(static_cast<int*>(value))));
+      pContext->nPdfPage = *(static_cast<int*>(value));
       break;
 
     case CIE_SIGN_OPT_PDF_IMAGEDATA:
@@ -451,9 +467,9 @@ long cie_sign_sign_set(CIE_SIGN_CTX ctx, int option, void* value) {
       break;
 
     case CIE_SIGN_OPT_VERIFY_USER_CERTIFICATE:
-      LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %s",
+      LOG_MSG((0, "cie_sign_sign_set", "Context: %p, Option: %s, Value: %d",
                ctx, "CIE_SIGN_OPT_VERIFY_USER_CERTIFICATE",
-               static_cast<char*>(value)));
+               static_cast<int>((intptr_t)value)));
       pContext->bVerifyCert = static_cast<BOOL>((intptr_t)value);
       break;
   }
@@ -498,9 +514,25 @@ long cie_sign_sign_sign(CIE_SIGN_CTX ctx) {
 
   long nRes = 0;
 
-  if (pContext->pIAS) {
+  if (!pContext->pIAS) {
+    LOG_ERR((0, "<-- cie_sign_sign_sign", "Context: %p, no IAS instance set",
+             pContext));
+    return CIE_SIGN_ERROR_INVALID_P11;
+  }
+
+  {
+    // A previous call on this context may have left a signer behind.
+    try {
+      if (pContext->pSigner) pContext->pSigner->Close();
+    } catch (...) {
+    }
+    SAFEDELETE(pContext->pSignatureGenerator);
+    SAFEDELETE(pContext->pSigner);
+
     CCIESigner* pCIESigner = new CCIESigner(pContext->pIAS);
     long ret = pCIESigner->Init(pContext->szPIN);
+    // The PIN is only needed for Init(); do not keep it in the context.
+    OPENSSL_cleanse(pContext->szPIN, sizeof(pContext->szPIN));
     LOG_DBG((0, "CIESigner::Init", "ret %lx", ret));
 
     if (ret != 0) {
@@ -524,6 +556,8 @@ long cie_sign_sign_sign(CIE_SIGN_CTX ctx) {
 
   if (pContext->szTSAPassword[0])
     pContext->pSignatureGenerator->SetTSAPassword(pContext->szTSAPassword);
+  // The generator holds its own copy; do not keep the password in the context.
+  OPENSSL_cleanse(pContext->szTSAPassword, sizeof(pContext->szTSAPassword));
 
   if (pContext->szAlias[0])
     pContext->pSignatureGenerator->SetAlias(pContext->szAlias);
@@ -594,6 +628,8 @@ long cie_sign_sign_cleanup(CIE_SIGN_CTX ctx) {
   } catch (...) {
   }
 
+  OPENSSL_cleanse(pContext->szPIN, sizeof(pContext->szPIN));
+  OPENSSL_cleanse(pContext->szTSAPassword, sizeof(pContext->szTSAPassword));
   SAFEDELETE(pContext->pSigner);
   SAFEDELETE(pContext->pSignatureGenerator);
 
@@ -617,6 +653,8 @@ CIE_SIGN_CTX cie_sign_verify_init(void) {
   memset(g_szVerifyProxy, 0, MAX_PATH);
 
   if (g_szVerifyProxyUsrPass) {
+    OPENSSL_cleanse(g_szVerifyProxyUsrPass, strlen(g_szVerifyProxyUsrPass));
+    free(g_szVerifyProxyUsrPass);
     g_szVerifyProxyUsrPass = nullptr;
   }
 
@@ -635,11 +673,9 @@ CIE_SIGN_CTX cie_sign_verify_init(void) {
 }
 
 long cie_sign_verify_set_int(CIE_SIGN_CTX ctx, int option, int value) {
-  int* valuePtr = new int(value);
-  long result =
-      cie_sign_verify_set(ctx, option, reinterpret_cast<void*>(valuePtr));
-  delete valuePtr;  // Clean up the allocated memory
-  return result;
+  // cie_sign_verify_set reads integer options as (intptr_t)value.
+  return cie_sign_verify_set(
+      ctx, option, reinterpret_cast<void*>(static_cast<intptr_t>(value)));
 }
 
 long cie_sign_verify_set_string(CIE_SIGN_CTX ctx, int option, char* value) {
@@ -685,9 +721,18 @@ long cie_sign_verify_set(CIE_SIGN_CTX ctx, int option, void* value) {
       break;
 
     case CIE_SIGN_OPT_PROXY_USRPASS:
-      g_szVerifyProxyUsrPass = static_cast<char*>(value);
-      LOG_DBG((0, "cie_sign_verify_set", "ProxyUsrPass: %s",
-               g_szVerifyProxyUsrPass));
+      // Keep a private copy (the caller's buffer may go away) and wipe the
+      // previous one; credentials never reach the log.
+      if (g_szVerifyProxyUsrPass) {
+        OPENSSL_cleanse(g_szVerifyProxyUsrPass, strlen(g_szVerifyProxyUsrPass));
+        free(g_szVerifyProxyUsrPass);
+        g_szVerifyProxyUsrPass = nullptr;
+      }
+      if (value) {
+        g_szVerifyProxyUsrPass = strdup(static_cast<char*>(value));
+        if (!g_szVerifyProxyUsrPass) return CIE_SIGN_ERROR_UNEXPECTED;
+      }
+      LOG_DBG((0, "cie_sign_verify_set", "ProxyUsrPass: ****"));
       break;
 
     case CIE_SIGN_OPT_PROXY_PORT:
@@ -699,6 +744,14 @@ long cie_sign_verify_set(CIE_SIGN_CTX ctx, int option, void* value) {
   return 0;
 
   __CATCH
+}
+
+// Position of the 4-character extension to strip (".p7m", ".m7m", ".tsd");
+// inputs shorter than that keep their full name instead of indexing before
+// the start of the buffer.
+static size_t ExtensionStart(const char* szFile) {
+  size_t n = strlen(szFile);
+  return n >= 4 ? n - 4 : n;
 }
 
 long cie_sign_verify_verify(CIE_SIGN_CTX ctx, VERIFY_RESULT* pVerifyResult) {
@@ -729,7 +782,7 @@ long cie_sign_verify_verify(CIE_SIGN_CTX ctx, VERIFY_RESULT* pVerifyResult) {
 
   pVerifyResult->bVerifyCRL = pContext->bVerifyCRL;
 
-  int nPos;
+  size_t nPos;
 
   long nRes = 0;
   switch (nFileType) {
@@ -738,7 +791,7 @@ long cie_sign_verify_verify(CIE_SIGN_CTX ctx, VERIFY_RESULT* pVerifyResult) {
 
       snprintf(pVerifyResult->szPlainTextFile, MAX_PATH, "%s",
                pContext->szInputFile);
-      nPos = strlen(pContext->szInputFile) - 4;  // toglie l'ultima estensione
+      nPos = ExtensionStart(pContext->szInputFile);  // drop last extension
       pVerifyResult->szPlainTextFile[nPos] = 0;
 
       nRes = verify_p7m(pContext, &pVerifyResult->verifyInfo);
@@ -749,7 +802,7 @@ long cie_sign_verify_verify(CIE_SIGN_CTX ctx, VERIFY_RESULT* pVerifyResult) {
 
       snprintf(pVerifyResult->szPlainTextFile, MAX_PATH, "%s",
                pContext->szInputFile);
-      nPos = strlen(pContext->szInputFile) - 4;  // toglie l'ultima estensione
+      nPos = ExtensionStart(pContext->szInputFile);  // drop last extension
       pVerifyResult->szPlainTextFile[nPos] = 0;
 
       nRes = verify_m7m(pContext, &pVerifyResult->verifyInfo);
@@ -768,7 +821,7 @@ long cie_sign_verify_verify(CIE_SIGN_CTX ctx, VERIFY_RESULT* pVerifyResult) {
 
       snprintf(pVerifyResult->szPlainTextFile, MAX_PATH, "%s",
                pContext->szInputFile);
-      nPos = strlen(pContext->szInputFile) - 4;  // toglie l'ultima estensione
+      nPos = ExtensionStart(pContext->szInputFile);  // drop last extension
       pVerifyResult->szPlainTextFile[nPos] = 0;
 
       nRes = verify_tsd(pContext, &pVerifyResult->verifyInfo);
@@ -958,10 +1011,17 @@ long verify_p7m(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
       ByteDynArray content;
       sd.getContent(content);
 
-      VERIFY_INFO verifyInfo;
+      VERIFY_INFO verifyInfo = {};
 
       ret = verify_pdf(pContext, content, &verifyInfo);
-      if (ret != 0) return ret;
+      if (ret != 0) {
+        freeVerifyInfo(verifyInfo);
+        return ret;
+      }
+      if (!verifyInfo.pSignerInfos || !pVerifyInfo->pSignerInfos) {
+        freeVerifyInfo(verifyInfo);
+        return CIE_SIGN_ERROR_INVALID_FILE;
+      }
 
       int p7mSignatures = pVerifyInfo->pSignerInfos->nCount;
       int pdfSignatures = verifyInfo.pSignerInfos->nCount;
@@ -972,10 +1032,10 @@ long verify_p7m(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
       TS_INFO* p7mTSInfo = pVerifyInfo->pTSInfo;
       // TS_INFO* pdfTSInfo = verifyInfo.pTSInfo;
 
-      pVerifyInfo->pSignerInfos = new SIGNER_INFOS;
+      pVerifyInfo->pSignerInfos = new SIGNER_INFOS();
       pVerifyInfo->pSignerInfos->nCount = p7mSignatures + pdfSignatures;
       pVerifyInfo->pSignerInfos->pSignerInfo =
-          new SIGNER_INFO[p7mSignatures + pdfSignatures];
+          new SIGNER_INFO[p7mSignatures + pdfSignatures]();
 
       int i = 0;
       for (i = 0; i < p7mSignatures; i++) {
@@ -1068,14 +1128,20 @@ long verify_xml(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
   }
   int signatureCount = (int)loadResult;
 
-  pVerifyInfo->pSignerInfos = new SIGNER_INFOS;
+  pVerifyInfo->pSignerInfos = new SIGNER_INFOS();
   pVerifyInfo->pSignerInfos->nCount = signatureCount;
 
   // pVerifyInfo->pSignerInfos->pSignerInfo = new SIGNER_INFO*;
-  pVerifyInfo->pSignerInfos->pSignerInfo = new SIGNER_INFO[signatureCount];
+  pVerifyInfo->pSignerInfos->pSignerInfo = new SIGNER_INFO[signatureCount]();
 
   for (int i = 0; i < signatureCount; i++) {
     CCertificate* pCert = verifier.GetCertificate(i);
+    if (!pCert) {
+      LOG_ERR((0, "verify_xml", "Signature %d has no signer certificate", i));
+      freeSignerInfos(pVerifyInfo->pSignerInfos, i);
+      pVerifyInfo->pSignerInfos = nullptr;
+      return CIE_SIGN_ERROR_CERT_NOTFOUND;
+    }
 
     // SIGNER_INFO* pSI = new SIGNER_INFO;
     SIGNER_INFO* pSI = &(pVerifyInfo->pSignerInfos->pSignerInfo[i]);
@@ -1093,9 +1159,10 @@ long verify_xml(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
     snprintf(pSI->szDigestAlgorithm, MAX_LEN, "%s",
              reinterpret_cast<char*>(oid.data()));
 
-    if (pContext->bVerifyCRL) pSI->pRevocationInfo = new REVOCATION_INFO;
+    if (pContext->bVerifyCRL) pSI->pRevocationInfo = new REVOCATION_INFO();
 
-    pSI->bitmask = verifier.verifySignature(i, nullptr, pSI->pRevocationInfo);
+    pSI->bitmask = VerifyResultToBitmask(
+        verifier.verifySignature(i, nullptr, pSI->pRevocationInfo));
 
     std::string giveName = pCert->getSubject().getField(OID_GIVEN_NAME);
     std::string surname = pCert->getSubject().getField(OID_SURNAME);
@@ -1208,7 +1275,7 @@ long verify_m7m(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
     return nRes;
   }
 
-  pVerifyInfo->pTSInfo = new TS_INFO;
+  pVerifyInfo->pTSInfo = new TS_INFO();
 
   BufferedReader reader(tsrData);
   CTimeStampResponse tsr(reader);
@@ -1219,8 +1286,14 @@ long verify_m7m(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Winfinite-recursion"
-int getEmbeddedSignatureCount(CSignedDocument& sd) {
+// Nested signed documents (a p7m wrapping a p7m ...) are followed at most this
+// deep: each layer recurses, so an unbounded chain would exhaust the stack.
+static constexpr int kMaxNestedSignedDocuments = 16;
+
+int getEmbeddedSignatureCount(CSignedDocument& sd, int depth = 0) {
   LOG_DBG((0, "--> getEmbeddedSignatureCount", "Called"));
+
+  if (depth + 1 >= kMaxNestedSignedDocuments) return sd.getSignerCount();
 
   ByteDynArray content;
   sd.getContent(content);
@@ -1233,7 +1306,7 @@ int getEmbeddedSignatureCount(CSignedDocument& sd) {
 
     CSignedDocument sd1(bt, len);
 
-    int n = sd.getSignerCount() + getEmbeddedSignatureCount(sd1);
+    int n = sd.getSignerCount() + getEmbeddedSignatureCount(sd1, depth + 1);
 
     LOG_DBG((0, "getEmbeddedSignatureCount", "Signature count: %d", n));
 
@@ -1250,6 +1323,67 @@ int getEmbeddedSignatureCount(CSignedDocument& sd) {
 }
 #pragma GCC diagnostic pop
 
+// The certificate that actually signed the time-stamp token, located through
+// the token's SignerInfo (issuer + serial), never by position: the token's
+// certificate set is attacker-controlled and may list any certificate first.
+static CCertificate getTsaCertificate(CTimeStampToken& tst) {
+  CSignedData signedData(tst.getContent());
+  CASN1SetOf signerInfos = signedData.getSignerInfos();
+  if (signerInfos.size() < 1)
+    throw logged_error("time-stamp token has no SignerInfo");
+  CSignerInfo tsaSignerInfo(signerInfos.elementAt(0));
+  CASN1SetOf certificates = signedData.getCertificates();
+  return CSignerInfo::getSignatureCertificate(tsaSignerInfo, certificates);
+}
+
+// A time-stamp token is an unsigned attribute, so any valid token for another
+// signature could be attached. Require the TSTInfo message imprint to equal
+// the hash of this signer's signature value; otherwise drop VERIFIED_SIGNATURE
+// from the time-stamp result.
+static void bindTimestampToSignature(CTimeStampToken& tst, CSignerInfo& signer,
+                                     TS_INFO* pTSInfo) {
+  bool bound = false;
+  try {
+    CTSTInfo tstInfo(tst.getTSTInfo());
+    CASN1Sequence messageImprint = tstInfo.getMessageImprint();
+    CAlgorithmIdentifier algoid(messageImprint.elementAt(0));
+    CASN1OctetString imprint(messageImprint.elementAt(1));
+
+    CASN1OctetString sig = signer.getEncryptedDigest();
+    ByteDynArray sigValue;
+    if (sig.getTag() == 0x24) {  // constructed octet string
+      CASN1Sequence parts(sig);
+      for (size_t i = 0; i < parts.size(); i++)
+        sigValue.append(ByteArray(parts.elementAt(i).getValue()->data(),
+                                  parts.elementAt(i).getLength()));
+    } else {
+      sigValue.append(ByteArray(sig.getValue()->data(), sig.getLength()));
+    }
+
+    ByteDynArray expected;
+    CAlgorithmIdentifier sha256Algo(szSHA256OID);
+    CAlgorithmIdentifier sha1Algo(szSHA1OID);
+    ByteArray baSig(sigValue.data(), sigValue.size());
+    if (algoid.elementAt(0) == sha256Algo.elementAt(0))
+      expected = CSHA256::Digest(baSig);
+    else if (algoid.elementAt(0) == sha1Algo.elementAt(0))
+      expected = CSHA1().Digest(baSig);
+
+    const ByteDynArray* pImprint = imprint.getValue();
+    bound =
+        expected.size() > 0 && pImprint->size() == expected.size() &&
+        CRYPTO_memcmp(pImprint->data(), expected.data(), expected.size()) == 0;
+  } catch (...) {
+    bound = false;
+  }
+
+  if (!bound) {
+    LOG_ERR((0, "bindTimestampToSignature",
+             "time-stamp imprint does not match the signature value"));
+    pTSInfo->signerInfo.bitmask &= ~static_cast<long>(VERIFIED_SIGNATURE);
+  }
+}
+
 SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
                                      CSignerInfo& si, CASN1SetOf& certificates,
                                      SIGNER_INFO* pSignerInfo,
@@ -1260,7 +1394,7 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
   if (counterSignatureCount > 0) {
     CASN1SetOf counterSignatures = si.getCountersignatures();
 
-    pSignerInfo->pCounterSignatures = new SIGNER_INFO[counterSignatureCount];
+    pSignerInfo->pCounterSignatures = new SIGNER_INFO[counterSignatureCount]();
     pSignerInfo->nCounterSignatureCount = counterSignatureCount;
 
     for (int i = 0; i < counterSignatureCount; i++) {
@@ -1275,10 +1409,10 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
       pSI->pCounterSignatures = nullptr;
       pSI->nCounterSignatureCount = 0;
       pSI->pRevocationInfo = nullptr;
-      if (pContext->bVerifyCRL) pSI->pRevocationInfo = new REVOCATION_INFO;
+      if (pContext->bVerifyCRL) pSI->pRevocationInfo = new REVOCATION_INFO();
 
-      pSI->bitmask = si.verifyCountersignature(i, certificates, nullptr,
-                                               pSI->pRevocationInfo);
+      pSI->bitmask = VerifyResultToBitmask(si.verifyCountersignature(
+          i, certificates, nullptr, pSI->pRevocationInfo));
 
       LOG_DBG(
           (0, "verify_countersignature", "verify result: %lx", pSI->bitmask));
@@ -1370,84 +1504,11 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
 
         CTimeStampToken tst = si.getTimeStampToken();
 
-        TS_INFO* pTSInfo = new TS_INFO;
-
-        CCertificate tsacert(tst.getCertificates().elementAt(0));
-
-        ByteDynArray subject2;
-        ByteDynArray issuer2;
-
-        tsacert.getSubject().getNameAsString(subject2);
-        tsacert.getIssuer().getNameAsString(issuer2);
-
-        snprintf(pTSInfo->signerInfo.szDN, MAX_LEN * 2, "%s",
-                 reinterpret_cast<char*>(subject2.data()));
-        snprintf(pTSInfo->signerInfo.szCADN, MAX_LEN * 2, "%s",
-                 reinterpret_cast<char*>(issuer2.data()));
-
-        CTSTInfo tstInfo(tst.getTSTInfo());
-
-        snprintf(pTSInfo->signerInfo.szSN, MAX_LEN * 2, "%s",
-                 dumpHexData(*(const_cast<ByteDynArray*>(
-                                 cert.getSerialNumber().getValue())))
-                     .c_str());
-        snprintf(pTSInfo->szTimeStampSerial, MAX_LEN, "%s",
-                 dumpHexData(*(const_cast<ByteDynArray*>(
-                                 tstInfo.getSerialNumber().getValue())))
-                     .c_str());
-
-        tstInfo.getUTCTime().getUTCTime(pTSInfo->szTimestamp);
-
-        tsacert.getExpiration().getUTCTime(pTSInfo->signerInfo.szExpiration);
-        tsacert.getFrom().getUTCTime(pTSInfo->signerInfo.szValidFrom);
-
-        const ByteDynArray* certificate2 =
-            const_cast<ByteDynArray*>(tsacert.getValue());
-
-        pTSInfo->signerInfo.nCertLen = certificate2->size();
-        pTSInfo->signerInfo.pCertificate =
-            new BYTE[pTSInfo->signerInfo.nCertLen];
-        memcpy(pTSInfo->signerInfo.pCertificate, certificate2->data(),
-               pTSInfo->signerInfo.nCertLen);
-
-        pTSInfo->signerInfo.pRevocationInfo = nullptr;
-        if (pContext->bVerifyCRL)
-          pTSInfo->signerInfo.pRevocationInfo = new REVOCATION_INFO;
-
-        pTSInfo->signerInfo.bitmask =
-            tst.verify(pTSInfo->signerInfo.pRevocationInfo);
-
-        // MessageImprint
-        CASN1Sequence messageImprint = tstInfo.getMessageImprint();
-
-        // algo
-        CAlgorithmIdentifier algoid(messageImprint.elementAt(0));
-        CASN1ObjectIdentifier timeStampImprintAlgorithm(algoid.elementAt(0));
-
-        ByteDynArray oid1;
-        timeStampImprintAlgorithm.ToOidString(oid1);
-        snprintf(pTSInfo->szTimeStampImprintAlgorithm, MAX_LEN, "%s",
-                 reinterpret_cast<char*>(oid1.data()));
-
-        // imprint b64
-        CASN1OctetString mimprint(messageImprint.elementAt(1));
-        const ByteDynArray* val = mimprint.getValue();
-
-        ByteArray ba(const_cast<BYTE*>(val->data()), val->size());
-        std::string b64Encoded;
-        CBase64().Encode(ba, b64Encoded);
-
-        snprintf(pTSInfo->szTimeStampMessageImprint, MAX_LEN, "%s",
-                 b64Encoded.c_str());
-
-        // digest algo
-        CASN1ObjectIdentifier digestOID2(
-            tstInfo.getDigestAlgorithn().elementAt(0));
-        ByteDynArray oid2;
-        digestOID2.ToOidString(oid2);
-        snprintf(pTSInfo->signerInfo.szDigestAlgorithm, MAX_LEN, "%s",
-                 reinterpret_cast<char*>(oid2.data()));
-        pSI->pTimeStamp = pTSInfo;
+        TS_INFO* pTSInfo = new TS_INFO();
+        pSI->pTimeStamp = pTSInfo;  // owned from here on, freed by
+                                    // freeSignerInfoContents
+        verifyTST(tst, pTSInfo, pContext->bVerifyCRL);
+        bindTimestampToSignature(tst, si, pTSInfo);
       } else {
         LOG_DBG((0, "verify_signed_document 2", "Doesn't Have TimeStamp"));
 
@@ -1471,10 +1532,14 @@ SIGNER_INFO* verify_countersignature(CIE_VERIFY_CONTEXT* pContext,
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Winfinite-recursion"
 long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
-                            CSignedDocument& sd, VERIFY_INFO* pVerifyInfo) {
+                            CSignedDocument& sd, VERIFY_INFO* pVerifyInfo,
+                            int depth = 0) {
   LOG_DBG((0, "--> verify_signed_document 2", "Index: %d", index));
 
   int sigCount = sd.getSignerCount();
+  // Never write past the array sized by getEmbeddedSignatureCount().
+  if (index + sigCount > pVerifyInfo->pSignerInfos->nCount)
+    return CIE_SIGN_ERROR_INVALID_FILE;
 
   LOG_DBG((0, "verify_signed_document 2", "sigCount: %d", sigCount));
 
@@ -1490,10 +1555,9 @@ long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
     pSI->pCounterSignatures = nullptr;
     pSI->nCounterSignatureCount = 0;
     pSI->pRevocationInfo = nullptr;
-    if (pContext->bVerifyCRL) pSI->pRevocationInfo = new REVOCATION_INFO;
+    if (pContext->bVerifyCRL) pSI->pRevocationInfo = new REVOCATION_INFO();
 
-    pSI->bitmask =
-        sd.verify(i, pSI->pRevocationInfo);  // pContext->bVerifyCRL);
+    pSI->bitmask = VerifyResultToBitmask(sd.verify(i, pSI->pRevocationInfo));
 
     LOG_DBG(
         (0, "verify_signed_document 2", "verify result: %lx", pSI->bitmask));
@@ -1591,83 +1655,11 @@ long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
 
       CTimeStampToken tst = si.getTimeStampToken();
 
-      TS_INFO* pTSInfo = new TS_INFO;
-
-      CCertificate tsacert(tst.getCertificates().elementAt(0));
-
-      ByteDynArray subject2;
-      ByteDynArray issuer2;
-
-      tsacert.getSubject().getNameAsString(subject2);
-      tsacert.getIssuer().getNameAsString(issuer2);
-
-      snprintf(pTSInfo->signerInfo.szDN, MAX_LEN * 2, "%s",
-               reinterpret_cast<char*>(subject2.data()));
-      snprintf(pTSInfo->signerInfo.szCADN, MAX_LEN * 2, "%s",
-               reinterpret_cast<char*>(issuer2.data()));
-
-      CTSTInfo tstInfo(tst.getTSTInfo());
-
-      snprintf(pTSInfo->signerInfo.szSN, MAX_LEN * 2, "%s",
-               dumpHexData(*(const_cast<ByteDynArray*>(
-                               cert.getSerialNumber().getValue())))
-                   .c_str());
-      snprintf(pTSInfo->szTimeStampSerial, MAX_LEN, "%s",
-               dumpHexData(*(const_cast<ByteDynArray*>(
-                               tstInfo.getSerialNumber().getValue())))
-                   .c_str());
-
-      tstInfo.getUTCTime().getUTCTime(pTSInfo->szTimestamp);
-
-      tsacert.getExpiration().getUTCTime(pTSInfo->signerInfo.szExpiration);
-      tsacert.getFrom().getUTCTime(pTSInfo->signerInfo.szValidFrom);
-
-      ByteDynArray certificate2;
-      tsacert.toByteArray(certificate2);
-
-      pTSInfo->signerInfo.nCertLen = certificate2.size();
-      pTSInfo->signerInfo.pCertificate = new BYTE[pTSInfo->signerInfo.nCertLen];
-      memcpy(pTSInfo->signerInfo.pCertificate, certificate2.data(),
-             pTSInfo->signerInfo.nCertLen);
-
-      pTSInfo->signerInfo.pRevocationInfo = nullptr;
-      if (pContext->bVerifyCRL)
-        pTSInfo->signerInfo.pRevocationInfo = new REVOCATION_INFO;
-
-      pTSInfo->signerInfo.bitmask =
-          tst.verify(pTSInfo->signerInfo.pRevocationInfo);
-
-      // MessageImprint
-      CASN1Sequence messageImprint = tstInfo.getMessageImprint();
-
-      // algo
-      CAlgorithmIdentifier algoid(messageImprint.elementAt(0));
-      CASN1ObjectIdentifier timeStampImprintAlgorithm(algoid.elementAt(0));
-
-      ByteDynArray oid1;
-      timeStampImprintAlgorithm.ToOidString(oid1);
-      snprintf(pTSInfo->szTimeStampImprintAlgorithm, MAX_LEN, "%s",
-               reinterpret_cast<char*>(oid1.data()));
-
-      // imprint b64
-      CASN1OctetString mimprint(messageImprint.elementAt(1));
-      const ByteDynArray* val = mimprint.getValue();
-
-      ByteArray ba(const_cast<BYTE*>(val->data()), val->size());
-      std::string b64Encoded;
-      CBase64().Encode(ba, b64Encoded);
-
-      snprintf(pTSInfo->szTimeStampMessageImprint, MAX_LEN, "%s",
-               b64Encoded.c_str());
-
-      // digest algo
-      CASN1ObjectIdentifier digestOID2(
-          tstInfo.getDigestAlgorithn().elementAt(0));
-      ByteDynArray oid2;
-      digestOID2.ToOidString(oid2);
-      snprintf(pTSInfo->signerInfo.szDigestAlgorithm, MAX_LEN, "%s",
-               reinterpret_cast<char*>(oid2.data()));
-      pSI->pTimeStamp = pTSInfo;
+      TS_INFO* pTSInfo = new TS_INFO();
+      pSI->pTimeStamp = pTSInfo;  // owned from here on, freed by
+                                  // freeSignerInfoContents
+      verifyTST(tst, pTSInfo, pContext->bVerifyCRL);
+      bindTimestampToSignature(tst, si, pTSInfo);
     } else {
       LOG_DBG((0, "verify_signed_document 2", "Doesn't Have TimeStamp"));
 
@@ -1677,14 +1669,22 @@ long verify_signed_document(int index, CIE_VERIFY_CONTEXT* pContext,
     index++;
   }
 
+  if (depth + 1 >= kMaxNestedSignedDocuments) return 0;
+
+  // Only a failure to parse the content as a signed document means "no
+  // embedded signature"; verification errors of an embedded one propagate.
+  std::unique_ptr<CSignedDocument> sd1;
   try {
     ByteDynArray content;
     sd.getContent(content);
-    CSignedDocument sd1(content.data(), content.size());
-    LOG_DBG((0, "<-- verify_signed_document 2", "Called"));
-    return verify_signed_document(index, pContext, sd1, pVerifyInfo);
+    sd1 = std::make_unique<CSignedDocument>(content.data(), content.size());
   } catch (...) {
     LOG_DBG((0, "verify_signed_document 2", "no embedded signature"));
+  }
+  if (sd1) {
+    LOG_DBG((0, "<-- verify_signed_document 2", "Called"));
+    return verify_signed_document(index, pContext, *sd1, pVerifyInfo,
+                                  depth + 1);
   }
 
   LOG_MSG((0, "<-- verify_signed_document", "Context: %p", pContext));
@@ -1701,10 +1701,10 @@ long verify_signed_document(CIE_VERIFY_CONTEXT* pContext, CSignedDocument& sd,
 
   LOG_MSG((0, "verify_signed_document", "Signature Count: %d", signatureCount));
 
-  pVerifyInfo->pSignerInfos = new SIGNER_INFOS;
+  pVerifyInfo->pSignerInfos = new SIGNER_INFOS();
   pVerifyInfo->pSignerInfos->nCount = signatureCount;  // = sd.getSignerCount();
 
-  pVerifyInfo->pSignerInfos->pSignerInfo = new SIGNER_INFO[signatureCount];
+  pVerifyInfo->pSignerInfos->pSignerInfo = new SIGNER_INFO[signatureCount]();
 
   return verify_signed_document(0, pContext, sd, pVerifyInfo);
 }
@@ -1865,9 +1865,9 @@ long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& /*data*/,
 
   int signatureCount = pdfVerifier.GetNumberOfSignatures();
 
-  pVerifyInfo->pSignerInfos = new SIGNER_INFOS;
+  pVerifyInfo->pSignerInfos = new SIGNER_INFOS();
   pVerifyInfo->pSignerInfos->nCount = signatureCount;
-  pVerifyInfo->pSignerInfos->pSignerInfo = new SIGNER_INFO[signatureCount];
+  pVerifyInfo->pSignerInfos->pSignerInfo = new SIGNER_INFO[signatureCount]();
 
   for (int i = 0; i < signatureCount; i++) {
     ByteDynArray sig;
@@ -1895,11 +1895,11 @@ long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& /*data*/,
     pSI->pCounterSignatures = nullptr;
     pSI->nCounterSignatureCount = 0;
     pSI->pRevocationInfo = nullptr;
-    if (pContext->bVerifyCRL) pSI->pRevocationInfo = new REVOCATION_INFO;
+    if (pContext->bVerifyCRL) pSI->pRevocationInfo = new REVOCATION_INFO();
 
     char sigType[256];
-    pSI->bitmask =
-        pdfVerifier.VerifySignature(i, nullptr, sigType, pSI->pRevocationInfo);
+    pSI->bitmask = VerifyResultToBitmask(
+        pdfVerifier.VerifySignature(i, nullptr, sigType, pSI->pRevocationInfo));
 
     ByteDynArray subject;
     ByteDynArray issuer;
@@ -1980,56 +1980,11 @@ long verify_pdf(CIE_VERIFY_CONTEXT* pContext, ByteDynArray& /*data*/,
     if (si.hasTimeStampToken()) {
       CTimeStampToken tst = si.getTimeStampToken();
 
-      TS_INFO* pTSInfo = new TS_INFO;
-
-      CCertificate tsacert(tst.getCertificates().elementAt(0));
-
-      ByteDynArray subject2;
-      ByteDynArray issuer2;
-
-      tsacert.getSubject().getNameAsString(subject2);
-      tsacert.getIssuer().getNameAsString(issuer2);
-
-      snprintf(pTSInfo->signerInfo.szDN, MAX_LEN * 2, "%s",
-               reinterpret_cast<char*>(subject2.data()));
-      snprintf(pTSInfo->signerInfo.szCADN, MAX_LEN * 2, "%s",
-               reinterpret_cast<char*>(issuer2.data()));
-
-      CTSTInfo tstInfo(tst.getTSTInfo());
-
-      CASN1ObjectIdentifier digestOID2(
-          tstInfo.getDigestAlgorithn().elementAt(0));
-      ByteDynArray oid2;
-      digestOID2.ToOidString(oid2);
-      snprintf(pTSInfo->signerInfo.szDigestAlgorithm, MAX_LEN, "%s",
-               reinterpret_cast<char*>(oid2.data()));
-
-      snprintf(pTSInfo->signerInfo.szSN, MAX_LEN * 2, "%s",
-               dumpHexData(*(const_cast<ByteDynArray*>(
-                               tstInfo.getSerialNumber().getValue())))
-                   .c_str());
-
-      tstInfo.getUTCTime().getUTCTime(pTSInfo->szTimestamp);
-
-      tsacert.getExpiration().getUTCTime(pTSInfo->signerInfo.szExpiration);
-      tsacert.getFrom().getUTCTime(pTSInfo->signerInfo.szValidFrom);
-
-      ByteDynArray certificate2;
-      tsacert.toByteArray(certificate2);
-
-      pTSInfo->signerInfo.nCertLen = certificate2.size();
-      pTSInfo->signerInfo.pCertificate = new BYTE[pTSInfo->signerInfo.nCertLen];
-      memcpy(pTSInfo->signerInfo.pCertificate, certificate2.data(),
-             pTSInfo->signerInfo.nCertLen);
-
-      pTSInfo->signerInfo.pRevocationInfo = nullptr;
-      if (pContext->bVerifyCRL)
-        pTSInfo->signerInfo.pRevocationInfo = new REVOCATION_INFO;
-
-      pTSInfo->signerInfo.bitmask =
-          tst.verify(pTSInfo->signerInfo.pRevocationInfo);
-
-      pSI->pTimeStamp = pTSInfo;
+      TS_INFO* pTSInfo = new TS_INFO();
+      pSI->pTimeStamp = pTSInfo;  // owned from here on, freed by
+                                  // freeSignerInfoContents
+      verifyTST(tst, pTSInfo, pContext->bVerifyCRL);
+      bindTimestampToSignature(tst, si, pTSInfo);
     } else {
       pSI->pTimeStamp = nullptr;
     }
@@ -2064,6 +2019,8 @@ long verify_tsd(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
              pContext, pContext->szInputFile));
     return CIE_SIGN_ERROR_FILE_NOT_FOUND;
   }
+
+  if (data.size() == 0) return CIE_SIGN_ERROR_INVALID_FILE;
 
   BYTE* pbContent;
   int len = data.size();
@@ -2115,19 +2072,25 @@ long verify_tsd(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
         ByteArray(octetString.getValue()->data(), octetString.getLength()));
   }
 
+  // The timestamped content need not be a signed document; only a failure
+  // to parse it as one is tolerated. Errors while verifying an actual signed
+  // document must not be swallowed (the result would be partially filled).
+  std::unique_ptr<CSignedDocument> sd;
   try {
-    CSignedDocument sd(content.data(), content.size());
+    sd = std::make_unique<CSignedDocument>(content.data(), content.size());
+  } catch (...) {
+    LOG_DBG((0, "verify_tsd", "content is not a signed document"));
+  }
 
-    long nRet = verify_signed_document(pContext, sd, pVerifyInfo);
+  if (sd) {
+    long nRet = verify_signed_document(pContext, *sd, pVerifyInfo);
     if (nRet) return nRet;
 
     LOG_DBG((0, "verify_tsd", "Signature Count: %d",
              pVerifyInfo->pSignerInfos->nCount));
-
-  } catch (...) {
   }
 
-  pVerifyInfo->pTSInfo = new TS_INFO;
+  pVerifyInfo->pTSInfo = new TS_INFO();
 
   return verifyTST(tst, pVerifyInfo->pTSInfo, pContext->bVerifyCRL);
 }
@@ -2143,7 +2106,7 @@ long verify_tst(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
     return CIE_SIGN_ERROR_FILE_NOT_FOUND;
   }
 
-  pVerifyInfo->pTSInfo = new TS_INFO;
+  pVerifyInfo->pTSInfo = new TS_INFO();
 
   BufferedReader reader(data);
   CTimeStampToken tst(reader);
@@ -2162,7 +2125,9 @@ long verify_tsr(CIE_VERIFY_CONTEXT* pContext, VERIFY_INFO* pVerifyInfo) {
     return CIE_SIGN_ERROR_FILE_NOT_FOUND;
   }
 
-  pVerifyInfo->pTSInfo = new TS_INFO;
+  pVerifyInfo->pTSInfo = new TS_INFO();
+
+  if (data.size() == 0) return CIE_SIGN_ERROR_INVALID_FILE;
 
   BYTE* pbContent;
   int len = data.size();
@@ -2209,7 +2174,7 @@ long verifyTST(CTimeStampToken& tst, TS_INFO* pTSInfo, BOOL bVerifyCRL) {
   pTSInfo->signerInfo.nCounterSignatureCount = 0;
   pTSInfo->signerInfo.szCertificateV2[0] = 0;
 
-  CCertificate tsacert(tst.getCertificates().elementAt(0));
+  CCertificate tsacert = getTsaCertificate(tst);
 
   tsacert.getExpiration().getUTCTime(pTSInfo->signerInfo.szExpiration);
   tsacert.getFrom().getUTCTime(pTSInfo->signerInfo.szValidFrom);
@@ -2250,9 +2215,11 @@ long verifyTST(CTimeStampToken& tst, TS_INFO* pTSInfo, BOOL bVerifyCRL) {
 
   pTSInfo->signerInfo.pRevocationInfo = nullptr;
 
-  if (bVerifyCRL) pTSInfo->signerInfo.pRevocationInfo = new REVOCATION_INFO;
+  if (bVerifyCRL) pTSInfo->signerInfo.pRevocationInfo = new REVOCATION_INFO();
 
-  pTSInfo->signerInfo.bitmask = tst.verify(pTSInfo->signerInfo.pRevocationInfo);
+  // Validity and revocation are evaluated at the time the token was issued.
+  pTSInfo->signerInfo.bitmask = VerifyResultToBitmask(
+      tst.verify(pTSInfo->szTimestamp, pTSInfo->signerInfo.pRevocationInfo));
 
   // MessageImprint
   CASN1Sequence messageImprint = tstInfo.getMessageImprint();

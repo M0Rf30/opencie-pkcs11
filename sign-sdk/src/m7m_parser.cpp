@@ -5,88 +5,69 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <string>
+#include <string_view>
 
 #include "crypto/base64.h"
-char* find(const char* szContent, int len, const char* szSubstr);
+
+namespace {
+// Bounded substring search over [hay, hay+len): the input is a binary
+// buffer without a NUL terminator, so strstr/strlen must not be used.
+const char* findIn(const char* hay, size_t len, std::string_view needle) {
+  if (needle.size() > len) return nullptr;
+  const char* const e = hay + len;
+  const char* it = std::search(hay, e, needle.begin(), needle.end());
+  return it == e ? nullptr : it;
+}
+}  // namespace
 
 M7MParser::M7MParser() {}
 
 int M7MParser::Load(const char* m7m, int m7mlen) {
-  int len = m7mlen;
+  if (m7m == nullptr || m7mlen <= 0) return -1;
+  const char* const fileEnd = m7m + m7mlen;
 
-  const char* begin = strstr(m7m, "boundary=\"");
+  const char* begin = findIn(m7m, m7mlen, "boundary=\"");
   if (begin == nullptr) return -1;
+  begin += 10;
 
-  const char* end = strstr(begin + 10, "\"");
+  const char* end = findIn(begin, fileEnd - begin, "\"");
   if (end == nullptr) return -1;
 
-  ByteDynArray boundary;
-  boundary.append(ByteArray(reinterpret_cast<const BYTE*>("--"), 2));
-  boundary.append(
-      ByteArray(reinterpret_cast<const BYTE*>(begin) + 10, (end - begin - 10)));
+  const std::string boundary = "--" + std::string(begin, end);
+  const size_t boundaryLen = boundary.size();
 
-  int boundadyLen = boundary.size();
-  boundary.push(static_cast<BYTE>(0));
+  // Part 1 lies between the first and the second boundary, part 2 between the
+  // second and the third.
+  const char* b1 = findIn(m7m, m7mlen, boundary);
+  if (b1 == nullptr) return -1;
+  const char* firstPart = b1 + boundaryLen;
 
-  const char* szBoundary = reinterpret_cast<const char*>(boundary.data());
+  const char* b2 = findIn(firstPart, fileEnd - firstPart, boundary);
+  if (b2 == nullptr) return -1;
+  const char* firstEnd = b2;
 
-  begin = find(m7m, len, szBoundary);
-  if (begin == nullptr) return -1;
+  const char* secondPart = b2 + boundaryLen;
+  const char* b3 = findIn(secondPart, fileEnd - secondPart, boundary);
+  if (b3 == nullptr) return -1;
+  const char* secondEnd = b3;
 
-  begin += boundadyLen;
+  auto addPart = [this](const char* part, const char* partEnd) -> bool {
+    static constexpr std::string_view kSep = "\r\n\r\n";
+    const char* body = findIn(part, partEnd - part, kSep);
+    if (body == nullptr) return false;
+    const std::string_view headers(part, body - part);
+    body += kSep.size();
+    const size_t bodyLen = partEnd - body;
+    if (headers.find("pkcs7-mime") != std::string_view::npos)
+      m_p7m.append(ByteArray(reinterpret_cast<const BYTE*>(body), bodyLen));
+    else if (headers.find("timestamp") != std::string_view::npos)
+      m_tsr.append(ByteArray(reinterpret_cast<const BYTE*>(body), bodyLen));
+    return true;
+  };
 
-  len = m7mlen - (begin - m7m);
-
-  end = find(begin, len, szBoundary);
-  if (end == nullptr) return -1;
-
-  const char* firstPart = begin;
-  int firstPartLen = end - begin;
-
-  len = m7mlen - (end - m7m);
-
-  begin = find(end, len, szBoundary);
-  if (begin == nullptr) return -1;
-
-  begin += boundadyLen;
-
-  len = m7mlen - (begin - m7m);
-
-  end = find(begin + boundadyLen, len, szBoundary);
-  if (end == nullptr) return -1;
-
-  char* secondPart = const_cast<char*>(begin);
-  int secondPartLen = end - begin;
-
-  const char* toFind = "\r\n\r\n";
-
-  begin = strstr(firstPart, toFind);
-  if (begin == nullptr) return -1;
-
-  begin += strlen(toFind);
-  if (begin > firstPart + firstPartLen) return -1;
-  char* szContent = const_cast<char*>(begin);
-  int contentLen = static_cast<int>((firstPart + firstPartLen) - begin);
-
-  if (strstr(firstPart, "pkcs7-mime") != nullptr)
-    m_p7m.append(ByteArray(reinterpret_cast<BYTE*>(szContent), contentLen));
-  else if (strstr(firstPart, "timestamp") != nullptr)
-    m_tsr.append(ByteArray(reinterpret_cast<BYTE*>(szContent), contentLen));
-
-  end = 0;
-  begin = strstr(secondPart, toFind);
-  if (begin == nullptr) return -1;
-
-  end = secondPart + secondPartLen;
-  begin += strlen(toFind);
-
-  szContent = const_cast<char*>(begin);
-  contentLen = end - begin;
-
-  if (strstr(secondPart, "pkcs7-mime") != nullptr)
-    m_p7m.append(ByteArray(reinterpret_cast<BYTE*>(szContent), contentLen));
-  else if (strstr(secondPart, "timestamp") != nullptr)
-    m_tsr.append(ByteArray(reinterpret_cast<BYTE*>(szContent), contentLen));
+  if (!addPart(firstPart, firstEnd)) return -1;
+  if (!addPart(secondPart, secondEnd)) return -1;
 
   return 0;
 }
@@ -97,6 +78,7 @@ int M7MParser::GetP7M(ByteDynArray& p7m) {
 }
 
 int M7MParser::GetTSR(ByteDynArray& tsr) {
+  if (m_tsr.size() == 0) return -1;
   if (m_tsr.data()[0] != 0x30) {
     std::string encoded(reinterpret_cast<const char*>(m_tsr.data()),
                         static_cast<size_t>(m_tsr.size()));
@@ -113,15 +95,4 @@ int M7MParser::GetTSR(ByteDynArray& tsr) {
   }
 
   return 0;
-}
-
-char* find(const char* szContent, int len, const char* szSubstr) {
-  int substrlen = strlen(szSubstr);
-
-  for (int i = 0; i < len - substrlen; i++) {
-    if (memcmp(szContent + i, szSubstr, substrlen) == 0)
-      return const_cast<char*>(szContent + i);
-  }
-
-  return nullptr;
 }

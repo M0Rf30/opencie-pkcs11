@@ -15,6 +15,7 @@
 
 #include "crypto/rsa.h"
 #include "pkcs11/card_template.h"
+#include "pkcs11/pkcs11_functions.h"
 #include "util/tlv.h"
 #include "util/util.h"
 
@@ -85,11 +86,17 @@ CSession::CSession() {
 }
 
 CK_SLOT_ID CSession::GetNewSessionID() {
-  dwSessionCnt++;
+  // The counter is a DWORD and can wrap: never hand out 0 or a handle that
+  // is still in use (insert() would silently fail and leak the session).
+  do {
+    dwSessionCnt++;
+  } while (dwSessionCnt == 0 || g_mSessions.count(dwSessionCnt) != 0);
   return dwSessionCnt;
 }
 
 CK_SESSION_HANDLE CSession::AddSession(std::unique_ptr<CSession> pSession) {
+  if (g_mSessions.size() >= MAXSESSIONS) throw p11_error(CKR_SESSION_COUNT);
+
   pSession->hSessionHandle = GetNewSessionID();
   auto id = pSession->hSessionHandle;
 
@@ -103,20 +110,31 @@ CK_SESSION_HANDLE CSession::AddSession(std::unique_ptr<CSession> pSession) {
   return id;
 }
 
+void CSession::ReleaseOperations() {
+  pDigestMechanism.reset();
+  pVerifyMechanism.reset();
+  pVerifyRecoverMechanism.reset();
+  pSignMechanism.reset();
+  pSignRecoverMechanism.reset();
+}
+
 void CSession::DeleteSession(CK_SESSION_HANDLE hSessionHandle) {
   std::shared_ptr<CSession> pSession = GetSessionFromID(hSessionHandle);
 
   ER_ASSERT(pSession != nullptr, ERR_SESSION_NOT_OPENED);
 
-  pSession->pSlot->dwSessionCount--;
-  if (pSession->pSlot->dwSessionCount == 0) {
+  // Log out first: if that throws, the session and its count stay
+  // consistent instead of the count being decremented for a live session.
+  if (pSession->pSlot->dwSessionCount <= 1) {
     if (pSession->pSlot->User != CKU_NOBODY) {
       pSession->Logout();
     }
   }
+  pSession->pSlot->dwSessionCount--;
 
   pSession->pSlot->pTemplate->FunctionList.templateFinalSession(
       pSession->pSlot->pTemplateData);
+  pSession->ReleaseOperations();
   g_mSessions.erase(hSessionHandle);
 }
 
@@ -129,7 +147,7 @@ std::shared_ptr<CSession> CSession::GetSessionFromID(
   return pPair->second;
 }
 
-// LOGIN e LOGOUT
+// LOGIN and LOGOUT
 void CSession::Login(CK_USER_TYPE userType, CK_CHAR_PTR pPin,
                      CK_ULONG ulPinLen) {
   if (pSlot->User == CKU_USER && userType == CKU_SO)
@@ -163,6 +181,10 @@ void CSession::Logout() {
 // Find Objects
 void CSession::FindObjectsInit(CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount) {
   if (bFindInit) throw p11_error(CKR_OPERATION_ACTIVE);
+  for (CK_ULONG j = 0; j < ulCount; j++) {
+    if (pTemplate[j].pValue == nullptr && pTemplate[j].ulValueLen != 0)
+      throw p11_error(CKR_ARGUMENTS_BAD);
+  }
   findResult.clear();
   if (ulCount == 0) {
     for (const auto &obj : pSlot->P11Objects) {
@@ -358,8 +380,10 @@ void CSession::Digest(ByteArray &Data, ByteArray &Digest) {
 
   CK_ULONG ulReqLen = pDigestMechanism->DigestLength();
 
-  if (!Digest.isNull() && Digest.size() < ulReqLen)
+  if (!Digest.isNull() && Digest.size() < ulReqLen) {
+    Digest = ByteArray(static_cast<uint8_t *>(nullptr), ulReqLen);
     throw p11_error(CKR_BUFFER_TOO_SMALL);
+  }
 
   Digest = Digest.left(ulReqLen);
   if (Digest.isNull()) return;
@@ -384,6 +408,7 @@ void CSession::DigestFinal(ByteArray &Digest) {
 
   if (!Digest.isNull() && Digest.size() < ulReqLen) {
     pDigestMechanism = std::move(mech);
+    Digest = ByteArray(static_cast<uint8_t *>(nullptr), ulReqLen);
     throw p11_error(CKR_BUFFER_TOO_SMALL);
   }
 
@@ -412,7 +437,8 @@ void CSession::VerifyInit(CK_MECHANISM_PTR pMechanism, CK_OBJECT_HANDLE hKey) {
   if (baAttrVal == nullptr)
     throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
   else {
-    if (ByteArrayToVar(*baAttrVal, CK_BBOOL) == FALSE)
+    if (baAttrVal->size() < sizeof(CK_BBOOL) ||
+        ByteArrayToVar(*baAttrVal, CK_BBOOL) == FALSE)
       throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
   }
 
@@ -487,7 +513,8 @@ void CSession::VerifyRecoverInit(CK_MECHANISM_PTR pMechanism,
   if (baAttrVal == nullptr)
     throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
   else {
-    if (ByteArrayToVar(*baAttrVal, CK_BBOOL) == FALSE)
+    if (baAttrVal->size() < sizeof(CK_BBOOL) ||
+        ByteArrayToVar(*baAttrVal, CK_BBOOL) == FALSE)
       throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
   }
 
@@ -514,6 +541,7 @@ void CSession::VerifyRecover(ByteArray &Signature, ByteArray &Data) {
 
   if (!Data.isNull() && Data.size() < baData.size()) {
     pVerifyRecoverMechanism = std::move(mech);
+    Data = ByteArray(static_cast<uint8_t *>(nullptr), baData.size());
     throw p11_error(CKR_BUFFER_TOO_SMALL);
   }
 
@@ -543,7 +571,8 @@ void CSession::SignInit(CK_MECHANISM_PTR pMechanism, CK_OBJECT_HANDLE hKey) {
   if (baAttrVal == nullptr) {
     throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
   } else {
-    if (ByteArrayToVar(*baAttrVal, CK_BBOOL) == FALSE)
+    if (baAttrVal->size() < sizeof(CK_BBOOL) ||
+        ByteArrayToVar(*baAttrVal, CK_BBOOL) == FALSE)
       throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
   }
 
@@ -614,6 +643,17 @@ void CSession::SignFinal(ByteArray &Signature) {
     return;
   }
 
+  // Check the output size before any card operation (PIN re-verify,
+  // signature) so a too-small retry does not repeat it.
+  {
+    CK_ULONG ulSignLength = pSignMechanism->SignLength();
+    if (Signature.size() < ulSignLength) {
+      Signature = ByteArray(static_cast<uint8_t *>(nullptr), ulSignLength);
+      mech.release();
+      throw p11_error(CKR_BUFFER_TOO_SMALL);
+    }
+  }
+
   ByteDynArray baSignBuffer = pSignMechanism->SignFinal();
 
   bool bSilent = false;
@@ -623,7 +663,7 @@ void CSession::SignFinal(ByteArray &Signature) {
       pSignMechanism->mtType, bSilent);
 
   if (Signature.size() < baSignature.size()) {
-    Signature = Signature.left(baSignature.size());
+    Signature = ByteArray(static_cast<uint8_t *>(nullptr), baSignature.size());
     mech.release();
     throw p11_error(CKR_BUFFER_TOO_SMALL);
   } else {
@@ -650,7 +690,8 @@ void CSession::SignRecoverInit(CK_MECHANISM_PTR pMechanism,
   if (baAttrVal == nullptr)
     throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
   else {
-    if (ByteArrayToVar(*baAttrVal, CK_BBOOL) == FALSE)
+    if (baAttrVal->size() < sizeof(CK_BBOOL) ||
+        ByteArrayToVar(*baAttrVal, CK_BBOOL) == FALSE)
       throw p11_error(CKR_KEY_FUNCTION_NOT_PERMITTED);
   }
 
@@ -689,8 +730,18 @@ void CSession::SignRecover(ByteArray &Data, ByteArray &Signature) {
     return;
   }
 
-  ByteDynArray baSignRecoverBuffer;
-  pSignRecoverMechanism->SignRecover(Data);
+  {
+    CK_ULONG ulSignRecoverLength = pSignRecoverMechanism->SignRecoverLength();
+    if (Signature.size() < ulSignRecoverLength) {
+      Signature =
+          ByteArray(static_cast<uint8_t *>(nullptr), ulSignRecoverLength);
+      mech.release();
+      throw p11_error(CKR_BUFFER_TOO_SMALL);
+    }
+  }
+
+  // The mechanism's padded block is what the card must sign.
+  ByteDynArray baSignRecoverBuffer = pSignRecoverMechanism->SignRecover(Data);
 
   bool bSilent = false;
 
@@ -700,17 +751,18 @@ void CSession::SignRecover(ByteArray &Data, ByteArray &Signature) {
       baSignature, pSignRecoverMechanism->mtType, bSilent);
 
   if (Signature.size() < baSignature.size()) {
-    Signature = Signature.left(baSignature.size());
+    Signature = ByteArray(static_cast<uint8_t *>(nullptr), baSignature.size());
     mech.release();
     throw p11_error(CKR_BUFFER_TOO_SMALL);
   }
+  Signature.copy(baSignature);
+  Signature = Signature.left(baSignature.size());
 }
 
 void CSession::GenerateRandom(ByteArray &RandomData) {
-  ByteDynArray baRandom(RandomData.size());
+  // Fill the caller's buffer directly: no allocation sized by the caller.
   pSlot->pTemplate->FunctionList.templateGenerateRandom(pSlot->pTemplateData,
-                                                        baRandom);
-  RandomData.copy(baRandom);
+                                                        RandomData);
 }
 
 void CSession::InitPIN(ByteArray &Pin) {
@@ -720,6 +772,9 @@ void CSession::InitPIN(ByteArray &Pin) {
 }
 
 void CSession::SetPIN(ByteArray &OldPin, ByteArray &NewPin) {
+  // PKCS#11: C_SetPIN requires a read/write session.
+  if ((flags & CKF_RW_SESSION) == 0) throw p11_error(CKR_SESSION_READ_ONLY);
+
   pSlot->pTemplate->FunctionList.templateSetPIN(pSlot->pTemplateData, OldPin,
                                                 NewPin, pSlot->User);
 }
@@ -765,7 +820,8 @@ void CSession::SetOperationState(ByteArray &OperationState) {
     pSignMechanism.reset();
     CTLV SignTlv(SignOperationState);
     ByteArray Algo = SignTlv.getValue(OS_Algo);
-    if (Algo.isNull()) throw p11_error(CKR_SAVED_STATE_INVALID);
+    if (Algo.isNull() || Algo.size() < sizeof(CK_MECHANISM_TYPE))
+      throw p11_error(CKR_SAVED_STATE_INVALID);
     CK_MECHANISM mech = {ByteArrayToVar(Algo, CK_MECHANISM_TYPE), nullptr, 0};
 
     ByteArray Key = SignTlv.getValue(OS_Key);
@@ -788,7 +844,8 @@ void CSession::SetOperationState(ByteArray &OperationState) {
     pVerifyMechanism.reset();
     CTLV VerifyTlv(VerifyOperationState);
     ByteArray Algo = VerifyTlv.getValue(OS_Algo);
-    if (Algo.isNull()) throw p11_error(CKR_SAVED_STATE_INVALID);
+    if (Algo.isNull() || Algo.size() < sizeof(CK_MECHANISM_TYPE))
+      throw p11_error(CKR_SAVED_STATE_INVALID);
     CK_MECHANISM mech = {ByteArrayToVar(Algo, CK_MECHANISM_TYPE), nullptr, 0};
 
     ByteArray Key = VerifyTlv.getValue(OS_Key);
@@ -813,7 +870,8 @@ void CSession::SetOperationState(ByteArray &OperationState) {
     pDigestMechanism.reset();
     CTLV DigestTlv(DigestOperationState);
     ByteArray Algo = DigestTlv.getValue(OS_Algo);
-    if (Algo.isNull()) throw p11_error(CKR_SAVED_STATE_INVALID);
+    if (Algo.isNull() || Algo.size() < sizeof(CK_MECHANISM_TYPE))
+      throw p11_error(CKR_SAVED_STATE_INVALID);
     CK_MECHANISM mech = {ByteArrayToVar(Algo, CK_MECHANISM_TYPE), nullptr, 0};
 
     ByteArray Data = DigestTlv.getValue(OS_Data);
@@ -829,7 +887,7 @@ void CSession::GetOperationState(ByteArray &OperationState) {
   CTLVCreate Tlv;
   ByteArray ba1(reinterpret_cast<BYTE *>(&flags), sizeof(flags));
   Tlv.setValue(OS_Flags, ba1);
-  ByteArray ba2(reinterpret_cast<BYTE *>(&flags), sizeof(flags));
+  ByteArray ba2(reinterpret_cast<BYTE *>(&pSlot->User), sizeof(pSlot->User));
   Tlv.setValue(OS_User, ba2);
   if (pSignMechanism) {
     CTLVCreate SignTlv;
@@ -889,9 +947,13 @@ void CSession::GetOperationState(ByteArray &OperationState) {
         ByteArray(static_cast<uint8_t *>(nullptr), newOperationState.size());
     return;
   }
-  if (OperationState.size() < newOperationState.size())
+  if (OperationState.size() < newOperationState.size()) {
+    OperationState =
+        ByteArray(static_cast<uint8_t *>(nullptr), newOperationState.size());
     throw p11_error(CKR_BUFFER_TOO_SMALL);
+  }
 
+  OperationState = OperationState.left(newOperationState.size());
   OperationState.copy(newOperationState);
 }
 };  // namespace p11

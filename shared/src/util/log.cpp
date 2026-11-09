@@ -27,6 +27,9 @@
 
 #include "module_info.h"
 #include "properties.h"
+#ifndef _WIN32
+#include "util/private_dir.h"
+#endif
 
 std::string globalLogDir;
 std::string globalLogName;
@@ -155,6 +158,7 @@ std::string currentLogDate() {
  * fopen()-then-lstat() sequence, which was subject to a TOCTOU race.
  */
 FILE *openLogFileAppend(const std::string &path) {
+  if (!ParentDirIsPrivate(path)) return nullptr;
   int fd = open(path.c_str(),
                 O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_CLOEXEC, 0600);
   if (fd == -1) return nullptr;
@@ -200,13 +204,11 @@ void CLog::init() {
 
   if ((LogMode == LM_Module || LogMode == LM_Module_Thread) &&
       logDir.length() != 0) {
-    std::string path = logPath;
-    logPath = logDir.append(path);
+    logPath = logDir + logPath;
   } else if (!globalLogDir.empty()) {
-    std::string path = logPath;
-    logPath = globalLogDir.append(path);
+    logPath = globalLogDir + logPath;
   }
-  threadPos = logPath.begin() + logPath.length() - 12;
+  threadPos = logPath.length() - 12;
   Initialized = true;
 
   if (LogMode != LM_Module && LogMode != LM_Module_Thread && Enabled)
@@ -246,8 +248,8 @@ DWORD CLog::write(const char *format, ...) {
              stTime.wMinute, stTime.wSecond);
 #else
     time_t T = time(nullptr);
-    struct tm t;
-    struct tm tm = *localtime_r(&T, &t);
+    struct tm tm {};
+    if (localtime_r(&T, &tm) == nullptr) memset(&tm, 0, sizeof(tm));
     snprintf(pbtDate, 20, "%05u:[%02d:%02d:%02d]", *Num, tm.tm_hour, tm.tm_min,
              tm.tm_sec);
 #endif
@@ -260,7 +262,7 @@ DWORD CLog::write(const char *format, ...) {
       th << std::setw(8);
       th << dwThreadID << ".log";
 
-      logPath.replace(threadPos, threadPos + 14, th.str());
+      logPath.replace(threadPos, 12, th.str());
     }
     FILE *lf = nullptr;
 
@@ -356,7 +358,7 @@ void CLog::writePure(const char *format, ...) {
       th << std::setw(8);
       th << dwThreadID << ".log";
 
-      logPath.replace(threadPos, threadPos + 14, th.str());
+      logPath.replace(threadPos, 12, th.str());
     }
     FILE *lf = nullptr;
 #ifdef _WIN32
@@ -391,7 +393,7 @@ void CLog::writeBinData(BYTE *data, size_t datalen) {
     th << std::setw(8);
     th << dwThreadID << ".log";
 
-    logPath.replace(threadPos, threadPos + 14, th.str());
+    logPath.replace(threadPos, 12, th.str());
   }
 
   FILE *lf = nullptr;

@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #include "xades_generator.h"
 
+#include <openssl/bn.h>
 #include <openssl/evp.h>
 #include <openssl/sha.h>
 
 #include <ctime>
 #include <map>
+#include <memory>
 
 #include "asn1/digest_info.h"
 #include "big_integer_library.h"
@@ -24,6 +26,14 @@
 #define NAMESPACE_XADES_132 "http://uri.etsi.org/01903/v1.3.2#"
 #define NAMESPACE_XADES_1410 "http://uri.etsi.org/01903/v1.4.1"
 #define NAMESPACE_XADES "http://uri.etsi.org/01903#"
+#define NAMESPACE_XMLDSIG_FILTER2 "http://www.w3.org/2002/06/xmldsig-filter2"
+
+// Element names are built with literal "prefix:" names, so the prefixes must
+// be bound explicitly or the serialised document is not namespace-well-formed
+// (and the canonical form differs from what a verifier computes).
+static void DeclareNs(xmlNodePtr node, const char* href, const char* prefix) {
+  xmlNewNs(node, BAD_CAST href, BAD_CAST prefix);
+}
 
 #define REFTYPE_CONTENT 1
 #define REFTYPE_URI 2
@@ -61,8 +71,12 @@ static void extractNs(xmlDocPtr pDoc, xmlNode* a_node,
     if (cur_node->type == XML_ELEMENT_NODE) {
       xmlNsPtr* nsPtr = xmlGetNsList(pDoc, cur_node);
       if (nsPtr) {
-        pNsPtrMap->insert(
-            std::pair<const xmlChar*, xmlNsPtr*>(nsPtr[0]->href, nsPtr));
+        // A duplicate href is not stored, so its list must be released here.
+        if (!pNsPtrMap
+                 ->insert(std::pair<const xmlChar*, xmlNsPtr*>(nsPtr[0]->href,
+                                                               nsPtr))
+                 .second)
+          xmlFree(nsPtr);
       }
     }
 
@@ -74,12 +88,15 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
                                BOOL bVerifyCertificate) {
   // get the certificate based on alias
   ByteDynArray id;
-  CCertificate* pSignerCertificate;
-  m_pSigner->GetCertificate(m_szAlias, &pSignerCertificate, id);
+  CCertificate* pRawCertificate = nullptr;
+  m_pSigner->GetCertificate(m_szAlias, &pRawCertificate, id);
+  // Owned for every exit path (returns and exceptions).
+  std::unique_ptr<CCertificate> certGuard(pRawCertificate);
+  CCertificate* pSignerCertificate = pRawCertificate;
+  if (!pSignerCertificate) return CIE_SIGN_ERROR_CERT_INVALID;
 
   if (bVerifyCertificate) {
     if (!pSignerCertificate->isValid()) {
-      SAFEDELETE(pSignerCertificate);
       m_pSigner->Close();
       return CIE_SIGN_ERROR_CERT_EXPIRED;
     }
@@ -87,19 +104,16 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
     int bitmask = pSignerCertificate->verify();
 
     if ((bitmask & VERIFIED_CACERT_FOUND) == 0) {
-      SAFEDELETE(pSignerCertificate);
       m_pSigner->Close();
       return CIE_SIGN_ERROR_CACERT_NOTFOUND;
     }
 
     if ((bitmask & VERIFIED_CERT_CHAIN) == 0) {
-      SAFEDELETE(pSignerCertificate);
       m_pSigner->Close();
       return CIE_SIGN_ERROR_CERT_INVALID;
     }
 
     if (pSignerCertificate->verifyStatus(nullptr) != REVOCATION_STATUS_GOOD) {
-      SAFEDELETE(pSignerCertificate);
       m_pSigner->Close();
       return CIE_SIGN_ERROR_CERT_REVOKED;
     }
@@ -120,17 +134,24 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
                         m_data.size());
 
   if (pDoc == nullptr) return CIE_SIGN_ERROR_INVALID_FILE;
+  std::unique_ptr<xmlDoc, decltype(&xmlFreeDoc)> docGuard(pDoc, xmlFreeDoc);
 
   // Check the document is of the right kind
 
   root = xmlDocGetRootElement(pDoc);
   if (root == nullptr) {
     // fprintf(stderr,"empty document\n");
-    xmlFreeDoc(pDoc);
     return CIE_SIGN_ERROR_INVALID_FILE;
   }
 
   std::map<const xmlChar*, xmlNsPtr*> nsPtrMap;
+  // xmlGetNsList() results are heap arrays owned by the caller.
+  struct NsMapFree {
+    std::map<const xmlChar*, xmlNsPtr*>& m;
+    ~NsMapFree() {
+      for (auto& kv : m) xmlFree(kv.second);
+    }
+  } nsMapFree {nsPtrMap};
 
   extractNs(pDoc, root, &nsPtrMap);
 
@@ -138,25 +159,38 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
   time_t t = time(nullptr);
   snprintf(m_szID, sizeof(m_szID), "signature_%ld", static_cast<long>(t));
 
-  // hash del documento
+  // document hash
   // string strDocHashB64;
   // string strDocCanonicalForm;
 
   // CanonicalizeAndHashBase64(pDoc, strDocHashB64, strDocCanonicalForm);
 
   // QualifyingProperties
+  // Every libxml2 document below is owned by a guard so that neither the
+  // success path nor an exception leaks it.
+  using XmlDocGuard = std::unique_ptr<xmlDoc, decltype(&xmlFreeDoc)>;
+  XmlDocGuard qualifyingGuard(nullptr, xmlFreeDoc);
   xmlDocPtr docQualifyingProperties = nullptr;
   std::string strQualifPropsHashB64;
 
   if (m_bXAdES) {
     docQualifyingProperties =
         CreateQualifyingProperties(pDoc, pSignerCertificate);
+    qualifyingGuard.reset(docQualifyingProperties);
 
-    xmlDocPtr doc0 = xmlCopyDoc(docQualifyingProperties, TRUE);
-    xmlDocPtr doc1 = xmlNewDoc(reinterpret_cast<const xmlChar*>("1.0"));
-    xmlNodePtr rootNode = &(doc0->children[0].children[0]);
+    // Canonicalise a deep copy of SignedProperties as the root of its own
+    // document (nodes are copied, never moved between documents).
+    XmlDocGuard doc1(xmlNewDoc(reinterpret_cast<const xmlChar*>("1.0")),
+                     xmlFreeDoc);
+    xmlNodePtr rootNode = xmlDocCopyNode(
+        xmlDocGetRootElement(docQualifyingProperties)->children, doc1.get(), 1);
+    if (!rootNode) throw logged_error("cannot copy SignedProperties");
 
-    xmlDocSetRootElement(doc1, rootNode);
+    xmlDocSetRootElement(doc1.get(), rootNode);
+    // SignedProperties is canonicalised in the scope it will have inside
+    // ds:Signature / xades:QualifyingProperties.
+    DeclareNs(rootNode, NAMESPACE_XML_DSIG, "ds");
+    DeclareNs(rootNode, NAMESPACE_XADES_132, "xades");
 
     for (const auto& [key, val] : nsPtrMap) {
       xmlNsPtr* nsPtr = val;
@@ -166,15 +200,14 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
     }
 
     std::string strCanonicalForm;
-    CanonicalizeAndHashBase64(doc1, strQualifPropsHashB64, strCanonicalForm);
-
-    xmlFreeDoc(doc0);
-    xmlFreeDoc(doc1);
+    CanonicalizeAndHashBase64(doc1.get(), strQualifPropsHashB64,
+                              strCanonicalForm);
   }
 
   // SignedInfo
   xmlDocPtr docSignedInfo =
       CreateSignedInfo(pDoc, strQualifPropsHashB64, bDetached, m_szFileName);
+  XmlDocGuard signedInfoGuard(docSignedInfo, xmlFreeDoc);
 
   for (const auto& [key, val] : nsPtrMap) {
     xmlNsPtr* nsPtr = val;
@@ -185,12 +218,14 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
 
   std::string strSignedInfoHashB64;
   std::string strSigInfoCanonicalForm;
-  xmlDocPtr doc0 = xmlCopyDoc(docSignedInfo, TRUE);
+  XmlDocGuard doc1(xmlNewDoc(reinterpret_cast<const xmlChar*>("1.0")),
+                   xmlFreeDoc);
+  xmlNodePtr rootNode = xmlDocCopyNode(
+      xmlDocGetRootElement(docSignedInfo)->children, doc1.get(), 1);
+  if (!rootNode) throw logged_error("cannot copy SignedInfo");
 
-  xmlDocPtr doc1 = xmlNewDoc(reinterpret_cast<const xmlChar*>("1.0"));
-  xmlNodePtr rootNode = &(doc0->children[0].children[0]);
-
-  xmlDocSetRootElement(doc1, rootNode);
+  xmlDocSetRootElement(doc1.get(), rootNode);
+  DeclareNs(rootNode, NAMESPACE_XML_DSIG, "ds");
 
   for (const auto& [key, val] : nsPtrMap) {
     xmlNsPtr* nsPtr = val;
@@ -199,7 +234,7 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
     }
   }
 
-  CanonicalizeAndHashBase64(doc1, strSignedInfoHashB64,
+  CanonicalizeAndHashBase64(doc1.get(), strSignedInfoHashB64,
                             strSigInfoCanonicalForm);
 
   // compute signature
@@ -213,7 +248,9 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
   ByteDynArray hashaux(ByteArray(
       hashauxDyn.data(), static_cast<unsigned long>(hashauxDyn.size())));
 
-  CAlgorithmIdentifier hashOID(szSHA256OID);
+  // The signed hash is SHA-256 for XAdES and SHA-1 otherwise (see
+  // CanonicalizeAndHashBase64); the DigestInfo must name the same algorithm.
+  CAlgorithmIdentifier hashOID(m_bXAdES ? szSHA256OID : szSHA1OID);
   ByteDynArray digest;
 
   CASN1OctetString digestString(hashaux);
@@ -227,16 +264,21 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
 
   // static xmlChar nl[] = "\n";
 
+  std::string strSignatureB64;
   {
-    std::string strSignatureB64;
     ByteArray baSig(signature.data(), signature.size());
     CBase64().Encode(baSig, strSignatureB64);
   }
 
   xmlNodePtr pSignatureRoot = xmlDocGetRootElement(docSignedInfo);
 
+  // SignatureValue (must follow SignedInfo)
+  xmlNewChild(pSignatureRoot, nullptr, BAD_CAST "ds:SignatureValue",
+              BAD_CAST strSignatureB64.c_str());
+
   // KeyInfo
-  xmlNewChild(pSignatureRoot, nullptr, BAD_CAST "ds:KeyInfo", nullptr);
+  xmlNodePtr pKeyInfo =
+      xmlNewChild(pSignatureRoot, nullptr, BAD_CAST "ds:KeyInfo", nullptr);
 
   // certificate in B64
   ByteDynArray baCert;
@@ -246,6 +288,10 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
     std::string strCertB64;
     ByteArray baCertArg(baCert.data(), baCert.size());
     CBase64().Encode(baCertArg, strCertB64);
+    xmlNodePtr pX509Data =
+        xmlNewChild(pKeyInfo, nullptr, BAD_CAST "ds:X509Data", nullptr);
+    xmlNewChild(pX509Data, nullptr, BAD_CAST "ds:X509Certificate",
+                BAD_CAST strCertB64.c_str());
   }
 
   if (docQualifyingProperties) {
@@ -256,20 +302,29 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
     // QualifyingProperties
     xmlNodePtr rootQualifyingProperties =
         xmlDocGetRootElement(docQualifyingProperties);
-    xmlAddChild(pObject, rootQualifyingProperties);
+    xmlNodePtr copyQP =
+        xmlDocCopyNode(rootQualifyingProperties, docSignedInfo, 1);
+    if (!copyQP) throw logged_error("cannot copy QualifyingProperties");
+    xmlAddChild(pObject, copyQP);
   }
 
   xmlChar* membuf;
   int nSize;
 
   if (bDetached) {
-    xmlDocPtr newdoc = xmlNewDoc(reinterpret_cast<const xmlChar*>("1.0"));
-    xmlDocSetRootElement(newdoc, pSignatureRoot);
+    // newdoc owns the signature tree from here on.
+    XmlDocGuard newdoc(xmlNewDoc(reinterpret_cast<const xmlChar*>("1.0")),
+                       xmlFreeDoc);
+    xmlNodePtr copySig = xmlDocCopyNode(pSignatureRoot, newdoc.get(), 1);
+    if (!copySig) throw logged_error("cannot copy Signature");
+    xmlDocSetRootElement(newdoc.get(), copySig);
     xmlKeepBlanksDefault(0);
-    xmlDocDumpFormatMemory(newdoc, &membuf, &nSize, 1);
+    xmlDocDumpFormatMemory(newdoc.get(), &membuf, &nSize, 1);
   } else {
     // signature
-    xmlAddChild(root, pSignatureRoot);
+    xmlNodePtr copySig = xmlDocCopyNode(pSignatureRoot, pDoc, 1);
+    if (!copySig) throw logged_error("cannot copy Signature");
+    xmlAddChild(root, copySig);
     xmlKeepBlanksDefault(0);
     xmlDocDumpFormatMemory(pDoc, &membuf, &nSize, 1);
   }
@@ -277,7 +332,6 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
   xadesData.append(ByteArray(membuf, nSize));
 
   xmlFree(membuf);
-  xmlFreeDoc(pDoc);
 
   return CKR_OK;
 }
@@ -285,13 +339,16 @@ long CXAdESGenerator::Generate(ByteDynArray& xadesData, BOOL bDetached,
 void CXAdESGenerator::CanonicalizeAndHashBase64(xmlDocPtr pDoc,
                                                 std::string& strDocHashB64,
                                                 std::string& strCanonical) {
-  // hash del documento
+  // document hash
   xmlChar* pCanonicalDoc = nullptr;
   int docLen = xmlC14NDocDumpMemory(pDoc, nullptr, XML_C14N_1_0, nullptr, 0,
                                     &pCanonicalDoc);
-  if (docLen > 0) pCanonicalDoc[docLen] = 0;
+  if (docLen <= 0 || !pCanonicalDoc) {
+    if (pCanonicalDoc) xmlFree(pCanonicalDoc);
+    throw logged_error("XML canonicalization failed");
+  }
 
-  strCanonical.append(reinterpret_cast<char*>(pCanonicalDoc));
+  strCanonical.append(reinterpret_cast<char*>(pCanonicalDoc), docLen);
 
   ByteDynArray hashaux;
   ByteArray baCan(reinterpret_cast<const uint8_t*>(pCanonicalDoc),
@@ -303,6 +360,7 @@ void CXAdESGenerator::CanonicalizeAndHashBase64(xmlDocPtr pDoc,
     ByteDynArray sha1res = CSHA1().Digest(baCan);
     hashaux.append(ByteArray(sha1res.data(), 20));
   }
+  xmlFree(pCanonicalDoc);
 
   strDocHashB64.clear();
   ByteArray baHash(hashaux.data(), hashaux.size());
@@ -317,6 +375,7 @@ xmlDocPtr CXAdESGenerator::CreateSignedInfo(
   doc->children = xmlNewDocNode(doc, nullptr, BAD_CAST "ds:Signature", nullptr);
 
   xmlNodePtr pSignatureNode = doc->children;
+  DeclareNs(pSignatureNode, NAMESPACE_XML_DSIG, "ds");
   xmlNewProp(pSignatureNode, BAD_CAST "Id", BAD_CAST m_szID);
 
   // <SignedInfo>
@@ -377,6 +436,7 @@ xmlDocPtr CXAdESGenerator::CreateSignedInfo(
     xmlNodePtr pN31 = xmlNewChild(
         pN3, nullptr, reinterpret_cast<const xmlChar*>("dsig-xpath:XPath"),
         reinterpret_cast<const xmlChar*>("/descendant::ds:Signature"));
+    DeclareNs(pN31, NAMESPACE_XMLDSIG_FILTER2, "dsig-xpath");
     xmlSetProp(pN31, reinterpret_cast<const xmlChar*>("Filter"),
                reinterpret_cast<const xmlChar*>("subtract"));
 
@@ -394,11 +454,11 @@ xmlDocPtr CXAdESGenerator::CreateSignedInfo(
       xmlNewChild(pN1, nullptr,
                   reinterpret_cast<const xmlChar*>("ds:DigestMethod"), nullptr);
   xmlSetProp(pN2, reinterpret_cast<const xmlChar*>("Algorithm"),
-             reinterpret_cast<const xmlChar*>(
-                 "http://www.w3.org/2001/04/xmlenc#sha256"));
+             reinterpret_cast<const xmlChar*>(m_bXAdES ? DIGEST_METHOD_SHA256
+                                                       : DIGEST_METHOD_SHA1));
 
   // digest value
-  // hash del documento
+  // document hash
   {
     std::string strDocHashB64;
     std::string strCanonicalDoc;
@@ -460,6 +520,7 @@ xmlDocPtr CXAdESGenerator::CreateQualifyingProperties(
 
   // QualifyingProperties
   xmlNodePtr pQualifyingProperties = doc->children;
+  DeclareNs(pQualifyingProperties, NAMESPACE_XADES_132, "xades");
   xmlNewProp(pQualifyingProperties, BAD_CAST "Target", BAD_CAST m_szID);
 
   // <SignedProperties>
@@ -484,6 +545,9 @@ xmlDocPtr CXAdESGenerator::CreateQualifyingProperties(
   char szTime[100];
 
   strftime(szTime, 100, "%Y-%m-%dT%H:%M:%SZ", pCurTime);
+
+  xmlNewChild(pSignedSignatureProperties, nullptr, BAD_CAST "xades:SigningTime",
+              BAD_CAST szTime);
 
   // SigningCertificate
   xmlNodePtr pSigningCertificate = xmlNewChild(
@@ -521,14 +585,32 @@ xmlDocPtr CXAdESGenerator::CreateQualifyingProperties(
     std::string strHashB64;
     ByteArray baHashArg(hashaux.data(), hashaux.size());
     CBase64().Encode(baHashArg, strHashB64);
+    xmlNewChild(pCertDigest, nullptr, BAD_CAST "ds:DigestValue",
+                BAD_CAST strHashB64.c_str());
   }
 
-  // X509IssuerName
+  // IssuerSerial: X509IssuerName
   ByteDynArray strIssuerName;
   pCertificate->getIssuer().getNameAsString(strIssuerName);
+  std::string issuer(reinterpret_cast<const char*>(strIssuerName.data()),
+                     strIssuerName.size());
+  while (!issuer.empty() && issuer.back() == '\0') issuer.pop_back();
 
-  // X509SerialNumber
+  // X509SerialNumber (decimal)
   CASN1Integer serialNumber(pCertificate->getSerialNumber());
+  const ByteDynArray* pSerial = serialNumber.getValue();
+  BIGNUM* bn = BN_bin2bn(pSerial->data(), pSerial->size(), nullptr);
+  char* szSerial = bn ? BN_bn2dec(bn) : nullptr;
+  BN_free(bn);
+  if (!szSerial) throw logged_error("cannot encode certificate serial");
+
+  xmlNodePtr pIssuerSerial =
+      xmlNewChild(pCert, nullptr, BAD_CAST "xades:IssuerSerial", nullptr);
+  xmlNewChild(pIssuerSerial, nullptr, BAD_CAST "ds:X509IssuerName",
+              BAD_CAST issuer.c_str());
+  xmlNewChild(pIssuerSerial, nullptr, BAD_CAST "ds:X509SerialNumber",
+              BAD_CAST szSerial);
+  OPENSSL_free(szSerial);
 
   return doc;
 }
