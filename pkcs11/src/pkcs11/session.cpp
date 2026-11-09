@@ -763,6 +763,9 @@ void CSession::InitPIN(ByteArray &Pin) {
 }
 
 void CSession::SetPIN(ByteArray &OldPin, ByteArray &NewPin) {
+  // PKCS#11: C_SetPIN requires a read/write session.
+  if ((flags & CKF_RW_SESSION) == 0) throw p11_error(CKR_SESSION_READ_ONLY);
+
   pSlot->pTemplate->FunctionList.templateSetPIN(pSlot->pTemplateData, OldPin,
                                                 NewPin, pSlot->User);
 }
