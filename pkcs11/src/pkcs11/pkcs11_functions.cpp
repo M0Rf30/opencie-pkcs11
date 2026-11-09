@@ -837,7 +837,7 @@ CK_RV CK_ENTRY C_DigestFinal(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pDigest,
 
     if (pSession == nullptr) throw p11_error(CKR_SESSION_HANDLE_INVALID);
 
-    ByteDynArray Digest(ByteArray(pDigest, *pulDigestLen));
+    ByteArray Digest(pDigest, *pulDigestLen);
     pSession->DigestFinal(Digest);
     *pulDigestLen = static_cast<CK_ULONG>(Digest.size());
 
