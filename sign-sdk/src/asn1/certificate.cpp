@@ -205,38 +205,92 @@ bool CCertificate::isValid() {
   return isValid(szTime);
 }
 
+namespace {
+
+// Days since 1970-01-01 for a proleptic Gregorian date (Howard Hinnant's
+// days_from_civil).
+int64_t DaysFromCivil(int64_t y, unsigned m, unsigned d) {
+  y -= m <= 2;
+  const int64_t era = (y >= 0 ? y : y - 399) / 400;
+  const unsigned yoe = static_cast<unsigned>(y - era * 400);
+  const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+  const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return era * 146097 + static_cast<int64_t>(doe) - 719468;
+}
+
+// Parses an ASN.1 UTCTime ("YYMMDDHHMMSSZ", RFC 5280 pivot: YY >= 50 means
+// 19YY) or GeneralizedTime ("YYYYMMDDHHMMSS[.f+]Z") value into Unix seconds.
+// Rejects any other shape, so callers fail closed instead of comparing
+// mismatched or truncated buffers.
+bool ParseAsn1Time(const BYTE* p, size_t n, int64_t* out) {
+  size_t digits;
+  if (n == 13 && p[12] == 'Z') {
+    digits = 12;
+  } else if (n >= 15) {
+    digits = 14;
+    if (p[n - 1] != 'Z') return false;
+    if (n > 15) {
+      if (p[14] != '.' || n < 17) return false;
+      for (size_t i = 15; i + 1 < n; ++i)
+        if (p[i] < '0' || p[i] > '9') return false;
+    }
+  } else {
+    return false;
+  }
+  for (size_t i = 0; i < digits; ++i)
+    if (p[i] < '0' || p[i] > '9') return false;
+
+  auto num = [&](size_t pos, size_t len) {
+    int v = 0;
+    for (size_t i = 0; i < len; ++i) v = v * 10 + (p[pos + i] - '0');
+    return v;
+  };
+
+  size_t pos = 0;
+  int year;
+  if (digits == 12) {
+    year = num(0, 2);
+    year += (year >= 50) ? 1900 : 2000;
+    pos = 2;
+  } else {
+    year = num(0, 4);
+    pos = 4;
+  }
+  const int mon = num(pos, 2), day = num(pos + 2, 2), hour = num(pos + 4, 2),
+            min = num(pos + 6, 2), sec = num(pos + 8, 2);
+  if (mon < 1 || mon > 12 || day < 1 || day > 31 || hour > 23 || min > 59 ||
+      sec > 60)
+    return false;
+
+  *out = DaysFromCivil(year, static_cast<unsigned>(mon),
+                       static_cast<unsigned>(day)) *
+             86400 +
+         hour * 3600 + min * 60 + sec;
+  return true;
+}
+
+bool ParseAsn1Time(const CASN1Object& obj, int64_t* out) {
+  const ByteDynArray* pVal = obj.getValue();
+  return pVal && ParseAsn1Time(pVal->data(), pVal->size(), out);
+}
+
+}  // namespace
+
 bool CCertificate::isValid(const char* szDateTime) {
   if (!szDateTime) return isValid();
 
-  CASN1UTCTime utcnow(szDateTime);
+  // Compare real instants (UTCTime pivot, GeneralizedTime) rather than raw
+  // buffers; anything unparseable or too short is not valid.
+  int64_t now, notAfter, notBefore;
+  if (!ParseAsn1Time(reinterpret_cast<const BYTE*>(szDateTime),
+                     strlen(szDateTime), &now))
+    return false;
 
-  CASN1UTCTime expiration(getExpiration());
+  if (!ParseAsn1Time(getExpiration(), &notAfter) ||
+      !ParseAsn1Time(getFrom(), &notBefore))
+    return false;
 
-  BYTE* btExpiration;
-
-  if (expiration.getValue()->size() > 13) {
-    btExpiration = const_cast<BYTE*>(expiration.getValue()->data()) +
-                   expiration.getValue()->size() - 13;
-  } else {
-    btExpiration = const_cast<BYTE*>(expiration.getValue()->data());
-  }
-
-  if (memcmp(utcnow.getValue()->data(), btExpiration, 13) > 0) return false;
-
-  CASN1UTCTime from(getFrom());
-
-  BYTE* btFrom;
-
-  if (from.getValue()->size() > 13) {
-    btFrom = const_cast<BYTE*>(from.getValue()->data()) +
-             from.getValue()->size() - 13;
-  } else {
-    btFrom = const_cast<BYTE*>(from.getValue()->data());
-  }
-
-  if (memcmp(utcnow.getValue()->data(), btFrom, 13) < 0) return false;
-
-  return true;
+  return now >= notBefore && now <= notAfter;
 }
 
 CASN1Sequence CCertificate::getExtension(const CASN1ObjectIdentifier& oid) {
@@ -601,6 +655,40 @@ int CCertificate::verifyStatus(const char* szTime,
               throw CASN1BadObjectIdException("OCSP response CertID mismatch");
             }
 
+            // Freshness (RFC 6960 4.2.2.1): a captured or replayed response
+            // must not be accepted forever. thisUpdate may not lie in the
+            // future; nextUpdate, when present, may not have passed; without
+            // a nextUpdate the response must be recent.
+            {
+              constexpr int64_t kClockSkewSec = 300;
+              constexpr int64_t kMaxAgeNoNextUpdateSec = 7 * 24 * 3600;
+              const int64_t nowSec = static_cast<int64_t>(time(nullptr));
+
+              int64_t thisUpdateSec;
+              if (!ParseAsn1Time(singleResponse.elementAt(2), &thisUpdateSec))
+                throw CASN1BadObjectIdException("OCSP thisUpdate invalid");
+              if (thisUpdateSec > nowSec + kClockSkewSec)
+                throw CASN1BadObjectIdException(
+                    "OCSP thisUpdate is in the future");
+
+              bool haveNextUpdate = false;
+              if (singleResponse.size() > 3) {
+                CASN1Object nextObj(singleResponse.elementAt(3));
+                if (nextObj.getTag() == 0xA0) {  // nextUpdate [0] EXPLICIT
+                  CASN1Sequence nextWrapper(nextObj);
+                  int64_t nextUpdateSec;
+                  if (!ParseAsn1Time(nextWrapper.elementAt(0), &nextUpdateSec))
+                    throw CASN1BadObjectIdException("OCSP nextUpdate invalid");
+                  if (nowSec > nextUpdateSec + kClockSkewSec)
+                    throw CASN1BadObjectIdException("OCSP response is stale");
+                  haveNextUpdate = true;
+                }
+              }
+              if (!haveNextUpdate &&
+                  nowSec - thisUpdateSec > kMaxAgeNoNextUpdateSec)
+                throw CASN1BadObjectIdException("OCSP response is too old");
+            }
+
             CASN1Object certStatus(singleResponse.elementAt(1));
             CASN1UTCTime thisUpdate(singleResponse.elementAt(2));
 
@@ -694,7 +782,9 @@ int CCertificate::verifyStatus(const char* szTime,
                 break;
 
               default:
-                break;
+                // Never let an unrecognised CertStatus fall through as GOOD
+                // (REVOCATION_STATUS_GOOD == 0, the initial value).
+                throw CASN1BadObjectIdException("OCSP unknown certStatus tag");
             }
 
             if (inner_status != REVOCATION_STATUS_UNKNOWN) return inner_status;
