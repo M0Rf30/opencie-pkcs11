@@ -548,6 +548,7 @@ void CSlot::Final() {
     auto it = CSession::g_mSessions.begin();
     while (it != CSession::g_mSessions.end()) {
       if (it->second->pSlot.get() == this) {
+        it->second->ReleaseOperations();
         it = CSession::g_mSessions.erase(it);
         dwSessionCount--;
       } else

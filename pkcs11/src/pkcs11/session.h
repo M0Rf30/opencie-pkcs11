@@ -86,6 +86,11 @@ class CSession : public std::enable_shared_from_this<CSession> {
   CSession();
   static std::shared_ptr<CSession> GetSessionFromID(
       CK_SESSION_HANDLE hSessionHandle);
+  /// Drop every active operation. Each mechanism holds a shared_ptr back to
+  /// its session, so a session erased with an operation in flight would
+  /// otherwise keep itself alive forever.
+  void ReleaseOperations();
+
   static CK_SESSION_HANDLE AddSession(std::unique_ptr<CSession> pSession);
   static void DeleteSession(CK_SESSION_HANDLE hSessionHandle);
   static CK_SLOT_ID GetNewSessionID();

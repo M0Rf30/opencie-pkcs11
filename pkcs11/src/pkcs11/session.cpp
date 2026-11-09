@@ -110,6 +110,14 @@ CK_SESSION_HANDLE CSession::AddSession(std::unique_ptr<CSession> pSession) {
   return id;
 }
 
+void CSession::ReleaseOperations() {
+  pDigestMechanism.reset();
+  pVerifyMechanism.reset();
+  pVerifyRecoverMechanism.reset();
+  pSignMechanism.reset();
+  pSignRecoverMechanism.reset();
+}
+
 void CSession::DeleteSession(CK_SESSION_HANDLE hSessionHandle) {
   std::shared_ptr<CSession> pSession = GetSessionFromID(hSessionHandle);
 
@@ -126,6 +134,7 @@ void CSession::DeleteSession(CK_SESSION_HANDLE hSessionHandle) {
 
   pSession->pSlot->pTemplate->FunctionList.templateFinalSession(
       pSession->pSlot->pTemplateData);
+  pSession->ReleaseOperations();
   g_mSessions.erase(hSessionHandle);
 }
 
