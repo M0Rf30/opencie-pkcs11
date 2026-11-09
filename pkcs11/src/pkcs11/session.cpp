@@ -15,6 +15,7 @@
 
 #include "crypto/rsa.h"
 #include "pkcs11/card_template.h"
+#include "pkcs11/pkcs11_functions.h"
 #include "util/tlv.h"
 #include "util/util.h"
 
@@ -85,11 +86,17 @@ CSession::CSession() {
 }
 
 CK_SLOT_ID CSession::GetNewSessionID() {
-  dwSessionCnt++;
+  // The counter is a DWORD and can wrap: never hand out 0 or a handle that
+  // is still in use (insert() would silently fail and leak the session).
+  do {
+    dwSessionCnt++;
+  } while (dwSessionCnt == 0 || g_mSessions.count(dwSessionCnt) != 0);
   return dwSessionCnt;
 }
 
 CK_SESSION_HANDLE CSession::AddSession(std::unique_ptr<CSession> pSession) {
+  if (g_mSessions.size() >= MAXSESSIONS) throw p11_error(CKR_SESSION_COUNT);
+
   pSession->hSessionHandle = GetNewSessionID();
   auto id = pSession->hSessionHandle;
 
@@ -108,12 +115,14 @@ void CSession::DeleteSession(CK_SESSION_HANDLE hSessionHandle) {
 
   ER_ASSERT(pSession != nullptr, ERR_SESSION_NOT_OPENED);
 
-  pSession->pSlot->dwSessionCount--;
-  if (pSession->pSlot->dwSessionCount == 0) {
+  // Log out first: if that throws, the session and its count stay
+  // consistent instead of the count being decremented for a live session.
+  if (pSession->pSlot->dwSessionCount <= 1) {
     if (pSession->pSlot->User != CKU_NOBODY) {
       pSession->Logout();
     }
   }
+  pSession->pSlot->dwSessionCount--;
 
   pSession->pSlot->pTemplate->FunctionList.templateFinalSession(
       pSession->pSlot->pTemplateData);
